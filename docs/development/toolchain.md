@@ -36,23 +36,40 @@ winget install Microsoft.VisualStudio.2022.BuildTools --override "--quiet --add 
 CMake installed by Visual Studio is not added to `PATH`. `dev.ps1` finds it via
 `vswhere`, so this only matters if you invoke `cmake` directly.
 
+`dev.ps1` also enters an **x64** developer shell before configuring. That is not
+cosmetic: the presets pin the Ninja generator, Ninja invokes `link.exe` directly
+and inherits `LIB` from the shell, and a plain prompt leaves CMake pairing the
+x64 compiler with x86 CRT libraries — which fails as a wall of unresolved C
+runtime symbols rather than anything that mentions architecture. Invoking
+`cmake` yourself means entering that shell yourself.
+
+Running `dev.ps1` prints a harmless `'vswhere.exe' is not recognized` line. It
+comes from a child `cmd` inside `VsDevCmd.bat` writing straight to the console,
+where PowerShell redirection cannot reach it. It is noise, not a failure.
+
 ### 2. Emscripten (emulator only)
 
-Needs no administrator rights:
+Needs no administrator rights. Install somewhere writable — the user profile
+rather than the drive root, which normally needs elevation:
 
 ```powershell
-git clone https://github.com/emscripten-core/emsdk.git C:\emsdk
-cd C:\emsdk
-.\emsdk install 3.1.64
-.\emsdk activate 3.1.64
-.\emsdk_env.ps1          # sets EMSDK for the current shell only
+git clone --depth 1 https://github.com/emscripten-core/emsdk.git $env:USERPROFILE\emsdk
+cd $env:USERPROFILE\emsdk
+.\emsdk.bat install 3.1.64
+.\emsdk.bat activate 3.1.64
+. .\emsdk_env.ps1        # sets EMSDK for the current shell only
 ```
 
 Pin the same version CI uses (see `.github/workflows/ci.yml`) so emulator builds
 are reproducible — blueprint §32.
 
-`emsdk_env.ps1` is per-shell. Re-run it in each new terminal, or add
-`C:\emsdk\emsdk_env.ps1` to your PowerShell profile.
+`emsdk_env.ps1` is per-shell and must be dot-sourced. Re-run it in each new
+terminal, or add it to your PowerShell profile.
+
+Building the emulator needs **both** environments in one shell, in this order:
+the Visual Studio x64 developer shell (which provides Ninja and CMake), then
+`emsdk_env.ps1` (which provides `emcc`). `dev.ps1 emulator` does the first for
+you; activate Emscripten yourself beforehand.
 
 ## Linux / macOS
 

@@ -47,6 +47,7 @@
       "displayName": "Browser emulator (WASM)",
       "description": "Requires the Emscripten SDK; EMSDK must point at the emsdk checkout.",
       "binaryDir": "${sourceDir}/build/emulator",
+      "generator": "Ninja",
       "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
