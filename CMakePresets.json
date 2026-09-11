@@ -1,0 +1,79 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "host-debug",
+      "displayName": "Host debug (tests)",
+      "description": "Default development build: core plus host unit and golden-image tests.",
+      "binaryDir": "${sourceDir}/build/host-debug",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "NOTRIX_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "host-release",
+      "displayName": "Host release",
+      "binaryDir": "${sourceDir}/build/host-release",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "NOTRIX_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "ci",
+      "displayName": "CI (warnings are errors)",
+      "inherits": "host-debug",
+      "binaryDir": "${sourceDir}/build/ci",
+      "cacheVariables": {
+        "NOTRIX_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "sanitize",
+      "displayName": "Host debug + ASan/UBSan",
+      "description": "Clang/GCC only; the device toolchain has no sanitizer support.",
+      "inherits": "host-debug",
+      "binaryDir": "${sourceDir}/build/sanitize",
+      "cacheVariables": {
+        "NOTRIX_SANITIZE": "ON"
+      }
+    },
+    {
+      "name": "emulator",
+      "displayName": "Browser emulator (WASM)",
+      "description": "Requires the Emscripten SDK; EMSDK must point at the emsdk checkout.",
+      "binaryDir": "${sourceDir}/build/emulator",
+      "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "NOTRIX_BUILD_EMULATOR": "ON",
+        "NOTRIX_BUILD_TESTS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "host-debug", "configurePreset": "host-debug", "configuration": "Debug" },
+    { "name": "host-release", "configurePreset": "host-release", "configuration": "Release" },
+    { "name": "ci", "configurePreset": "ci", "configuration": "Debug" },
+    { "name": "sanitize", "configurePreset": "sanitize", "configuration": "Debug" },
+    { "name": "emulator", "configurePreset": "emulator", "configuration": "Release" }
+  ],
+  "testPresets": [
+    {
+      "name": "host-debug",
+      "configurePreset": "host-debug",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "ci",
+      "configurePreset": "ci",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
