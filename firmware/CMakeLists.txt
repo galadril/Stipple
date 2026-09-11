@@ -9,6 +9,7 @@ add_library(notrix_core
     src/demo/TestPattern.cpp
     src/text/Font5x7.cpp
     src/text/Text.cpp
+    src/input/InputMapper.cpp
 )
 
 target_include_directories(notrix_core
@@ -31,3 +32,27 @@ target_include_directories(notrix_imageio
 target_link_libraries(notrix_imageio PUBLIC notrix_core)
 
 add_library(notrix::imageio ALIAS notrix_imageio)
+
+# The simulator adapter — the non-device half of the §53 boundary.
+#
+# A separate target on purpose: notrix_core must never depend on an adapter, and
+# keeping them apart is what makes that violation a link error rather than a
+# code review comment. The TC002 adapter becomes its sibling in Phase 7.
+add_library(notrix_platform_simulator
+    src/platform/simulator/SimulatorPlatform.cpp
+)
+
+target_link_libraries(notrix_platform_simulator PUBLIC notrix_core)
+
+add_library(notrix::platform_simulator ALIAS notrix_platform_simulator)
+
+# Host-only frame previewer. Renders through the simulator adapter and writes
+# PNGs, so output can be inspected without an Emscripten toolchain.
+if(NOT EMSCRIPTEN)
+    add_executable(notrix_preview tools/preview/main.cpp)
+    target_link_libraries(notrix_preview PRIVATE
+        notrix_core
+        notrix_imageio
+        notrix_platform_simulator
+        notrix_warnings)
+endif()

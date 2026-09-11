@@ -6,6 +6,7 @@
 #   .\dev.ps1 test           build and run the host test suite
 #   .\dev.ps1 test Canvas    run only tests whose name contains "Canvas"
 #   .\dev.ps1 golden         rebuild golden-image fixtures (review the PNGs!)
+#   .\dev.ps1 preview        render frames to PNG and open them (no EMSDK needed)
 #   .\dev.ps1 emulator       build the browser emulator (needs EMSDK)
 #   .\dev.ps1 serve          build the emulator and serve it on localhost
 #   .\dev.ps1 clean          remove build output
@@ -17,7 +18,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'golden', 'emulator', 'serve', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'golden', 'preview', 'emulator', 'serve', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -141,6 +142,26 @@ switch ($Command) {
         Write-Host "Regenerating golden fixtures. Review the PNGs in firmware\tests\testdata before committing." -ForegroundColor Yellow
         $env:NOTRIX_UPDATE_GOLDEN = '1'
         try { & $binary } finally { Remove-Item env:NOTRIX_UPDATE_GOLDEN -ErrorAction SilentlyContinue }
+    }
+
+    'preview' {
+        # Renders frames to PNG through the simulator adapter. Not the emulator:
+        # no input, nothing interactive — but it needs no Emscripten toolchain.
+        Invoke-Build 'host-debug'
+
+        $binary = Get-ChildItem (Join-Path $repoRoot "build\host-debug\firmware") -Recurse -Filter "notrix_preview.exe" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if (-not $binary) { throw "notrix_preview not found — did the build succeed?" }
+
+        $outDir = Join-Path $repoRoot 'build\preview'
+        New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+        & $binary.FullName $outDir
+        if ($LASTEXITCODE -ne 0) { throw "preview render failed" }
+
+        $page = Join-Path $outDir 'index.html'
+        Write-Host "`nOpening $page" -ForegroundColor Green
+        Start-Process $page
     }
 
     'emulator' {

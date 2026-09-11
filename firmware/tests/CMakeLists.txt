@@ -7,6 +7,8 @@ add_executable(notrix_tests
     test_test_pattern.cpp
     test_utf8.cpp
     test_text.cpp
+    test_input_mapper.cpp
+    test_simulator_platform.cpp
 )
 
 target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -14,6 +16,7 @@ target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(notrix_tests PRIVATE
     notrix_core
     notrix_imageio
+    notrix_platform_simulator
     notrix_warnings)
 
 # Golden fixtures are read from the source tree, not the build tree, so a failing
