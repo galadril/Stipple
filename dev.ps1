@@ -179,8 +179,13 @@ switch ($Command) {
         $webRoot = Join-Path $repoRoot 'simulator\web\public'
         if (-not (Test-Path $webRoot)) { throw "no emulator build found at $webRoot" }
 
-        $python = Get-Command python -ErrorAction SilentlyContinue
-        if (-not $python) { throw "python not found; needed for the static dev server" }
+        # Resolve python.exe explicitly. A bare "python" on Windows often hits
+        # the Microsoft Store app-execution alias, which is a stub that opens the
+        # Store rather than running anything.
+        $python = Get-Command python.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.Source -notlike '*WindowsApps*' } |
+            Select-Object -First 1
+        if (-not $python) { throw "python.exe not found; needed for the static dev server" }
 
         Write-Host "Serving $webRoot at http://localhost:8080/ (Ctrl+C to stop)" -ForegroundColor Green
         & $python.Source -m http.server 8080 --directory $webRoot
@@ -219,7 +224,8 @@ switch ($Command) {
         if ($env:EMSDK) { Write-Host ("  emscripten  OK    " + $env:EMSDK) -ForegroundColor Green }
         else { Write-Host "  emscripten  MISSING  (needed only for 'dev.ps1 emulator')" -ForegroundColor Yellow }
 
-        $python = Get-Command python -ErrorAction SilentlyContinue
+        $python = Get-Command python.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.Source -notlike '*WindowsApps*' } | Select-Object -First 1
         if ($python) { Write-Host ("  python      OK    " + $python.Source) -ForegroundColor Green }
         else { Write-Host "  python      MISSING  (needed only for 'dev.ps1 serve')" -ForegroundColor Yellow }
 
