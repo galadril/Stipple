@@ -7,6 +7,8 @@
 add_library(notrix_core
     src/graphics/Canvas.cpp
     src/demo/TestPattern.cpp
+    src/text/Font5x7.cpp
+    src/text/Text.cpp
 )
 
 target_include_directories(notrix_core

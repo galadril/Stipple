@@ -5,6 +5,8 @@ add_executable(notrix_tests
     test_rgb.cpp
     test_canvas.cpp
     test_test_pattern.cpp
+    test_utf8.cpp
+    test_text.cpp
 )
 
 target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
