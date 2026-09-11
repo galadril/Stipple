@@ -1,0 +1,276 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+
+:root {
+    --bg: #0a0b0d;
+    --surface: #14161a;
+    --surface-raised: #1c1f25;
+    --line: #262a31;
+    --text: #e8eaed;
+    --muted: #868d98;
+    --accent: #ffb347;
+    --accent-dim: #6b4a1c;
+    --radius: 10px;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* --- masthead ----------------------------------------------------------- */
+
+.masthead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 28px;
+    border-bottom: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: baseline; gap: 10px; }
+
+.brand-name {
+    font-size: 20px;
+    font-weight: 650;
+    letter-spacing: 0.16em;
+}
+
+.brand-sub {
+    color: var(--muted);
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: lowercase;
+}
+
+.brand-meta { display: flex; gap: 8px; }
+
+.chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid transparent;
+}
+
+.chip-quiet {
+    background: transparent;
+    color: var(--muted);
+    border-color: var(--line);
+}
+
+main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 32px 28px 56px;
+}
+
+/* --- the panel ---------------------------------------------------------- */
+
+.stage { margin-bottom: 28px; }
+
+.bezel {
+    background: linear-gradient(180deg, #17191e 0%, #101216 100%);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+#panel {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 6px;
+    background: #08090b;
+    image-rendering: auto;
+}
+
+.notice {
+    margin: 14px 0 0;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--accent-dim);
+    background: rgba(255, 179, 71, 0.07);
+    color: var(--accent);
+    font-size: 13.5px;
+}
+
+.notice code {
+    font-family: var(--mono);
+    background: rgba(0, 0, 0, 0.35);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+
+/* --- controls ----------------------------------------------------------- */
+
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+.control-group { display: flex; align-items: center; gap: 10px; }
+
+.control-slider { flex: 1 1 260px; }
+
+.control-slider label {
+    color: var(--muted);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.control-slider output {
+    min-width: 3ch;
+    text-align: right;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+input[type="range"] {
+    flex: 1;
+    min-width: 120px;
+    accent-color: var(--accent);
+}
+
+.btn {
+    appearance: none;
+    border: 1px solid var(--line);
+    background: var(--surface-raised);
+    color: var(--text);
+    font: inherit;
+    font-size: 13.5px;
+    padding: 7px 15px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.btn:hover:not(:disabled) { background: #252932; border-color: #343945; }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+
+.btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #191307;
+    font-weight: 600;
+}
+
+.btn-primary:hover:not(:disabled) { background: #ffc164; border-color: #ffc164; }
+
+.btn:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+}
+
+/* --- device inputs ------------------------------------------------------ */
+
+.device-inputs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 28px;
+    align-items: flex-start;
+    margin-top: 18px;
+    padding: 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+.input-cluster { display: flex; flex-direction: column; gap: 8px; }
+
+.cluster-label {
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.cluster-row { display: flex; gap: 8px; }
+
+.btn-hw { min-width: 62px; }
+
+.hint {
+    flex: 1 1 100%;
+    margin: 0;
+    color: var(--muted);
+    font-size: 12.5px;
+}
+
+.hint code, .colophon code {
+    font-family: var(--mono);
+    font-size: 0.92em;
+    color: var(--text);
+}
+
+/* --- diagnostics -------------------------------------------------------- */
+
+.diagnostics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1px;
+    margin-top: 18px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.stat {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 13px 16px;
+    background: var(--surface);
+}
+
+.stat-label {
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+}
+
+.stat-value { font-size: 17px; }
+
+.colophon {
+    margin-top: 28px;
+    color: var(--muted);
+    font-size: 13px;
+    border-top: 1px solid var(--line);
+    padding-top: 18px;
+}
+
+.colophon p { margin: 0; }
+
+@media (max-width: 560px) {
+    .masthead { padding: 18px; }
+    main { padding: 22px 18px 40px; }
+    .bezel { padding: 12px; }
+}
