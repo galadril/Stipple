@@ -1,0 +1,119 @@
+# Toolchain setup
+
+NOTRIX core is portable C++17 with no external dependencies, so the host build
+needs only a compiler and CMake. The browser emulator additionally needs the
+Emscripten SDK. Nothing here requires a TC002 — device tooling arrives in
+Phase 7.
+
+Check what you already have:
+
+```powershell
+.\dev.ps1 doctor
+```
+
+## Windows
+
+### 1. C++ compiler and CMake
+
+If Visual Studio is installed, add the C++ workload — it brings MSVC, CMake and
+Ninja together:
+
+```powershell
+# Run from an elevated prompt. Adjust the install path if yours differs.
+& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe" modify `
+    --installPath "C:\Program Files\Microsoft Visual Studio\18\Enterprise" `
+    --add Microsoft.VisualStudio.Workload.NativeDesktop `
+    --includeRecommended --passive --norestart
+```
+
+Alternatively, without Visual Studio:
+
+```powershell
+winget install Kitware.CMake
+winget install Microsoft.VisualStudio.2022.BuildTools --override "--quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+```
+
+CMake installed by Visual Studio is not added to `PATH`. `dev.ps1` finds it via
+`vswhere`, so this only matters if you invoke `cmake` directly.
+
+### 2. Emscripten (emulator only)
+
+Needs no administrator rights:
+
+```powershell
+git clone https://github.com/emscripten-core/emsdk.git C:\emsdk
+cd C:\emsdk
+.\emsdk install 3.1.64
+.\emsdk activate 3.1.64
+.\emsdk_env.ps1          # sets EMSDK for the current shell only
+```
+
+Pin the same version CI uses (see `.github/workflows/ci.yml`) so emulator builds
+are reproducible — blueprint §32.
+
+`emsdk_env.ps1` is per-shell. Re-run it in each new terminal, or add
+`C:\emsdk\emsdk_env.ps1` to your PowerShell profile.
+
+## Linux / macOS
+
+```bash
+sudo apt install build-essential cmake ninja-build    # Debian/Ubuntu
+brew install cmake ninja                              # macOS
+```
+
+Emscripten installs the same way as above, using `./emsdk_env.sh`.
+
+## Building
+
+```powershell
+.\dev.ps1 build          # configure + build core and tests
+.\dev.ps1 test           # build and run the full suite
+.\dev.ps1 test Canvas    # only tests whose name contains "Canvas"
+.\dev.ps1 emulator       # build the WASM emulator
+.\dev.ps1 serve          # build it and serve on http://localhost:8080/
+```
+
+Or drive CMake directly:
+
+```bash
+cmake --preset host-debug
+cmake --build --preset host-debug
+ctest --preset host-debug
+```
+
+## Golden-image fixtures
+
+Rendering tests compare against raw RGB fixtures in
+`firmware/tests/testdata/`. On a normal run a *missing* fixture is created
+automatically, with a notice and a magnified PNG to review. A *mismatch* is
+always a failure.
+
+```powershell
+.\dev.ps1 golden         # rewrite fixtures after an intentional change
+```
+
+Always look at the PNG before committing. A fixture regenerated without review
+records the bug instead of catching it.
+
+When a test fails, actual and expected frames are written to
+`firmware/tests/testdata/_failed/` as 8× PNGs. CI uploads that directory as a
+build artefact.
+
+In CI, `NOTRIX_STRICT_GOLDEN=1` turns a missing fixture into a failure, since
+there it means the file was never committed.
+
+## Warnings
+
+`-Wall -Wextra -Wpedantic` (or `/W4`) everywhere; CI builds with
+`NOTRIX_WARNINGS_AS_ERRORS=ON`. To reproduce a CI warning failure locally:
+
+```powershell
+cmake --preset ci
+cmake --build --preset ci
+```
+
+Sanitizers are host-only — the device toolchain has no support for them:
+
+```bash
+cmake --preset sanitize && cmake --build --preset sanitize
+```

@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # A golden fixture that is absent in CI was never committed. Locally the
+  # harness creates missing fixtures; here that must be an error instead.
+  NOTRIX_STRICT_GOLDEN: "1"
+
+jobs:
+  host-tests:
+    name: Host tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The presets pin Ninja so host, CI and developer machines all produce the
+      # same build. Ninja ships with the Visual Studio C++ workload on Windows
+      # but must be installed explicitly on Linux.
+      - name: Install Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      # Ninja invokes link.exe directly and needs the MSVC environment; without
+      # it the toolchain mismatches architecture and every CRT symbol fails to
+      # resolve.
+      - name: Set up MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        run: cmake --preset ci
+
+      - name: Build
+        run: cmake --build --preset ci
+
+      - name: Test
+        run: ctest --preset ci
+
+      - name: Upload golden-image diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-diffs-${{ matrix.os }}
+          path: firmware/tests/testdata/_failed/
+          if-no-files-found: ignore
+
+  sanitizers:
+    name: ASan + UBSan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure
+        run: cmake --preset sanitize -DNOTRIX_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build --preset sanitize
+
+      - name: Test
+        run: ctest --test-dir build/sanitize --output-on-failure
+
+  emulator:
+    name: Browser emulator (WASM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          # Pinned, per blueprint §32: CI must never pull "latest".
+          version: 3.1.64
+
+      - name: Configure
+        run: emcmake cmake -S . -B build/emulator -DNOTRIX_BUILD_EMULATOR=ON -DNOTRIX_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build/emulator
+
+      - name: Upload emulator
+        uses: actions/upload-artifact@v4
+        with:
+          name: notrix-emulator
+          path: |
+            simulator/web/public/index.html
+            simulator/web/public/styles.css
+            simulator/web/public/app.js
+            simulator/web/public/notrix-core.js
+            simulator/web/public/notrix-core.wasm

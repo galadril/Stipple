@@ -1,0 +1,18 @@
+# Normalise line endings: LF in the repository, native in the working tree.
+# Linux CI and Windows developers must agree on file contents, or the
+# warnings-as-errors build starts failing on one platform only.
+* text=auto eol=lf
+
+# Windows-only scripts must keep CRLF to stay executable by PowerShell/cmd.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Golden-image fixtures are raw RGB888 bytes. Any end-of-line translation would
+# silently corrupt them and turn every rendering test into a false failure.
+*.rgb binary
+*.png binary
+*.wasm binary
+
+# Keep generated emulator output out of diffs.
+simulator/web/public/notrix-core.js linguist-generated=true

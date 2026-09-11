@@ -1,5 +1,47 @@
-﻿################################################################################
-# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
-################################################################################
+# Build output
+build/
+out/
+dist/
+*.o
+*.obj
+*.so
+*.a
+*.lib
+*.dll
+*.exe
+*.pdb
+*.ilk
 
-/.vs
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+compile_commands.json
+
+# Emscripten
+*.wasm
+*.wasm.map
+simulator/web/public/notrix-core.js
+simulator/web/public/notrix-core.wasm
+
+# Golden-image test artifacts. The .rgb fixtures ARE committed; the PNGs beside
+# them are generated previews for human review, and the _failed/ directory holds
+# actual-vs-expected pairs from the last failing run.
+firmware/tests/testdata/_failed/
+firmware/tests/testdata/*.png
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+slnx.sqlite
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Node
+node_modules/

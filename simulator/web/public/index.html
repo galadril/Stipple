@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NOTRIX Emulator</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="masthead">
+    <div class="brand">
+        <span class="brand-name">NOTRIX</span>
+        <span class="brand-sub">emulator</span>
+    </div>
+    <div class="brand-meta">
+        <span class="chip" id="chip-phase">Phase 1</span>
+        <span class="chip chip-quiet" id="chip-geometry">52 &times; 16</span>
+    </div>
+</header>
+
+<main>
+    <section class="stage">
+        <div class="bezel">
+            <canvas id="panel" width="676" height="208" aria-label="Simulated 52 by 16 LED panel"></canvas>
+        </div>
+        <p class="notice" id="notice" hidden></p>
+    </section>
+
+    <section class="controls">
+        <div class="control-group">
+            <button id="play" class="btn btn-primary" type="button">Pause</button>
+            <button id="step" class="btn" type="button" title="Advance a single frame">Step</button>
+            <button id="shot" class="btn" type="button">Screenshot</button>
+        </div>
+
+        <div class="control-group control-slider">
+            <label for="brightness">Brightness</label>
+            <input id="brightness" type="range" min="0" max="255" value="255">
+            <output id="brightness-value" class="mono">255</output>
+        </div>
+    </section>
+
+    <section class="device-inputs">
+        <div class="input-cluster">
+            <span class="cluster-label">Buttons</span>
+            <div class="cluster-row">
+                <button class="btn btn-hw" data-key="KEY_LEFT" type="button" disabled>Left</button>
+                <button class="btn btn-hw" data-key="KEY_MIDDLE" type="button" disabled>Middle</button>
+                <button class="btn btn-hw" data-key="KEY_RIGHT" type="button" disabled>Right</button>
+            </div>
+        </div>
+        <div class="input-cluster">
+            <span class="cluster-label">Rotary</span>
+            <div class="cluster-row">
+                <button class="btn btn-hw" data-key="ROTARY_LEFT" type="button" disabled>&#8630;</button>
+                <button class="btn btn-hw" data-key="ROTARY_PRESS" type="button" disabled>Press</button>
+                <button class="btn btn-hw" data-key="ROTARY_RIGHT" type="button" disabled>&#8631;</button>
+            </div>
+        </div>
+        <p class="hint">Input is wired up in Phase 3, with <code>IInputDevice</code>.</p>
+    </section>
+
+    <section class="diagnostics">
+        <div class="stat">
+            <span class="stat-label">Frame</span>
+            <span class="stat-value mono" id="stat-frame">0</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Render</span>
+            <span class="stat-value mono" id="stat-render">&ndash;</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Rate</span>
+            <span class="stat-value mono" id="stat-fps">&ndash;</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Core</span>
+            <span class="stat-value mono" id="stat-core">loading</span>
+        </div>
+    </section>
+
+    <footer class="colophon">
+        <p>
+            The pixels above come from <code>notrix_core</code> compiled to WebAssembly &mdash;
+            the same renderer that will drive the TC002. Only the platform adapter differs.
+        </p>
+    </footer>
+</main>
+
+<script src="notrix-core.js" onerror="window.__notrixCoreMissing = true"></script>
+<script src="app.js"></script>
+</body>
+</html>
