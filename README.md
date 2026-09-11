@@ -15,14 +15,21 @@ no cloud required.
 ## What works today
 
 - A complete, tested 52×16 RGB framebuffer and `Canvas` with strict clipping
+- A 5×7 proportional font engine with UTF-8, the degree sign, measurement and
+  alignment
+- The `IPlatformServices` hardware boundary, with a full simulator adapter
 - Golden-image rendering tests with PNG diffs on failure
 - A browser emulator running the real renderer compiled to WebAssembly
 
 ```powershell
 .\dev.ps1 doctor     # check your toolchain
 .\dev.ps1 test       # run the host test suite
+.\dev.ps1 preview    # render frames to PNG and open them — no extra tooling
 .\dev.ps1 serve      # build the emulator and open http://localhost:8080/
 ```
+
+`preview` needs only a C++ compiler. `serve` additionally needs the Emscripten
+SDK — see [`docs/development/toolchain.md`](docs/development/toolchain.md).
 
 Setup instructions: [`docs/development/toolchain.md`](docs/development/toolchain.md).
 

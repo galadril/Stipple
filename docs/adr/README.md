@@ -27,3 +27,4 @@ as the decisions are actually made.
 | 0010 | Font strategy | Pending — Phase 2 |
 | 0011 | Simulator-first development order | Accepted |
 | 0012 | Dependency-free core and test harness | Accepted |
+| 0013 | Required and optional platform capabilities | Accepted |
