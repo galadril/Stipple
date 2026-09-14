@@ -12,6 +12,10 @@ add_library(notrix_core
     src/input/InputMapper.cpp
     src/json/Json.cpp
     src/scene/Scene.cpp
+    src/core/Checksum.cpp
+    src/app/AppRegistry.cpp
+    src/app/Carousel.cpp
+    src/config/Config.cpp
 )
 
 target_include_directories(notrix_core
