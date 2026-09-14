@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Emulator front-end. Owns the frame clock, the LED look, and the controls.
-// It owns no rendering logic: every pixel comes out of the WASM core.
+// It owns no application logic: the app carousel, scene parsing, rendering and
+// input mapping all happen inside the WASM core.
 
 (function () {
     'use strict';
 
-    // Blueprint §9.4: 20-30 FPS for animation. The display API is throttled at
-    // roughly 15 ms per frame on real hardware, so pacing the emulator at 60
-    // would let us build animations the TC002 cannot actually keep up with.
+    // Blueprint §9.4: 20-30 FPS for animation. The TC002 display API is
+    // throttled at roughly 15 ms per frame, so pacing the emulator at 60 would
+    // let us build animations the hardware cannot keep up with.
     var TARGET_FPS = 30;
     var FRAME_MS = 1000 / TARGET_FPS;
 
@@ -16,6 +17,11 @@
     var DOT = 5.4;       // lit dot diameter
     var UNLIT = '#16181d';
     var BOARD = '#08090b';
+
+    // Mirrors notrix::platform::RawInput and ButtonPhase.
+    var PHASE_DOWN = 0;
+    var PHASE_UP = 1;
+    var PHASE_TICK = 2;
 
     var el = {
         panel: document.getElementById('panel'),
@@ -25,7 +31,8 @@
         shot: document.getElementById('shot'),
         brightness: document.getElementById('brightness'),
         brightnessValue: document.getElementById('brightness-value'),
-        statFrame: document.getElementById('stat-frame'),
+        statApp: document.getElementById('stat-app'),
+        statDwell: document.getElementById('stat-dwell'),
         statRender: document.getElementById('stat-render'),
         statFps: document.getElementById('stat-fps'),
         statCore: document.getElementById('stat-core'),
@@ -43,14 +50,19 @@
     var bloomCtx = bloomCanvas.getContext('2d');
     var bloomData = null;
 
-    var frame = 0;
-    var running = true;
+    var startedAt = 0;
     var accumulator = 0;
     var lastTimestamp = 0;
     var renderMs = 0;
     var fpsFrames = 0;
     var fpsSince = 0;
     var statsSince = 0;
+
+    /// Monotonic milliseconds since start, which is what the core's clock and
+    /// carousel are driven by.
+    function nowMillis() {
+        return Math.max(0, Math.round(performance.now() - startedAt));
+    }
 
     // --- canvas sizing ------------------------------------------------------
 
@@ -126,21 +138,37 @@
 
     function readFramebuffer() {
         // ALLOW_MEMORY_GROWTH can detach the old heap view, so re-read it.
-        var heap = core.HEAPU8;
-        return heap.subarray(framebufferPtr, framebufferPtr + width * height * 3);
+        return core.HEAPU8.subarray(framebufferPtr, framebufferPtr + width * height * 3);
     }
 
     function renderFrame() {
         var start = performance.now();
-        core._notrix_render(frame);
+        core._notrix_render(nowMillis());
         drawFramebuffer(readFramebuffer());
         renderMs = performance.now() - start;
+    }
+
+    function sendInput(source, phase) {
+        core._notrix_input(source, phase, nowMillis());
+        renderFrame();
+        syncPauseLabel();
+    }
+
+    function syncPauseLabel() {
+        el.play.textContent = core._notrix_is_paused() ? 'Resume rotation' : 'Pause rotation';
     }
 
     // --- stats --------------------------------------------------------------
 
     function updateStats(now) {
-        el.statFrame.textContent = String(frame);
+        el.statApp.textContent = core.UTF8ToString(core._notrix_active_name()) || '-';
+
+        var dwell = core._notrix_dwell_millis(nowMillis()) / 1000;
+        var duration = core._notrix_active_duration_seconds();
+        el.statDwell.textContent = duration > 0
+            ? dwell.toFixed(1) + 's / ' + duration + 's'
+            : '-';
+
         el.statRender.textContent = renderMs.toFixed(2) + ' ms';
 
         var elapsed = now - fpsSince;
@@ -157,20 +185,17 @@
         var delta = now - lastTimestamp;
         lastTimestamp = now;
 
-        if (running) {
-            accumulator += delta;
-            if (accumulator >= FRAME_MS) {
-                // Cap catch-up so returning to a backgrounded tab does not
-                // fast-forward hundreds of frames at once.
-                var steps = Math.min(Math.floor(accumulator / FRAME_MS), 4);
-                accumulator -= steps * FRAME_MS;
-                if (accumulator > FRAME_MS * 4) {
-                    accumulator = 0;
-                }
-                frame += steps;
-                renderFrame();
-                fpsFrames++;
+        accumulator += delta;
+        if (accumulator >= FRAME_MS) {
+            // Cap catch-up so returning to a backgrounded tab does not
+            // fast-forward a burst of frames at once.
+            var steps = Math.min(Math.floor(accumulator / FRAME_MS), 4);
+            accumulator -= steps * FRAME_MS;
+            if (accumulator > FRAME_MS * 4) {
+                accumulator = 0;
             }
+            renderFrame();
+            fpsFrames++;
         }
 
         if (now - statsSince > 250) {
@@ -183,31 +208,24 @@
 
     // --- controls -----------------------------------------------------------
 
-    function setRunning(value) {
-        running = value;
-        el.play.textContent = running ? 'Pause' : 'Play';
-        el.step.disabled = running;
-    }
-
     function wireControls() {
+        // Middle button short-press toggles pause in the core's default input
+        // map, so the on-screen control sends exactly that.
         el.play.addEventListener('click', function () {
-            setRunning(!running);
+            sendInput(1, PHASE_DOWN);
+            sendInput(1, PHASE_UP);
         });
 
         el.step.addEventListener('click', function () {
-            frame++;
-            renderFrame();
-            el.statFrame.textContent = String(frame);
-            el.statRender.textContent = renderMs.toFixed(2) + ' ms';
+            sendInput(2, PHASE_DOWN);
+            sendInput(2, PHASE_UP);
         });
 
         el.brightness.addEventListener('input', function () {
             var value = parseInt(el.brightness.value, 10);
             el.brightnessValue.textContent = String(value);
             core._notrix_set_brightness(value);
-            if (!running) {
-                renderFrame();
-            }
+            renderFrame();
         });
 
         el.shot.addEventListener('click', function () {
@@ -218,9 +236,34 @@
                 var url = URL.createObjectURL(blob);
                 var link = document.createElement('a');
                 link.href = url;
-                link.download = 'notrix-frame-' + frame + '.png';
+                link.download = 'notrix-' + nowMillis() + '.png';
                 link.click();
                 URL.revokeObjectURL(url);
+            });
+        });
+
+        // Hardware controls send raw events; the core decides what they mean.
+        // Rotary detents are momentary, so they arrive as a single Tick rather
+        // than a Down/Up pair.
+        var hardware = document.querySelectorAll('.btn-hw');
+        Array.prototype.forEach.call(hardware, function (button) {
+            var source = parseInt(button.getAttribute('data-source'), 10);
+            var isTick = button.getAttribute('data-tick') === '1';
+
+            if (isTick) {
+                button.addEventListener('click', function () {
+                    sendInput(source, PHASE_TICK);
+                });
+                return;
+            }
+
+            // Real press duration, so a long press behaves like one.
+            button.addEventListener('mousedown', function () { sendInput(source, PHASE_DOWN); });
+            button.addEventListener('mouseup', function () { sendInput(source, PHASE_UP); });
+            button.addEventListener('mouseleave', function (event) {
+                if (event.buttons === 1) {
+                    sendInput(source, PHASE_UP);
+                }
             });
         });
 
@@ -246,6 +289,9 @@
         [el.play, el.step, el.shot, el.brightness].forEach(function (control) {
             control.disabled = true;
         });
+        Array.prototype.forEach.call(document.querySelectorAll('.btn-hw'), function (button) {
+            button.disabled = true;
+        });
         showNotice(
             'The WebAssembly core is not built yet. Run <code>.\\dev.ps1 emulator</code> ' +
             '(needs the Emscripten SDK), then reload this page.'
@@ -267,12 +313,13 @@
         bloomData = bloomCtx.createImageData(width, height);
 
         el.geometry.textContent = width + ' × ' + height;
-        el.statCore.textContent = 'wasm';
+        el.statCore.textContent = 'wasm · ' + core._notrix_app_count() + ' apps';
 
         resizeCanvas();
         wireControls();
-        setRunning(true);
+        syncPauseLabel();
 
+        startedAt = performance.now();
         lastTimestamp = performance.now();
         fpsSince = lastTimestamp;
         statsSince = lastTimestamp;

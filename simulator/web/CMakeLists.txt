@@ -12,7 +12,10 @@ endif()
 
 add_executable(notrix_emulator src/main.cpp)
 
-target_link_libraries(notrix_emulator PRIVATE notrix_core)
+# The simulator adapter supplies this build's half of the §53 boundary. The
+# device build will link its TC002 counterpart here instead, and main.cpp will
+# not change.
+target_link_libraries(notrix_emulator PRIVATE notrix_core notrix_platform_simulator)
 
 set_target_properties(notrix_emulator PROPERTIES
     OUTPUT_NAME "notrix-core"
@@ -22,8 +25,8 @@ set_target_properties(notrix_emulator PROPERTIES
 target_link_options(notrix_emulator PRIVATE
     "-sMODULARIZE=1"
     "-sEXPORT_NAME=createNotrixModule"
-    "-sEXPORTED_FUNCTIONS=_notrix_init,_notrix_render,_notrix_framebuffer,_notrix_width,_notrix_height,_notrix_set_brightness"
-    "-sEXPORTED_RUNTIME_METHODS=HEAPU8"
+    "-sEXPORTED_FUNCTIONS=_notrix_init,_notrix_render,_notrix_framebuffer,_notrix_width,_notrix_height,_notrix_set_brightness,_notrix_input,_notrix_app_count,_notrix_active_name,_notrix_active_index,_notrix_active_duration_seconds,_notrix_dwell_millis,_notrix_is_paused"
+    "-sEXPORTED_RUNTIME_METHODS=HEAPU8,UTF8ToString"
     "-sALLOW_MEMORY_GROWTH=1"
     "-sENVIRONMENT=web"
     "-sFILESYSTEM=0")

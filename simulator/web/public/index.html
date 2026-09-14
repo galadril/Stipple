@@ -30,8 +30,8 @@
 
     <section class="controls">
         <div class="control-group">
-            <button id="play" class="btn btn-primary" type="button">Pause</button>
-            <button id="step" class="btn" type="button" title="Advance a single frame">Step</button>
+            <button id="play" class="btn btn-primary" type="button">Pause rotation</button>
+            <button id="step" class="btn" type="button" title="Advance to the next app">Next app</button>
             <button id="shot" class="btn" type="button">Screenshot</button>
         </div>
 
@@ -46,26 +46,33 @@
         <div class="input-cluster">
             <span class="cluster-label">Buttons</span>
             <div class="cluster-row">
-                <button class="btn btn-hw" data-key="KEY_LEFT" type="button" disabled>Left</button>
-                <button class="btn btn-hw" data-key="KEY_MIDDLE" type="button" disabled>Middle</button>
-                <button class="btn btn-hw" data-key="KEY_RIGHT" type="button" disabled>Right</button>
+                <button class="btn btn-hw" data-source="0" type="button">Left</button>
+                <button class="btn btn-hw" data-source="1" type="button">Middle</button>
+                <button class="btn btn-hw" data-source="2" type="button">Right</button>
             </div>
         </div>
         <div class="input-cluster">
             <span class="cluster-label">Rotary</span>
             <div class="cluster-row">
-                <button class="btn btn-hw" data-key="ROTARY_LEFT" type="button" disabled>&#8630;</button>
-                <button class="btn btn-hw" data-key="ROTARY_PRESS" type="button" disabled>Press</button>
-                <button class="btn btn-hw" data-key="ROTARY_RIGHT" type="button" disabled>&#8631;</button>
+                <button class="btn btn-hw" data-source="4" data-tick="1" type="button">&#8630;</button>
+                <button class="btn btn-hw" data-source="3" type="button">Press</button>
+                <button class="btn btn-hw" data-source="5" data-tick="1" type="button">&#8631;</button>
             </div>
         </div>
-        <p class="hint">Input is wired up in Phase 3, with <code>IInputDevice</code>.</p>
+        <p class="hint">
+            Buttons send raw hardware events. <code>InputMapper</code> decides what they mean, so
+            Middle toggles pause via a short press and spinning the rotary quickly accelerates.
+        </p>
     </section>
 
     <section class="diagnostics">
         <div class="stat">
-            <span class="stat-label">Frame</span>
-            <span class="stat-value mono" id="stat-frame">0</span>
+            <span class="stat-label">App</span>
+            <span class="stat-value mono" id="stat-app">&ndash;</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Dwell</span>
+            <span class="stat-value mono" id="stat-dwell">&ndash;</span>
         </div>
         <div class="stat">
             <span class="stat-label">Render</span>
@@ -83,8 +90,10 @@
 
     <footer class="colophon">
         <p>
-            The pixels above come from <code>notrix_core</code> compiled to WebAssembly &mdash;
-            the same renderer that will drive the TC002. Only the platform adapter differs.
+            Everything above comes from <code>notrix_core</code> compiled to WebAssembly &mdash;
+            the same app carousel, scene parser, renderer and input mapping that will run on the
+            TC002. Only the platform adapter differs. The demo apps are ordinary scenes in the
+            public JSON format; nothing here is privileged.
         </p>
     </footer>
 </main>
