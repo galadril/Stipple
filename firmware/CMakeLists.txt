@@ -18,6 +18,9 @@ add_library(notrix_core
     src/app/AppRegistry.cpp
     src/app/Carousel.cpp
     src/config/Config.cpp
+    src/api/Http.cpp
+    src/api/JsonWriter.cpp
+    src/api/ApiServer.cpp
 )
 
 target_include_directories(notrix_core

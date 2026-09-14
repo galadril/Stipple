@@ -12,7 +12,19 @@ std::uint64_t Carousel::durationMillis(const App& app) const noexcept {
     return static_cast<std::uint64_t>(seconds) * 1000u;
 }
 
-void Carousel::activate(int index, std::uint64_t nowMillis) {
+bool Carousel::activate(std::string_view id, std::uint64_t nowMillis) {
+    const int index = registry_.indexOf(id);
+    const App* app = registry_.at(index);
+    if (app == nullptr || !app->enabled) {
+        return false;
+    }
+    // Explicit navigation clears a pin, for the same reason next/previous do.
+    pinnedId_.clear();
+    activateIndex(index, nowMillis);
+    return true;
+}
+
+void Carousel::activateIndex(int index, std::uint64_t nowMillis) {
     const App* app = registry_.at(index);
     if (app == nullptr) {
         activeId_.clear();
@@ -61,7 +73,7 @@ bool Carousel::pin(std::string_view id, std::uint64_t nowMillis) {
         return false;
     }
     pinnedId_ = std::string(id);
-    activate(registry_.indexOf(id), nowMillis);
+    activateIndex(registry_.indexOf(id), nowMillis);
     return true;
 }
 
@@ -74,7 +86,7 @@ bool Carousel::tick(std::uint64_t nowMillis) {
         const App* pinnedApp = registry_.find(pinnedId_);
         if (pinnedApp != nullptr && pinnedApp->enabled) {
             if (activeId_ != pinnedId_) {
-                activate(registry_.indexOf(pinnedId_), nowMillis);
+                activateIndex(registry_.indexOf(pinnedId_), nowMillis);
             }
             return activeId_ != previousActive;
         }
@@ -90,7 +102,7 @@ bool Carousel::tick(std::uint64_t nowMillis) {
         // Resume from where the vanished app used to sit, so deleting an app
         // advances to its neighbour instead of restarting the rotation.
         const int resumeFrom = lastIndex_ >= 0 ? lastIndex_ - 1 : -1;
-        activate(registry_.nextEnabled(resumeFrom), nowMillis);
+        activateIndex(registry_.nextEnabled(resumeFrom), nowMillis);
         return activeId_ != previousActive;
     }
 
@@ -99,7 +111,7 @@ bool Carousel::tick(std::uint64_t nowMillis) {
     }
 
     if (dwellMillis(nowMillis) >= durationMillis(*current)) {
-        activate(registry_.nextEnabled(currentIndex), nowMillis);
+        activateIndex(registry_.nextEnabled(currentIndex), nowMillis);
     }
 
     return activeId_ != previousActive;
@@ -110,7 +122,7 @@ bool Carousel::next(std::uint64_t nowMillis) {
 
     const std::string previousActive = activeId_;
     const int from = activeId_.empty() ? -1 : registry_.indexOf(activeId_);
-    activate(registry_.nextEnabled(from >= 0 ? from : -1), nowMillis);
+    activateIndex(registry_.nextEnabled(from >= 0 ? from : -1), nowMillis);
     return activeId_ != previousActive;
 }
 
@@ -119,7 +131,7 @@ bool Carousel::previous(std::uint64_t nowMillis) {
 
     const std::string previousActive = activeId_;
     const int from = activeId_.empty() ? -1 : registry_.indexOf(activeId_);
-    activate(registry_.previousEnabled(from >= 0 ? from : 0), nowMillis);
+    activateIndex(registry_.previousEnabled(from >= 0 ? from : 0), nowMillis);
     return activeId_ != previousActive;
 }
 

@@ -56,6 +56,10 @@ public:
     /// old start point, and it can sit frozen until the clock catches up.
     void reset(std::uint64_t nowMillis) noexcept;
 
+    /// Jump straight to an app. Rotation continues from there — use pin() to
+    /// hold it. Fails if the id is unknown or the app is disabled.
+    bool activate(std::string_view id, std::uint64_t nowMillis);
+
     /// Hold one app on screen. Fails if the id is unknown or disabled.
     bool pin(std::string_view id, std::uint64_t nowMillis);
     void unpin() noexcept { pinnedId_.clear(); }
@@ -73,7 +77,7 @@ public:
     int activeDurationSeconds() const noexcept;
 
 private:
-    void activate(int index, std::uint64_t nowMillis);
+    void activateIndex(int index, std::uint64_t nowMillis);
     std::uint64_t durationMillis(const App& app) const noexcept;
 
     AppRegistry& registry_;
