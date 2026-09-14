@@ -13,6 +13,8 @@ add_executable(notrix_tests
     test_scene.cpp
     test_app.cpp
     test_config.cpp
+    test_scroll.cpp
+    test_notifications.cpp
 )
 
 target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

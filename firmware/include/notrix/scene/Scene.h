@@ -94,12 +94,19 @@ public:
 
     /// Draw every renderable element, in document order. Elements that failed
     /// validation are skipped.
-    void render(Canvas& canvas) const;
+    ///
+    /// `elapsedMillis` drives time-varying elements — currently scrolling text.
+    /// It is passed in rather than read from a clock so a scene renders
+    /// identically in a test, the emulator and on the device.
+    void render(Canvas& canvas, std::uint64_t elapsedMillis = 0) const;
 
 private:
     void addIssue(int elementIndex, const char* message) noexcept;
     void validate();
-    void renderElement(Canvas& canvas, const json::Value& element, int depth) const;
+    void renderElement(Canvas& canvas,
+                       const json::Value& element,
+                       int depth,
+                       std::uint64_t elapsedMillis) const;
 
     json::Document document_;
     bool loaded_ = false;

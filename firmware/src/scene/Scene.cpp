@@ -2,6 +2,7 @@
 #include "notrix/scene/Scene.h"
 
 #include "notrix/graphics/Canvas.h"
+#include "notrix/text/Scroll.h"
 #include "notrix/text/Text.h"
 
 namespace notrix {
@@ -319,18 +320,21 @@ void Scene::validate() {
     }
 }
 
-void Scene::render(Canvas& canvas) const {
+void Scene::render(Canvas& canvas, std::uint64_t elapsedMillis) const {
     if (!loaded_) {
         return;
     }
     const json::Value elements = document_.root()["elements"];
     const int count = elements.size();
     for (int i = 0; i < count; ++i) {
-        renderElement(canvas, elements[i], 0);
+        renderElement(canvas, elements[i], 0, elapsedMillis);
     }
 }
 
-void Scene::renderElement(Canvas& canvas, const json::Value& element, int depth) const {
+void Scene::renderElement(Canvas& canvas,
+                          const json::Value& element,
+                          int depth,
+                          std::uint64_t elapsedMillis) const {
     if (!element.isObject() || depth > kMaxGroupDepth) {
         return;
     }
@@ -395,7 +399,15 @@ void Scene::renderElement(Canvas& canvas, const json::Value& element, int depth)
 
             // toString allocates, which is fine here: scenes are rendered from
             // parsed JSON at a handful of frames per second, not per pixel.
-            text::draw(canvas, element["text"].toString(), rect, style);
+            const std::string content = element["text"].toString();
+
+            const text::ScrollMode scroll =
+                text::scrollModeFromName(element["scroll"].toString("none"));
+            if (scroll == text::ScrollMode::None) {
+                text::draw(canvas, content, rect, style);
+            } else {
+                text::drawScrolling(canvas, content, rect, style, scroll, elapsedMillis);
+            }
             break;
         }
 
@@ -491,7 +503,7 @@ void Scene::renderElement(Canvas& canvas, const json::Value& element, int depth)
             const json::Value children = element["elements"];
             const int count = children.size();
             for (int i = 0; i < count; ++i) {
-                renderElement(canvas, children[i], depth + 1);
+                renderElement(canvas, children[i], depth + 1, elapsedMillis);
             }
             break;
         }

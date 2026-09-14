@@ -19,6 +19,7 @@
 #include "notrix/graphics/Canvas.h"
 #include "notrix/input/InputMapper.h"
 #include "notrix/json/Json.h"
+#include "notrix/notify/Notifications.h"
 #include "notrix/platform/simulator/SimulatorPlatform.h"
 #include "notrix/scene/Scene.h"
 
@@ -46,11 +47,14 @@ constexpr DemoApp kDemoApps[] = {
         {"type":"text","rect":[0,9,52,7],"text":"0.1.0","align":"center","color":"#404040"}
      ]})"},
 
-    {"weather", "Weather", 6,
+    // The second line is wider than its box, so "scroll":"auto" takes over.
+    // Without it the text would simply clip, which is what Phase 4 did.
+    {"weather", "Weather", 8,
      R"({"name":"weather","elements":[
         {"type":"rect","rect":[1,4,7,7],"color":"#ff5000","fill":true},
         {"type":"text","rect":[11,0,40,7],"text":"21.4°C","align":"left","color":"#ffaa28"},
-        {"type":"text","rect":[11,9,40,7],"text":"Living rm","align":"left","color":"#00c8ff"}
+        {"type":"text","rect":[11,9,40,7],"text":"Living room · 48% humidity",
+         "align":"left","color":"#00c8ff","scroll":"auto"}
      ]})"},
 
     {"dashboard", "Dashboard", 6,
@@ -84,6 +88,8 @@ struct Emulator {
     notrix::app::AppRegistry registry;
     notrix::app::Carousel carousel{registry};
     notrix::input::InputMapper mapper;
+    notrix::notify::NotificationQueue notifications;
+    int notifySequence = 0;
 
     notrix::json::Token tokens[768];
     notrix::scene::Scene scene{tokens, 768};
@@ -123,6 +129,13 @@ void applyAction(Emulator& state, const notrix::input::ActionEvent& action) {
         case Action::AppAction:
             state.carousel.setPaused(!state.carousel.paused());
             break;
+        case Action::NotificationDismiss:
+            // Long-pressing Middle clears what is on screen; if nothing is, the
+            // binding falls through to its short-press meaning.
+            if (!state.notifications.dismissActive(state.nowMillis)) {
+                state.carousel.setPaused(!state.carousel.paused());
+            }
+            break;
         default:
             break;
     }
@@ -142,8 +155,9 @@ EMSCRIPTEN_KEEPALIVE void notrix_init() {
     state.parsedAppId.clear();
     state.sceneReady = false;
     state.mapper.reset();
-    state.carousel.unpin();
-    state.carousel.setPaused(false);
+    state.carousel.reset(0);
+    state.notifications.clear();
+    state.notifySequence = 0;
 
     for (const DemoApp& demo : kDemoApps) {
         App app;
@@ -183,12 +197,18 @@ EMSCRIPTEN_KEEPALIVE void notrix_render(int nowMillis) {
     state.nowMillis = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
 
     state.carousel.tick(state.nowMillis);
+    state.notifications.tick(state.nowMillis);
 
     Canvas canvas(state.framebuffer);
     canvas.clear();
 
-    const App* active = state.carousel.active();
-    if (active != nullptr) {
+    // Notifications are an overlay that takes the whole panel: they interrupt
+    // the carousel rather than sharing with it (blueprint §14).
+    const notrix::notify::Notification* alert = state.notifications.active();
+    if (alert != nullptr) {
+        notrix::notify::render(canvas, *alert, Framebuffer::bounds(),
+                               state.notifications.activeElapsedMillis(state.nowMillis));
+    } else if (const App* active = state.carousel.active()) {
         if (active->id == kTestPatternId) {
             notrix::demo::drawTestPattern(canvas, static_cast<int>(state.nowMillis / 33u));
         } else {
@@ -201,7 +221,9 @@ EMSCRIPTEN_KEEPALIVE void notrix_render(int nowMillis) {
                 state.parsedRevision = state.registry.revision();
             }
             if (state.sceneReady) {
-                state.scene.render(canvas);
+                // Scroll position is measured from when the app appeared, so
+                // each app starts reading from the beginning of its text.
+                state.scene.render(canvas, state.carousel.dwellMillis(state.nowMillis));
             }
         }
     }
@@ -290,6 +312,43 @@ EMSCRIPTEN_KEEPALIVE int notrix_dwell_millis(int nowMillis) {
 
 EMSCRIPTEN_KEEPALIVE int notrix_is_paused() {
     return emulator().carousel.paused() ? 1 : 0;
+}
+
+/// Push a demo notification. Cycles priority so the preemption rules are
+/// visible: an urgent one interrupts whatever is showing, a normal one waits.
+EMSCRIPTEN_KEEPALIVE void notrix_notify(int priority, int durationSeconds, int nowMillis) {
+    Emulator& state = emulator();
+    state.nowMillis = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
+
+    notrix::notify::Notification notification;
+    notification.priority = notrix::notify::priorityFromInt(priority);
+    notification.durationSeconds = durationSeconds > 0 ? durationSeconds : 4;
+    notification.id = "demo" + std::to_string(++state.notifySequence);
+
+    switch (notification.priority) {
+        case notrix::notify::Priority::Urgent:
+            notification.text = "URGENT · door open";
+            notification.color = notrix::rgb(255, 60, 40);
+            break;
+        case notrix::notify::Priority::Important:
+            notification.text = "Washing machine finished";
+            notification.color = notrix::rgb(255, 170, 40);
+            break;
+        default:
+            notification.text = "Doorbell at the front door";
+            notification.color = notrix::rgb(120, 200, 255);
+            break;
+    }
+
+    state.notifications.push(std::move(notification), state.nowMillis);
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_notification_count() {
+    return emulator().notifications.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_notification_pending() {
+    return emulator().notifications.pending();
 }
 
 }  // extern "C"

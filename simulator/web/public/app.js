@@ -33,6 +33,9 @@
         brightnessValue: document.getElementById('brightness-value'),
         statApp: document.getElementById('stat-app'),
         statDwell: document.getElementById('stat-dwell'),
+        statQueue: document.getElementById('stat-queue'),
+        notifyLow: document.getElementById('notify-low'),
+        notifyHigh: document.getElementById('notify-high'),
         statRender: document.getElementById('stat-render'),
         statFps: document.getElementById('stat-fps'),
         statCore: document.getElementById('stat-core'),
@@ -169,6 +172,12 @@
             ? dwell.toFixed(1) + 's / ' + duration + 's'
             : '-';
 
+        var queued = core._notrix_notification_count();
+        var pending = core._notrix_notification_pending();
+        el.statQueue.textContent = queued === 0
+            ? '0'
+            : (queued - pending) + ' + ' + pending;
+
         el.statRender.textContent = renderMs.toFixed(2) + ' ms';
 
         var elapsed = now - fpsSince;
@@ -245,7 +254,17 @@
         // Hardware controls send raw events; the core decides what they mean.
         // Rotary detents are momentary, so they arrive as a single Tick rather
         // than a Down/Up pair.
-        var hardware = document.querySelectorAll('.btn-hw');
+        el.notifyLow.addEventListener('click', function () {
+            core._notrix_notify(1, 4, nowMillis());   // Priority::Normal
+            renderFrame();
+        });
+
+        el.notifyHigh.addEventListener('click', function () {
+            core._notrix_notify(3, 4, nowMillis());   // Priority::Urgent
+            renderFrame();
+        });
+
+        var hardware = document.querySelectorAll('.btn-hw[data-source]');
         Array.prototype.forEach.call(hardware, function (button) {
             var source = parseInt(button.getAttribute('data-source'), 10);
             var isTick = button.getAttribute('data-tick') === '1';
@@ -286,9 +305,12 @@
 
     function coreUnavailable() {
         el.statCore.textContent = 'not built';
-        [el.play, el.step, el.shot, el.brightness].forEach(function (control) {
-            control.disabled = true;
-        });
+        [el.play, el.step, el.shot, el.brightness, el.notifyLow, el.notifyHigh]
+            .forEach(function (control) {
+                if (control) {
+                    control.disabled = true;
+                }
+            });
         Array.prototype.forEach.call(document.querySelectorAll('.btn-hw'), function (button) {
             button.disabled = true;
         });

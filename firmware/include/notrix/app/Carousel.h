@@ -48,6 +48,14 @@ public:
     void setPaused(bool paused) noexcept { paused_ = paused; }
     bool paused() const noexcept { return paused_; }
 
+    /// Forget the active app, its dwell timer, any pin, and the paused state.
+    /// The next tick re-selects from the beginning.
+    ///
+    /// Needed because the dwell timer is an absolute timestamp: re-initialising
+    /// without clearing it leaves the carousel comparing new times against an
+    /// old start point, and it can sit frozen until the clock catches up.
+    void reset(std::uint64_t nowMillis) noexcept;
+
     /// Hold one app on screen. Fails if the id is unknown or disabled.
     bool pin(std::string_view id, std::uint64_t nowMillis);
     void unpin() noexcept { pinnedId_.clear(); }

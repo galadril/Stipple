@@ -59,9 +59,17 @@
                 <button class="btn btn-hw" data-source="5" data-tick="1" type="button">&#8631;</button>
             </div>
         </div>
+        <div class="input-cluster">
+            <span class="cluster-label">Notify</span>
+            <div class="cluster-row">
+                <button class="btn btn-hw" id="notify-low" type="button">Normal</button>
+                <button class="btn btn-hw" id="notify-high" type="button">Urgent</button>
+            </div>
+        </div>
         <p class="hint">
-            Buttons send raw hardware events. <code>InputMapper</code> decides what they mean, so
-            Middle toggles pause via a short press and spinning the rotary quickly accelerates.
+            Buttons send raw hardware events; <code>InputMapper</code> decides what they mean, so
+            Middle toggles pause on a short press and dismisses a notification on a long one.
+            An urgent notification preempts whatever is showing; a normal one waits its turn.
         </p>
     </section>
 
@@ -73,6 +81,10 @@
         <div class="stat">
             <span class="stat-label">Dwell</span>
             <span class="stat-value mono" id="stat-dwell">&ndash;</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Queue</span>
+            <span class="stat-value mono" id="stat-queue">0</span>
         </div>
         <div class="stat">
             <span class="stat-label">Render</span>

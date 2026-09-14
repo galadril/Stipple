@@ -25,6 +25,14 @@ void Carousel::activate(int index, std::uint64_t nowMillis) {
     activeSinceMillis_ = nowMillis;
 }
 
+void Carousel::reset(std::uint64_t nowMillis) noexcept {
+    activeId_.clear();
+    lastIndex_ = -1;
+    activeSinceMillis_ = nowMillis;
+    paused_ = false;
+    pinnedId_.clear();
+}
+
 const App* Carousel::active() const noexcept {
     if (activeId_.empty()) {
         return nullptr;

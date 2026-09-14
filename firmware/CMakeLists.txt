@@ -9,6 +9,8 @@ add_library(notrix_core
     src/demo/TestPattern.cpp
     src/text/Font5x7.cpp
     src/text/Text.cpp
+    src/text/Scroll.cpp
+    src/notify/Notifications.cpp
     src/input/InputMapper.cpp
     src/json/Json.cpp
     src/scene/Scene.cpp
