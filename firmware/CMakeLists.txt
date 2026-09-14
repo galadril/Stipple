@@ -10,6 +10,7 @@ add_library(notrix_core
     src/text/Font5x7.cpp
     src/text/Text.cpp
     src/input/InputMapper.cpp
+    src/json/Json.cpp
 )
 
 target_include_directories(notrix_core
