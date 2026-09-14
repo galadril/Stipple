@@ -1,0 +1,258 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "notrix/config/Config.h"
+
+#include "notrix/core/Checksum.h"
+#include "notrix/json/Json.h"
+
+namespace notrix {
+namespace config {
+namespace {
+
+std::uint8_t clampToByte(std::int64_t value) noexcept {
+    if (value < 0) {
+        return 0;
+    }
+    if (value > 255) {
+        return 255;
+    }
+    return static_cast<std::uint8_t>(value);
+}
+
+int clampDuration(std::int64_t value) noexcept {
+    if (value < 1) {
+        return 1;
+    }
+    if (value > 3600) {
+        return 3600;
+    }
+    return static_cast<int>(value);
+}
+
+int clampUtcOffset(std::int64_t value) noexcept {
+    // Real zones span UTC-12 to UTC+14.
+    if (value < -12 * 3600) {
+        return -12 * 3600;
+    }
+    if (value > 14 * 3600) {
+        return 14 * 3600;
+    }
+    return static_cast<int>(value);
+}
+
+void appendEscaped(std::string& out, std::string_view text) {
+    out.push_back('"');
+    for (const char c : text) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20u) {
+                    static const char kHex[] = "0123456789abcdef";
+                    out += "\\u00";
+                    out.push_back(kHex[(static_cast<unsigned char>(c) >> 4) & 0xFu]);
+                    out.push_back(kHex[static_cast<unsigned char>(c) & 0xFu]);
+                } else {
+                    out.push_back(c);
+                }
+                break;
+        }
+    }
+    out.push_back('"');
+}
+
+std::string buildBody(const Config& config) {
+    std::string body = "{\"schemaVersion\":";
+    body += std::to_string(kCurrentSchemaVersion);
+
+    body += ",\"deviceName\":";
+    appendEscaped(body, config.deviceName);
+
+    body += ",\"display\":{\"brightness\":";
+    body += std::to_string(static_cast<int>(config.display.brightness));
+    body += ",\"autoBrightness\":";
+    body += config.display.autoBrightness ? "true" : "false";
+    body += '}';
+
+    body += ",\"apps\":{\"defaultDurationSeconds\":";
+    body += std::to_string(config.apps.defaultDurationSeconds);
+    body += ",\"transitions\":";
+    body += config.apps.transitions ? "true" : "false";
+    body += '}';
+
+    body += ",\"clock\":{\"twentyFourHour\":";
+    body += config.clock.twentyFourHour ? "true" : "false";
+    body += ",\"utcOffsetSeconds\":";
+    body += std::to_string(config.clock.utcOffsetSeconds);
+    body += '}';
+
+    body += '}';
+    return body;
+}
+
+}  // namespace
+
+const char* describe(LoadStatus status) noexcept {
+    switch (status) {
+        case LoadStatus::Loaded: return "loaded";
+        case LoadStatus::Migrated: return "migrated from an older schema";
+        case LoadStatus::RecoveredFromBackup: return "recovered from backup";
+        case LoadStatus::DefaultsMissing: return "no configuration stored; using defaults";
+        case LoadStatus::DefaultsCorrupt: return "configuration corrupt; using defaults";
+        case LoadStatus::DefaultsFutureSchema:
+            return "configuration written by newer firmware; using defaults";
+    }
+    return "unknown";
+}
+
+std::string ConfigStore::serialize(const Config& config) {
+    const std::string body = buildBody(config);
+
+    char hex[9];
+    crc32ToHex(crc32(body), hex);
+
+    std::string payload = "{\"checksum\":\"";
+    payload += hex;
+    payload += "\",\"body\":";
+    payload += body;
+    payload += '}';
+    return payload;
+}
+
+bool ConfigStore::deserialize(std::string_view payload,
+                              Config& out,
+                              int& fromSchemaVersion,
+                              bool& futureSchema) {
+    fromSchemaVersion = 0;
+    futureSchema = false;
+
+    json::Token tokens[kMaxTokens];
+    json::Document document(tokens, kMaxTokens);
+    if (document.parse(payload) != json::Error::None) {
+        return false;
+    }
+
+    const json::Value root = document.root();
+    const json::Value checksum = root["checksum"];
+    const json::Value body = root["body"];
+    if (!checksum.isString() || !body.isObject()) {
+        return false;
+    }
+
+    // The checksum covers the body text byte for byte, so a truncated or
+    // partially-rewritten record is rejected rather than half-applied.
+    const std::string expected = checksum.toString();
+    char actual[9];
+    crc32ToHex(crc32(body.raw()), actual);
+    if (expected != actual) {
+        return false;
+    }
+
+    const json::Value version = body["schemaVersion"];
+    if (!version.isNumber()) {
+        return false;
+    }
+    const std::int64_t schemaVersion = version.toInt(0);
+    if (schemaVersion < 1) {
+        return false;
+    }
+    if (schemaVersion > kCurrentSchemaVersion) {
+        fromSchemaVersion = static_cast<int>(schemaVersion);
+        futureSchema = true;
+        return false;
+    }
+    fromSchemaVersion = static_cast<int>(schemaVersion);
+
+    Config parsed;
+    parsed.schemaVersion = kCurrentSchemaVersion;
+    parsed.deviceName = body["deviceName"].toString(parsed.deviceName);
+
+    const json::Value display = body["display"];
+    const std::int64_t rawBrightness =
+        display["brightness"].toInt(static_cast<std::int64_t>(parsed.display.brightness));
+
+    // Migration v1 -> v2: brightness used to be a percentage.
+    parsed.display.brightness = fromSchemaVersion < 2
+                                    ? clampToByte((rawBrightness * 255 + 50) / 100)
+                                    : clampToByte(rawBrightness);
+    parsed.display.autoBrightness =
+        display["autoBrightness"].toBool(parsed.display.autoBrightness);
+
+    const json::Value apps = body["apps"];
+    parsed.apps.defaultDurationSeconds = clampDuration(
+        apps["defaultDurationSeconds"].toInt(parsed.apps.defaultDurationSeconds));
+    parsed.apps.transitions = apps["transitions"].toBool(parsed.apps.transitions);
+
+    const json::Value clock = body["clock"];
+    parsed.clock.twentyFourHour = clock["twentyFourHour"].toBool(parsed.clock.twentyFourHour);
+    parsed.clock.utcOffsetSeconds =
+        clampUtcOffset(clock["utcOffsetSeconds"].toInt(parsed.clock.utcOffsetSeconds));
+
+    out = std::move(parsed);
+    return true;
+}
+
+LoadReport ConfigStore::load(Config& out) const {
+    LoadReport report;
+
+    std::string payload;
+    const bool primaryExists = storage_.read(kPrimaryKey, payload);
+
+    if (primaryExists) {
+        Config parsed;
+        int version = 0;
+        bool future = false;
+        if (deserialize(payload, parsed, version, future)) {
+            out = std::move(parsed);
+            report.fromSchemaVersion = version;
+            report.status =
+                version < kCurrentSchemaVersion ? LoadStatus::Migrated : LoadStatus::Loaded;
+            return report;
+        }
+        report.fromSchemaVersion = version;
+        report.status = future ? LoadStatus::DefaultsFutureSchema : LoadStatus::DefaultsCorrupt;
+    } else {
+        report.status = LoadStatus::DefaultsMissing;
+    }
+
+    // The primary is unusable. The backup holds the last value that was good
+    // enough to be replaced, which is the whole point of writing it.
+    std::string backup;
+    if (storage_.read(kBackupKey, backup)) {
+        Config parsed;
+        int version = 0;
+        bool future = false;
+        if (deserialize(backup, parsed, version, future)) {
+            out = std::move(parsed);
+            report.status = LoadStatus::RecoveredFromBackup;
+            report.fromSchemaVersion = version;
+            report.usedBackup = true;
+            return report;
+        }
+    }
+
+    out = Config{};
+    return report;
+}
+
+bool ConfigStore::save(const Config& config) {
+    const std::string payload = serialize(config);
+    if (payload.size() > storage_.maxValueBytes()) {
+        return false;
+    }
+
+    // Back up the current value first. IStorage guarantees each write is atomic,
+    // so a power cut leaves either the old primary intact or the new one
+    // complete, with the previous value still under the backup key either way.
+    std::string current;
+    if (storage_.read(kPrimaryKey, current) && current != payload) {
+        storage_.write(kBackupKey, current);
+    }
+
+    return storage_.write(kPrimaryKey, payload);
+}
+
+}  // namespace config
+}  // namespace notrix

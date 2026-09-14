@@ -1,37 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/imageio/Png.h"
 
-#include <array>
 #include <cstddef>
 #include <fstream>
+
+#include "notrix/core/Checksum.h"
 
 namespace notrix {
 namespace imageio {
 namespace {
-
-const std::array<std::uint32_t, 256>& crcTable() {
-    static const std::array<std::uint32_t, 256> table = [] {
-        std::array<std::uint32_t, 256> t{};
-        for (std::uint32_t n = 0; n < 256u; ++n) {
-            std::uint32_t c = n;
-            for (int k = 0; k < 8; ++k) {
-                c = (c & 1u) != 0u ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
-            }
-            t[n] = c;
-        }
-        return t;
-    }();
-    return table;
-}
-
-std::uint32_t crc32(const std::uint8_t* data, std::size_t length) {
-    const std::array<std::uint32_t, 256>& table = crcTable();
-    std::uint32_t crc = 0xFFFFFFFFu;
-    for (std::size_t i = 0; i < length; ++i) {
-        crc = table[(crc ^ data[i]) & 0xFFu] ^ (crc >> 8);
-    }
-    return crc ^ 0xFFFFFFFFu;
-}
 
 std::uint32_t adler32(const std::uint8_t* data, std::size_t length) {
     constexpr std::uint32_t kModulus = 65521u;
@@ -62,8 +39,7 @@ void writeChunk(std::vector<std::uint8_t>& out,
     }
     out.insert(out.end(), data.begin(), data.end());
 
-    const std::uint32_t crc = crc32(out.data() + crcStart, out.size() - crcStart);
-    pushBigEndian32(out, crc);
+    pushBigEndian32(out, notrix::crc32(out.data() + crcStart, out.size() - crcStart));
 }
 
 /// Wrap raw bytes in a zlib stream made of stored deflate blocks.
