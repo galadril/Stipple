@@ -11,6 +11,7 @@ add_library(notrix_core
     src/text/Text.cpp
     src/input/InputMapper.cpp
     src/json/Json.cpp
+    src/scene/Scene.cpp
 )
 
 target_include_directories(notrix_core
