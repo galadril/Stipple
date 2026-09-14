@@ -130,21 +130,22 @@ NOTRIX_TEST(Api, UnknownEndpointReturns404) {
     NOTRIX_CHECK_EQ(fixture.call("GET", "/api/v1/nope").status, 404);
 }
 
-NOTRIX_TEST(Api, NonV1ApiPathsSayWhyTheyFail) {
-    // A client aimed at another firmware's API should learn from the response
-    // that NOTRIX has no compatibility layer (ADR 0015), not just get silence.
+NOTRIX_TEST(Api, UnservedApiVersionPointsAtTheOneWeServe) {
+    // A caller asking for an API version this device does not serve should be
+    // told which one it does, rather than getting a dead end.
     Fixture fixture;
 
-    const Response response = fixture.call("POST", "/api/notify", R"({"text":"hi"})");
+    const Response response = fixture.call("GET", "/api/v2/device");
     NOTRIX_CHECK_EQ(response.status, 404);
     NOTRIX_CHECK(response.body.find("/api/v1") != std::string::npos);
 
-    NOTRIX_CHECK(fixture.call("POST", "/api/custom/test").body.find("/api/v1") !=
-                 std::string::npos);
+    NOTRIX_CHECK(fixture.call("GET", "/api/device").body.find("/api/v1") != std::string::npos);
 
-    // A genuinely unknown v1 path keeps the plain message.
+    // A genuinely unknown path inside the served version keeps the plain
+    // message: the version is fine, the endpoint simply does not exist.
     NOTRIX_CHECK(fixture.call("GET", "/api/v1/nope").body.find("no such endpoint") !=
                  std::string::npos);
+    NOTRIX_CHECK(fixture.call("GET", "/api/v1/nope").body.find("version") == std::string::npos);
 }
 
 NOTRIX_TEST(Api, WrongMethodReturns405) {
