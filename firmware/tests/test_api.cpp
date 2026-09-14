@@ -130,6 +130,23 @@ NOTRIX_TEST(Api, UnknownEndpointReturns404) {
     NOTRIX_CHECK_EQ(fixture.call("GET", "/api/v1/nope").status, 404);
 }
 
+NOTRIX_TEST(Api, NonV1ApiPathsSayWhyTheyFail) {
+    // A client aimed at another firmware's API should learn from the response
+    // that NOTRIX has no compatibility layer (ADR 0015), not just get silence.
+    Fixture fixture;
+
+    const Response response = fixture.call("POST", "/api/notify", R"({"text":"hi"})");
+    NOTRIX_CHECK_EQ(response.status, 404);
+    NOTRIX_CHECK(response.body.find("/api/v1") != std::string::npos);
+
+    NOTRIX_CHECK(fixture.call("POST", "/api/custom/test").body.find("/api/v1") !=
+                 std::string::npos);
+
+    // A genuinely unknown v1 path keeps the plain message.
+    NOTRIX_CHECK(fixture.call("GET", "/api/v1/nope").body.find("no such endpoint") !=
+                 std::string::npos);
+}
+
 NOTRIX_TEST(Api, WrongMethodReturns405) {
     Fixture fixture;
     NOTRIX_CHECK_EQ(fixture.call("DELETE", "/api/v1/device").status, 405);

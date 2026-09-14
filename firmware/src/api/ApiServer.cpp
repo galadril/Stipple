@@ -111,6 +111,16 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
 
     const RouteMatch route = matchRoute(request.path);
     if (route.resource == Resource::Unknown) {
+        // Anything under /api/ that is not /api/v1/ is almost always a client
+        // aimed at a different firmware's API. Say so outright: NOTRIX has no
+        // compatibility layer (ADR 0015), and silence would leave the caller
+        // guessing whether the path was wrong or the feature was missing.
+        if (request.path.rfind("/api/", 0) == 0 &&
+            request.path.rfind(std::string(kApiV1Prefix) + "/", 0) != 0 &&
+            request.path != kApiV1Prefix) {
+            return notFound(
+                "NOTRIX serves /api/v1/* only and implements no AWTRIX compatibility layer");
+        }
         return notFound("no such endpoint");
     }
 

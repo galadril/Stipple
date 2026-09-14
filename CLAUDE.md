@@ -62,7 +62,7 @@ Render path: `Application → Scene → Renderer → 52×16 RGB framebuffer → 
 
 The public/native API is declarative **scenes** (JSON elements: pixel, line, rectangle, text, icon, bitmap, sprite, progress, graph, animation, group), not low-level internals.
 
-Two API layers, kept distinct: `/api/v1/*` native, `/api/*` AWTRIX-compatibility subset. Never claim AWTRIX compatibility without contract tests; maintain a public compatibility matrix and document incompatibilities instead of silently accepting unsupported fields.
+**One API surface: `/api/v1/*`.** There is no AWTRIX compatibility layer and none is planned — blueprint §19.2 and the compatibility half of §3.5 are withdrawn, and blueprint Stage 7 is dropped. See `docs/adr/0015-no-awtrix-compatibility-layer.md`. Any `/api/*` path outside `/api/v1/*` answers 404 saying so explicitly. If compatibility is ever wanted it belongs outside the firmware as a translating proxy, never as device routes.
 
 MQTT namespace is `notrix/{deviceId}/...`. MQTT is optional — HTTP-only and MQTT-only operation must both work.
 

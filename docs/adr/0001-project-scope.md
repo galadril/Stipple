@@ -38,8 +38,9 @@ protocols.
 
 - The FlyThings runtime is a constraint to live within, not an obstacle to
   remove. `libzkgui.so` is the delivery format.
-- Compatibility with AWTRIX integrations is a deliberate, tested subset under
-  `/api/*` — never a constraint on the native architecture (§3.5).
+- ~~Compatibility with AWTRIX integrations is a deliberate, tested subset under
+  `/api/*`~~ — **withdrawn by [ADR 0015](0015-no-awtrix-compatibility-layer.md)**.
+  NOTRIX serves `/api/v1/*` only; integrations target the native API.
 - Contributors who arrive wanting to port AWTRIX have a document to be pointed
   at.
 - "Reliability before feature count" (§3.1) is the tie-breaker whenever scope is
