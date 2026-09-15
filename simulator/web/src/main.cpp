@@ -37,7 +37,7 @@ struct DemoApp {
 constexpr DemoApp kDemoApps[] = {
     {"weather", "Weather", 8,
      R"({"name":"weather","elements":[
-        {"type":"rect","rect":[1,4,7,7],"color":"#ff5000","fill":true},
+        {"type":"icon","x":1,"y":3,"icon":"thermometer"},
         {"type":"text","rect":[11,0,40,7],"text":"21.4°C","align":"left","color":"#ffaa28"},
         {"type":"text","rect":[11,9,40,7],"text":"Living room · 48% humidity",
          "align":"left","color":"#00c8ff","scroll":"auto"}
@@ -63,6 +63,36 @@ constexpr DemoApp kDemoApps[] = {
         {"type":"text","rect":[0,9,52,7],"text":"GROUP","align":"center","color":"#ffffff"}
      ]})"},
 };
+
+/// A small thermometer, drawn here rather than uploaded so the weather demo has
+/// a real icon out of the box. Nine rows, which centres at y=3 on a 16-row panel.
+notrix::asset::Icon builtInThermometer() {
+    const notrix::Rgb T = notrix::colors::kMagenta;   // colour key: transparent
+    const notrix::Rgb G = notrix::rgb(170, 175, 190); // glass
+    const notrix::Rgb M = notrix::rgb(255, 60, 40);   // mercury
+
+    static const notrix::Rgb kPixels[45] = {
+        T, G, G, G, T,
+        T, G, T, G, T,
+        T, G, M, G, T,
+        T, G, M, G, T,
+        T, G, M, G, T,
+        G, M, M, M, G,
+        G, M, M, M, G,
+        G, M, M, M, G,
+        T, G, G, G, T,
+    };
+
+    notrix::asset::Icon icon;
+    icon.id = "thermometer";
+    icon.width = 5;
+    icon.height = 9;
+    icon.frameCount = 1;
+    icon.hasTransparency = true;
+    icon.transparent = T;
+    icon.pixels.assign(kPixels, kPixels + 45);
+    return icon;
+}
 
 struct Emulator {
     notrix::platform::simulator::SimulatorPlatform platform;
@@ -114,6 +144,7 @@ EMSCRIPTEN_KEEPALIVE void notrix_init() {
     state.platform.simulatedNetwork().setStatus(network);
 
     state.device().initialize();
+    state.device().icons().put(builtInThermometer());
 
     for (const DemoApp& demo : kDemoApps) {
         App app;
@@ -354,21 +385,51 @@ EMSCRIPTEN_KEEPALIVE int notrix_icon_bytes_used() {
 
 /// Install a demo app that shows the named icon beside a label, so an uploaded
 /// icon is visible immediately.
+///
+/// The layout is computed from the icon's actual size rather than hardcoded: an
+/// uploaded image can be anything from 4x4 to 16x16, and a fixed offset leaves
+/// small ones floating and clips tall ones off the bottom.
 EMSCRIPTEN_KEEPALIVE void notrix_show_icon_app(int nowMillis) {
     Emulator& state = emulator();
     const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
 
-    g_iconId[sizeof(g_iconId) - 1] = ' ';
+    g_iconId[sizeof(g_iconId) - 1] = '\0';
     const std::string id(g_iconId);
+
+    const notrix::asset::Icon* icon = state.device().icons().find(id);
+    if (icon == nullptr) {
+        return;
+    }
+
+    const int left = 2;
+    const int top = (Framebuffer::kHeight - icon->height) / 2;
+    const int textLeft = left + icon->width + 3;
+    const int textWidth = Framebuffer::kWidth - textLeft;
+
+    std::string scene = R"({"elements":[{"type":"icon","x":)";
+    scene += std::to_string(left);
+    scene += R"(,"y":)";
+    scene += std::to_string(top);
+    scene += R"(,"icon":")";
+    scene += id;
+    scene += R"("},{"type":"text","rect":[)";
+    scene += std::to_string(textLeft);
+    scene += ",0,";
+    scene += std::to_string(textWidth > 0 ? textWidth : 1);
+    scene += ",";
+    scene += std::to_string(Framebuffer::kHeight);
+    // Middle-aligned in the full panel height, so the label sits level with the
+    // icon whatever size the icon turns out to be.
+    scene += R"(],"text":")";
+    scene += id;
+    scene += R"(","align":"left","valign":"middle","color":"#00c8ff","scroll":"auto"}]})";
 
     App app;
     app.id = "uploaded";
     app.name = "Icon";
     app.durationSeconds = 10;
     app.source = AppSource::Local;
-    app.sceneJson = std::string(R"({"elements":[{"type":"icon","x":2,"y":4,"icon":")") + id +
-                    R"("},{"type":"text","rect":[22,4,30,7],"text":")" + id +
-                    R"(","align":"left","color":"#00c8ff","scroll":"auto"}]})";
+    app.sceneJson = std::move(scene);
 
     state.device().apps().put(std::move(app));
     state.device().carousel().activate("uploaded", now);
