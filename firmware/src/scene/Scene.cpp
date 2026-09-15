@@ -215,6 +215,7 @@ bool Scene::load(std::string_view json, const json::Limits& limits) {
     durationSeconds_ = 0;
     issueCount_ = 0;
     issueOverflow_ = false;
+    animates_ = false;
 
     if (document_.parse(json, limits) != json::Error::None) {
         addIssue(-1, json::describe(document_.error()));
@@ -256,66 +257,97 @@ bool Scene::load(std::string_view json, const json::Limits& limits) {
 void Scene::validate() {
     const json::Value elements = document_.root()["elements"];
     const int count = elements.size();
-
     for (int i = 0; i < count; ++i) {
-        const json::Value element = elements[i];
-        if (!element.isObject()) {
-            addIssue(i, "element must be an object");
-            continue;
-        }
+        validateElement(elements[i], i, 0);
+    }
+}
 
-        const json::Value type = element["type"];
-        if (!type.isString()) {
-            addIssue(i, "element requires a string 'type'");
-            continue;
-        }
+void Scene::validateElement(const json::Value& element, int reportIndex, int depth) {
+    if (depth > kMaxGroupDepth) {
+        addIssue(reportIndex, "group nesting is deeper than the renderer will follow");
+        return;
+    }
 
-        const ElementType kind = elementTypeFromName(type.toString());
-        if (kind == ElementType::Unknown) {
-            addIssue(i, "unknown element type");
-            continue;
-        }
-        if (!isImplemented(kind)) {
-            // Loud rather than silent: a scene asking for an icon should be told
-            // icons do not exist yet, not quietly rendered without one.
-            addIssue(i, "element type not implemented in this phase");
-            continue;
-        }
+    if (!element.isObject()) {
+        addIssue(reportIndex, "element must be an object");
+        return;
+    }
 
-        Rect rect;
-        switch (kind) {
-            case ElementType::Rect:
-            case ElementType::Text:
-            case ElementType::Progress:
-            case ElementType::Graph:
-            case ElementType::Group:
-                if (!parseRect(element["rect"], rect)) {
-                    addIssue(i, "element requires 'rect' as [x, y, w, h]");
-                }
-                break;
-            case ElementType::Pixel:
-                if (!element["x"].isNumber() || !element["y"].isNumber()) {
-                    addIssue(i, "pixel requires numeric 'x' and 'y'");
-                }
-                break;
-            case ElementType::Line:
-                if (!element["x1"].isNumber() || !element["y1"].isNumber() ||
-                    !element["x2"].isNumber() || !element["y2"].isNumber()) {
-                    addIssue(i, "line requires numeric 'x1', 'y1', 'x2', 'y2'");
-                }
-                break;
-            default:
-                break;
-        }
+    const json::Value type = element["type"];
+    if (!type.isString()) {
+        addIssue(reportIndex, "element requires a string 'type'");
+        return;
+    }
 
-        if (kind == ElementType::Text && !element["text"].isString()) {
-            addIssue(i, "text element requires a string 'text'");
+    const ElementType kind = elementTypeFromName(type.toString());
+    if (kind == ElementType::Unknown) {
+        addIssue(reportIndex, "unknown element type");
+        return;
+    }
+    if (!isImplemented(kind)) {
+        // Loud rather than silent: a scene asking for an icon should be told
+        // icons do not exist yet, not quietly rendered without one.
+        addIssue(reportIndex, "element type not implemented in this phase");
+        return;
+    }
+
+    Rect rect;
+    switch (kind) {
+        case ElementType::Rect:
+        case ElementType::Text:
+        case ElementType::Progress:
+        case ElementType::Graph:
+        case ElementType::Group:
+            if (!parseRect(element["rect"], rect)) {
+                addIssue(reportIndex, "element requires 'rect' as [x, y, w, h]");
+            }
+            break;
+        case ElementType::Pixel:
+            if (!element["x"].isNumber() || !element["y"].isNumber()) {
+                addIssue(reportIndex, "pixel requires numeric 'x' and 'y'");
+            }
+            break;
+        case ElementType::Line:
+            if (!element["x1"].isNumber() || !element["y1"].isNumber() ||
+                !element["x2"].isNumber() || !element["y2"].isNumber()) {
+                addIssue(reportIndex, "line requires numeric 'x1', 'y1', 'x2', 'y2'");
+            }
+            break;
+        default:
+            break;
+    }
+
+    if (kind == ElementType::Text) {
+        const json::Value content = element["text"];
+        if (!content.isString()) {
+            addIssue(reportIndex, "text element requires a string 'text'");
         }
-        if (kind == ElementType::Graph && !element["values"].isArray()) {
-            addIssue(i, "graph element requires a 'values' array");
+        // Scrolling text is the only thing that currently makes a scene
+        // time-varying, and the frame scheduler needs to know before it decides
+        // whether this scene can sit untouched between content changes.
+        const json::Value scroll = element["scroll"];
+        if (scroll.isString() &&
+            text::scrollModeFromName(scroll.raw()) != text::ScrollMode::None) {
+            animates_ = true;
         }
-        if (kind == ElementType::Group && !element["elements"].isArray()) {
-            addIssue(i, "group element requires an 'elements' array");
+    }
+
+    if (kind == ElementType::Graph && !element["values"].isArray()) {
+        addIssue(reportIndex, "graph element requires a 'values' array");
+    }
+
+    if (kind == ElementType::Group) {
+        const json::Value children = element["elements"];
+        if (!children.isArray()) {
+            addIssue(reportIndex, "group element requires an 'elements' array");
+            return;
+        }
+        // Children are validated too. Previously a malformed element inside a
+        // group was silently skipped at render time with no issue reported,
+        // which made a broken nested scene look like a rendering bug.
+        const int count = children.size();
+        for (int i = 0; i < count; ++i) {
+            validateElement(children[i], reportIndex, depth + 1);
         }
     }
 }

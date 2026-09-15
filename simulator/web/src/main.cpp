@@ -2,37 +2,31 @@
 //
 // Emscripten entry point for the browser emulator.
 //
-// Everything here is glue. The browser owns the frame clock and the pixels on
-// screen; the core owns everything else — the app registry, the carousel, the
-// scene parser, the renderer and the input mapping. Keeping this file boring is
-// the point: it is the emulator's half of the §53 platform boundary, and its
-// device counterpart in Phase 7 will be the same handful of functions talking
-// to sendLedData and a real GPIO instead.
+// This file owns no application logic at all. It creates a simulator platform,
+// hands it to ApplicationHost, and forwards the browser's clock and input. The
+// boot sequence, splash, carousel, scene rendering, notifications, input mapping
+// and frame scheduling all happen inside the core, exactly as they will on the
+// device — where the entry point will be the same handful of calls against a
+// TC002 platform adapter instead.
 
 #include <emscripten/emscripten.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
-#include "notrix/app/Carousel.h"
-#include "notrix/demo/TestPattern.h"
-#include "notrix/graphics/Canvas.h"
-#include "notrix/input/InputMapper.h"
-#include "notrix/json/Json.h"
-#include "notrix/notify/Notifications.h"
+#include "notrix/host/ApplicationHost.h"
 #include "notrix/platform/simulator/SimulatorPlatform.h"
-#include "notrix/scene/Scene.h"
 
 namespace {
 
 using notrix::app::App;
 using notrix::app::AppSource;
-using notrix::Canvas;
+using notrix::app::Builtin;
 using notrix::Framebuffer;
 
-/// Built-in demo apps. These are ordinary scenes in the public JSON format —
-/// nothing here is privileged, and anything the HTTP API will accept in Phase 5
-/// could produce the same screens.
+/// Demo apps, in the public scene format. Nothing here is privileged: anything
+/// the HTTP API accepts could produce the same screens.
 struct DemoApp {
     const char* id;
     const char* name;
@@ -41,14 +35,6 @@ struct DemoApp {
 };
 
 constexpr DemoApp kDemoApps[] = {
-    {"welcome", "Welcome", 5,
-     R"({"name":"welcome","elements":[
-        {"type":"text","rect":[0,1,52,7],"text":"NOTRIX","align":"center","color":"#00c8ff"},
-        {"type":"text","rect":[0,9,52,7],"text":"0.1.0","align":"center","color":"#404040"}
-     ]})"},
-
-    // The second line is wider than its box, so "scroll":"auto" takes over.
-    // Without it the text would simply clip, which is what Phase 4 did.
     {"weather", "Weather", 8,
      R"({"name":"weather","elements":[
         {"type":"rect","rect":[1,4,7,7],"color":"#ff5000","fill":true},
@@ -78,33 +64,16 @@ constexpr DemoApp kDemoApps[] = {
      ]})"},
 };
 
-/// The bring-up pattern is kept as a system app so there is always something
-/// animated to look at, and because it is the screen Phase 7 will use to confirm
-/// the real panel is wired correctly.
-constexpr const char* kTestPatternId = "testpattern";
-
 struct Emulator {
     notrix::platform::simulator::SimulatorPlatform platform;
-    notrix::app::AppRegistry registry;
-    notrix::app::Carousel carousel{registry};
-    notrix::input::InputMapper mapper;
-    notrix::notify::NotificationQueue notifications;
+    /// Rebuilt by notrix_init, so initialising twice gives a genuinely fresh
+    /// device rather than a half-reset one. ApplicationHost has no reset of its
+    /// own by design — a device reboots, it does not re-initialise in place.
+    std::unique_ptr<notrix::host::ApplicationHost> host;
     int notifySequence = 0;
+    std::string logLine;
 
-    notrix::json::Token tokens[768];
-    notrix::scene::Scene scene{tokens, 768};
-
-    Framebuffer framebuffer;
-
-    /// Which app the parsed scene belongs to, and the registry revision it was
-    /// parsed at. The Scene holds views into the app's JSON text, so both must
-    /// match before it is safe to render.
-    std::string parsedAppId;
-    std::uint32_t parsedRevision = 0;
-    bool sceneReady = false;
-
-    std::uint8_t brightness = 255;
-    std::uint64_t nowMillis = 0;
+    notrix::host::ApplicationHost& device() { return *host; }
 };
 
 Emulator& emulator() {
@@ -112,32 +81,11 @@ Emulator& emulator() {
     return instance;
 }
 
-void applyAction(Emulator& state, const notrix::input::ActionEvent& action) {
-    using notrix::input::Action;
-
-    switch (action.action) {
-        case Action::AppNext:
-            for (int i = 0; i < action.repeat; ++i) {
-                state.carousel.next(state.nowMillis);
-            }
-            break;
-        case Action::AppPrevious:
-            for (int i = 0; i < action.repeat; ++i) {
-                state.carousel.previous(state.nowMillis);
-            }
-            break;
-        case Action::AppAction:
-            state.carousel.setPaused(!state.carousel.paused());
-            break;
-        case Action::NotificationDismiss:
-            // Long-pressing Middle clears what is on screen; if nothing is, the
-            // binding falls through to its short-press meaning.
-            if (!state.notifications.dismissActive(state.nowMillis)) {
-                state.carousel.setPaused(!state.carousel.paused());
-            }
-            break;
-        default:
-            break;
+/// Keep the simulated monotonic clock in step with the browser's.
+void syncClock(Emulator& state, std::uint64_t nowMillis) {
+    const std::uint64_t current = state.platform.simulatedClock().monotonicMillis();
+    if (nowMillis > current) {
+        state.platform.simulatedClock().advance(nowMillis - current);
     }
 }
 
@@ -148,16 +96,24 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE void notrix_init() {
     Emulator& state = emulator();
 
-    state.registry.clear();
-    state.framebuffer.clear();
-    state.brightness = 255;
-    state.nowMillis = 0;
-    state.parsedAppId.clear();
-    state.sceneReady = false;
-    state.mapper.reset();
-    state.carousel.reset(0);
-    state.notifications.clear();
+    // Power-cycle the simulated device: clear persistent storage and any queued
+    // input, then build a new host. Without the clear, the boot record would
+    // carry over and repeated inits would eventually trip safe mode.
+    state.platform.simulatedStorage().clear();
+    state.platform.simulatedInput().clear();
     state.notifySequence = 0;
+    state.host = std::make_unique<notrix::host::ApplicationHost>(state.platform);
+
+    // A simulated address, so the boot splash has something to show. It is
+    // clearly fictional: the browser has no network interface to report.
+    notrix::platform::NetworkStatus network;
+    network.connected = true;
+    network.ipv4 = "192.168.1.42";
+    network.hostname = "notrix-a1b2.local";
+    network.rssiDbm = -52;
+    state.platform.simulatedNetwork().setStatus(network);
+
+    state.device().initialize();
 
     for (const DemoApp& demo : kDemoApps) {
         App app;
@@ -166,22 +122,27 @@ EMSCRIPTEN_KEEPALIVE void notrix_init() {
         app.sceneJson = demo.sceneJson;
         app.durationSeconds = demo.durationSeconds;
         app.source = AppSource::System;
-        state.registry.put(std::move(app));
+        state.device().apps().put(std::move(app));
     }
 
+    // The bring-up pattern stays available: it is the screen Phase 7 will use to
+    // confirm a real panel is wired correctly.
     App pattern;
-    pattern.id = kTestPatternId;
+    pattern.id = "testpattern";
     pattern.name = "Test pattern";
     pattern.durationSeconds = 6;
     pattern.source = AppSource::System;
-    state.registry.put(std::move(pattern));
-
-    state.carousel.tick(0);
+    pattern.builtin = Builtin::TestPattern;
+    state.device().apps().put(std::move(pattern));
 }
 
-/// Global brightness is a post-pass over the finished frame, which is how the
-/// device applies it too: apps draw in true colour and never have to know the
-/// current setting.
+/// Hand the host a real wall-clock time so the built-in clock shows something
+/// meaningful. Without this it correctly renders "--:--".
+EMSCRIPTEN_KEEPALIVE void notrix_set_wall_clock(double unixSeconds, int utcOffsetSeconds) {
+    emulator().platform.simulatedClock().setWallClock(static_cast<std::int64_t>(unixSeconds),
+                                                      utcOffsetSeconds);
+}
+
 EMSCRIPTEN_KEEPALIVE void notrix_set_brightness(int value) {
     if (value < 0) {
         value = 0;
@@ -189,59 +150,20 @@ EMSCRIPTEN_KEEPALIVE void notrix_set_brightness(int value) {
     if (value > 255) {
         value = 255;
     }
-    emulator().brightness = static_cast<std::uint8_t>(value);
+    Emulator& state = emulator();
+    state.device().settings().display.brightness = static_cast<std::uint8_t>(value);
+    state.platform.display().setBrightness(static_cast<std::uint8_t>(value));
+    state.device().scheduler().invalidate();
 }
 
 EMSCRIPTEN_KEEPALIVE void notrix_render(int nowMillis) {
     Emulator& state = emulator();
-    state.nowMillis = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
-
-    state.carousel.tick(state.nowMillis);
-    state.notifications.tick(state.nowMillis);
-
-    Canvas canvas(state.framebuffer);
-    canvas.clear();
-
-    // Notifications are an overlay that takes the whole panel: they interrupt
-    // the carousel rather than sharing with it (blueprint §14).
-    const notrix::notify::Notification* alert = state.notifications.active();
-    if (alert != nullptr) {
-        notrix::notify::render(canvas, *alert, Framebuffer::bounds(),
-                               state.notifications.activeElapsedMillis(state.nowMillis));
-    } else if (const App* active = state.carousel.active()) {
-        if (active->id == kTestPatternId) {
-            notrix::demo::drawTestPattern(canvas, static_cast<int>(state.nowMillis / 33u));
-        } else {
-            // Re-parse only when the active app or the registry changes, not
-            // every frame.
-            if (state.parsedAppId != active->id ||
-                state.parsedRevision != state.registry.revision()) {
-                state.sceneReady = state.scene.load(active->sceneJson);
-                state.parsedAppId = active->id;
-                state.parsedRevision = state.registry.revision();
-            }
-            if (state.sceneReady) {
-                // Scroll position is measured from when the app appeared, so
-                // each app starts reading from the beginning of its text.
-                state.scene.render(canvas, state.carousel.dwellMillis(state.nowMillis));
-            }
-        }
-    }
-
-    if (state.brightness != 255) {
-        notrix::Rgb* pixels = state.framebuffer.data();
-        for (int i = 0; i < Framebuffer::kPixelCount; ++i) {
-            pixels[i] = notrix::scale(pixels[i], state.brightness);
-        }
-    }
-
-    // Out through the platform boundary, exactly as the device will.
-    state.platform.display().setBrightness(state.brightness);
-    state.platform.display().present(state.framebuffer);
+    const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
+    syncClock(state, now);
+    state.device().tick(now);
 }
 
-/// Feed one raw hardware event. `source` and `phase` match the RawInput and
-/// ButtonPhase enums; the core decides what the press means.
+/// Feed one raw hardware event; the core decides what it means.
 EMSCRIPTEN_KEEPALIVE void notrix_input(int source, int phase, int nowMillis) {
     using notrix::platform::ButtonPhase;
     using notrix::platform::InputEvent;
@@ -255,70 +177,23 @@ EMSCRIPTEN_KEEPALIVE void notrix_input(int source, int phase, int nowMillis) {
     }
 
     Emulator& state = emulator();
-    state.nowMillis = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
+    const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
+    syncClock(state, now);
 
     InputEvent event;
     event.source = static_cast<RawInput>(source);
     event.phase = static_cast<ButtonPhase>(phase);
-    event.timestampMillis = state.nowMillis;
+    event.timestampMillis = now;
 
-    // Queue it on the simulated device too, so the path the real firmware takes
-    // (poll the platform, map, act) is the one being exercised.
+    // Through the platform queue, so the path exercised is poll-map-act — the
+    // same one the firmware takes.
     state.platform.simulatedInput().push(event);
-
-    InputEvent polled;
-    while (state.platform.input().poll(polled)) {
-        notrix::input::ActionEvent action;
-        if (state.mapper.handle(polled, action)) {
-            applyAction(state, action);
-        }
-    }
+    state.device().tick(now);
 }
 
-EMSCRIPTEN_KEEPALIVE const unsigned char* notrix_framebuffer() {
-    return emulator().platform.simulatedDisplay().lastFrame().bytes();
-}
-
-EMSCRIPTEN_KEEPALIVE int notrix_width() {
-    return Framebuffer::kWidth;
-}
-
-EMSCRIPTEN_KEEPALIVE int notrix_height() {
-    return Framebuffer::kHeight;
-}
-
-EMSCRIPTEN_KEEPALIVE int notrix_app_count() {
-    return emulator().registry.count();
-}
-
-EMSCRIPTEN_KEEPALIVE const char* notrix_active_name() {
-    const App* active = emulator().carousel.active();
-    return active != nullptr ? active->name.c_str() : "";
-}
-
-EMSCRIPTEN_KEEPALIVE int notrix_active_index() {
-    Emulator& state = emulator();
-    return state.registry.indexOf(state.carousel.activeId());
-}
-
-EMSCRIPTEN_KEEPALIVE int notrix_active_duration_seconds() {
-    return emulator().carousel.activeDurationSeconds();
-}
-
-EMSCRIPTEN_KEEPALIVE int notrix_dwell_millis(int nowMillis) {
-    const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
-    return static_cast<int>(emulator().carousel.dwellMillis(now));
-}
-
-EMSCRIPTEN_KEEPALIVE int notrix_is_paused() {
-    return emulator().carousel.paused() ? 1 : 0;
-}
-
-/// Push a demo notification. Cycles priority so the preemption rules are
-/// visible: an urgent one interrupts whatever is showing, a normal one waits.
 EMSCRIPTEN_KEEPALIVE void notrix_notify(int priority, int durationSeconds, int nowMillis) {
     Emulator& state = emulator();
-    state.nowMillis = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
+    const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
 
     notrix::notify::Notification notification;
     notification.priority = notrix::notify::priorityFromInt(priority);
@@ -340,15 +215,77 @@ EMSCRIPTEN_KEEPALIVE void notrix_notify(int priority, int durationSeconds, int n
             break;
     }
 
-    state.notifications.push(std::move(notification), state.nowMillis);
+    state.device().notifications().push(std::move(notification), now);
+    state.device().scheduler().invalidate();
+}
+
+EMSCRIPTEN_KEEPALIVE const unsigned char* notrix_framebuffer() {
+    return emulator().platform.simulatedDisplay().lastFrame().bytes();
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_width() { return Framebuffer::kWidth; }
+EMSCRIPTEN_KEEPALIVE int notrix_height() { return Framebuffer::kHeight; }
+
+EMSCRIPTEN_KEEPALIVE int notrix_app_count() { return emulator().device().apps().count(); }
+
+EMSCRIPTEN_KEEPALIVE const char* notrix_active_name() {
+    Emulator& state = emulator();
+    if (state.device().showingSplash()) {
+        return "Starting";
+    }
+    const App* active = state.device().carousel().active();
+    return active != nullptr ? active->name.c_str() : "";
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_active_duration_seconds() {
+    return emulator().device().carousel().activeDurationSeconds();
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_dwell_millis(int nowMillis) {
+    const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
+    return static_cast<int>(emulator().device().carousel().dwellMillis(now));
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_is_paused() {
+    return emulator().device().carousel().paused() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_showing_splash() {
+    return emulator().device().showingSplash() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_is_healthy() {
+    return emulator().device().healthy() ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int notrix_notification_count() {
-    return emulator().notifications.size();
+    return emulator().device().notifications().size();
 }
 
 EMSCRIPTEN_KEEPALIVE int notrix_notification_pending() {
-    return emulator().notifications.pending();
+    return emulator().device().notifications().pending();
+}
+
+// Frame scheduler counters, which make dirty rendering visible: a static screen
+// should skip far more frames than it draws.
+EMSCRIPTEN_KEEPALIVE int notrix_frames_rendered() {
+    return static_cast<int>(emulator().device().frameStats().rendered);
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_frames_skipped() {
+    return static_cast<int>(emulator().device().frameStats().skipped);
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_log_count() {
+    return emulator().device().logger().count();
+}
+
+/// Returns a pointer valid until the next call.
+EMSCRIPTEN_KEEPALIVE const char* notrix_log_line(int index) {
+    Emulator& state = emulator();
+    const notrix::log::RingLog::Entry& entry = state.device().logger().at(index);
+    state.logLine = std::string(notrix::log::levelName(entry.level)) + "  " + entry.message;
+    return state.logLine.c_str();
 }
 
 }  // extern "C"

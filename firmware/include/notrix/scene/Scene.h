@@ -92,6 +92,14 @@ public:
 
     int elementCount() const noexcept;
 
+    /// Does this scene change over time?
+    ///
+    /// True when any element scrolls (and, later, animates). The frame scheduler
+    /// uses this to decide whether the scene must be redrawn every frame or can
+    /// sit untouched until its content changes — the difference between a static
+    /// clock face costing ~0 CPU and costing 30 renders a second.
+    bool animates() const noexcept { return animates_; }
+
     /// Draw every renderable element, in document order. Elements that failed
     /// validation are skipped.
     ///
@@ -103,6 +111,9 @@ public:
 private:
     void addIssue(int elementIndex, const char* message) noexcept;
     void validate();
+    /// `reportIndex` is the top-level element this belongs to, so an issue
+    /// inside a nested group still points somewhere the caller can find.
+    void validateElement(const json::Value& element, int reportIndex, int depth);
     void renderElement(Canvas& canvas,
                        const json::Value& element,
                        int depth,
@@ -115,6 +126,7 @@ private:
     Issue issues_[kMaxIssues];
     int issueCount_ = 0;
     bool issueOverflow_ = false;
+    bool animates_ = false;
 };
 
 // --- shared field parsing ----------------------------------------------------

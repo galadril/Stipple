@@ -25,7 +25,7 @@ set_target_properties(notrix_emulator PROPERTIES
 target_link_options(notrix_emulator PRIVATE
     "-sMODULARIZE=1"
     "-sEXPORT_NAME=createNotrixModule"
-    "-sEXPORTED_FUNCTIONS=_notrix_init,_notrix_render,_notrix_framebuffer,_notrix_width,_notrix_height,_notrix_set_brightness,_notrix_input,_notrix_app_count,_notrix_active_name,_notrix_active_index,_notrix_active_duration_seconds,_notrix_dwell_millis,_notrix_is_paused,_notrix_notify,_notrix_notification_count,_notrix_notification_pending"
+    "-sEXPORTED_FUNCTIONS=_notrix_init,_notrix_render,_notrix_framebuffer,_notrix_width,_notrix_height,_notrix_set_brightness,_notrix_set_wall_clock,_notrix_input,_notrix_app_count,_notrix_active_name,_notrix_active_duration_seconds,_notrix_dwell_millis,_notrix_is_paused,_notrix_showing_splash,_notrix_is_healthy,_notrix_notify,_notrix_notification_count,_notrix_notification_pending,_notrix_frames_rendered,_notrix_frames_skipped,_notrix_log_count,_notrix_log_line"
     "-sEXPORTED_RUNTIME_METHODS=HEAPU8,UTF8ToString"
     "-sALLOW_MEMORY_GROWTH=1"
     "-sENVIRONMENT=web"

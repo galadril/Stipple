@@ -15,6 +15,11 @@ add_library(notrix_core
     src/json/Json.cpp
     src/scene/Scene.cpp
     src/core/Checksum.cpp
+    src/core/Log.cpp
+    src/render/FrameScheduler.cpp
+    src/apps/ClockApp.cpp
+    src/apps/SplashScreen.cpp
+    src/host/ApplicationHost.cpp
     src/app/AppRegistry.cpp
     src/app/Carousel.cpp
     src/config/Config.cpp

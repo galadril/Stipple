@@ -45,6 +45,10 @@ public:
     bool next(std::uint64_t nowMillis);
     bool previous(std::uint64_t nowMillis);
 
+    /// Adopt new timing, e.g. once settings have been loaded at boot.
+    void setConfig(const CarouselConfig& config) noexcept { config_ = config; }
+    const CarouselConfig& config() const noexcept { return config_; }
+
     void setPaused(bool paused) noexcept { paused_ = paused; }
     bool paused() const noexcept { return paused_; }
 

@@ -9,6 +9,18 @@ namespace simulator {
 
 void SimulatorDisplay::present(const Framebuffer& frame) {
     lastFrame_ = frame;
+
+    // Brightness is applied here because that is where the real panel applies
+    // it. Core renders in true colour and never has to know the current
+    // setting; doing it in the adapter keeps the simulator honest about what
+    // the hardware will actually show.
+    if (brightness_ != 255) {
+        Rgb* pixels = lastFrame_.data();
+        for (int i = 0; i < Framebuffer::kPixelCount; ++i) {
+            pixels[i] = scale(pixels[i], brightness_);
+        }
+    }
+
     ++presentCount_;
 }
 

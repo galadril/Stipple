@@ -21,6 +21,18 @@ enum class AppSource : std::uint8_t {
 
 const char* appSourceName(AppSource source) noexcept;
 
+/// Apps whose content is code rather than a scene document.
+///
+/// A built-in exists where a scene cannot express the content — the clock needs
+/// live time formatting, the bring-up pattern needs per-frame animation. Kept as
+/// an explicit tag rather than matching on well-known ids, so the special case is
+/// visible in the type instead of hidden in a string comparison.
+enum class Builtin : std::uint8_t {
+    None,         ///< renders `sceneJson`
+    Clock,
+    TestPattern,
+};
+
 /// One entry in the carousel.
 ///
 /// The scene is held as JSON text rather than as a parsed structure. Parsed
@@ -37,6 +49,7 @@ struct App {
 
     bool enabled = true;
     AppSource source = AppSource::Local;
+    Builtin builtin = Builtin::None;
 
     /// Monotonic deadline for Temporary apps. Zero means it never expires.
     std::uint64_t expiresAtMillis = 0;

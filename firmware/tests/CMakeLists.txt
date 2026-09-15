@@ -17,6 +17,9 @@ add_executable(notrix_tests
     test_notifications.cpp
     test_api.cpp
     test_memory_budget.cpp
+    test_log.cpp
+    test_frame_scheduler.cpp
+    test_host.cpp
 )
 
 target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

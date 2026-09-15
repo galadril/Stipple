@@ -34,6 +34,7 @@
         statApp: document.getElementById('stat-app'),
         statDwell: document.getElementById('stat-dwell'),
         statQueue: document.getElementById('stat-queue'),
+        statFrames: document.getElementById('stat-frames'),
         notifyLow: document.getElementById('notify-low'),
         notifyHigh: document.getElementById('notify-high'),
         statRender: document.getElementById('stat-render'),
@@ -166,17 +167,27 @@
     function updateStats(now) {
         el.statApp.textContent = core.UTF8ToString(core._notrix_active_name()) || '-';
 
-        var dwell = core._notrix_dwell_millis(nowMillis()) / 1000;
-        var duration = core._notrix_active_duration_seconds();
-        el.statDwell.textContent = duration > 0
-            ? dwell.toFixed(1) + 's / ' + duration + 's'
-            : '-';
+        if (core._notrix_showing_splash()) {
+            el.statDwell.textContent = 'booting';
+        } else {
+            var dwell = core._notrix_dwell_millis(nowMillis()) / 1000;
+            var duration = core._notrix_active_duration_seconds();
+            el.statDwell.textContent = duration > 0
+                ? dwell.toFixed(1) + 's / ' + duration + 's'
+                : '-';
+        }
 
         var queued = core._notrix_notification_count();
         var pending = core._notrix_notification_pending();
         el.statQueue.textContent = queued === 0
             ? '0'
             : (queued - pending) + ' + ' + pending;
+
+        // Dirty rendering made visible: a static screen should skip far more
+        // frames than it draws.
+        var drawn = core._notrix_frames_rendered();
+        var skipped = core._notrix_frames_skipped();
+        el.statFrames.textContent = drawn + ' / ' + (drawn + skipped);
 
         el.statRender.textContent = renderMs.toFixed(2) + ' ms';
 
@@ -329,6 +340,11 @@
         height = core._notrix_height();
         framebufferPtr = core._notrix_framebuffer();
         core._notrix_init();
+
+        // Give the device a real time; without it the clock honestly shows
+        // "--:--" because the wall clock was never set.
+        var offsetSeconds = -new Date().getTimezoneOffset() * 60;
+        core._notrix_set_wall_clock(Date.now() / 1000, offsetSeconds);
 
         bloomCanvas.width = width;
         bloomCanvas.height = height;
