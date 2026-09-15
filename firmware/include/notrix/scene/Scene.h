@@ -6,6 +6,7 @@
 
 #include "notrix/core/Geometry.h"
 #include "notrix/core/Rgb.h"
+#include "notrix/asset/IconStore.h"
 #include "notrix/json/Json.h"
 
 namespace notrix {
@@ -16,11 +17,10 @@ namespace scene {
 
 /// Element kinds from blueprint §11.
 ///
-/// `Icon`, `Bitmap`, `Sprite` and `Animation` are recognised but not yet
-/// implemented: they need an asset store and an animation clock that arrive in
-/// later phases. They are listed here so a scene using them fails with a clear
-/// "not implemented" rather than being silently dropped — blueprint §19's rule
-/// about documenting incompatibilities instead of quietly accepting fields.
+/// `Sprite` and `Animation` are recognised but not yet implemented. They are
+/// listed so a scene using them fails with a clear "not implemented" rather than
+/// being silently dropped — blueprint §19's rule about documenting
+/// incompatibilities instead of quietly accepting fields.
 enum class ElementType {
     Unknown,
     Pixel,
@@ -66,6 +66,11 @@ public:
     static constexpr int kMaxGroupDepth = 8;
 
     Scene(json::Token* tokens, int capacity) noexcept : document_(tokens, capacity) {}
+
+    /// Icons are looked up here by name. Without a store, `icon` elements report
+    /// an issue rather than rendering nothing silently.
+    void setIconStore(const asset::IconStore* icons) noexcept { icons_ = icons; }
+    const asset::IconStore* iconStore() const noexcept { return icons_; }
 
     Scene(const Scene&) = delete;
     Scene& operator=(const Scene&) = delete;
@@ -120,6 +125,7 @@ private:
                        std::uint64_t elapsedMillis) const;
 
     json::Document document_;
+    const asset::IconStore* icons_ = nullptr;
     bool loaded_ = false;
     std::string_view name_;
     int durationSeconds_ = 0;

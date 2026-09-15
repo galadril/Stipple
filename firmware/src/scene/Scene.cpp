@@ -176,6 +176,8 @@ bool isImplemented(ElementType type) noexcept {
         case ElementType::Progress:
         case ElementType::Graph:
         case ElementType::Group:
+        case ElementType::Icon:
+        case ElementType::Bitmap:
             return true;
         default:
             return false;
@@ -334,6 +336,40 @@ void Scene::validateElement(const json::Value& element, int reportIndex, int dep
 
     if (kind == ElementType::Graph && !element["values"].isArray()) {
         addIssue(reportIndex, "graph element requires a 'values' array");
+    }
+
+    if (kind == ElementType::Icon) {
+        if (!element["icon"].isString()) {
+            addIssue(reportIndex, "icon element requires a string 'icon' naming a stored icon");
+        } else if (icons_ == nullptr) {
+            addIssue(reportIndex, "icon element used but no icon store is attached");
+        } else {
+            const asset::Icon* icon = icons_->find(element["icon"].toString());
+            if (icon == nullptr) {
+                // Named-but-missing is worth reporting: silently drawing nothing
+                // looks identical to a layout bug.
+                addIssue(reportIndex, "no icon with that name is stored");
+            } else if (icon->animated()) {
+                animates_ = true;
+            }
+        }
+        if (!element["x"].isNumber() || !element["y"].isNumber()) {
+            addIssue(reportIndex, "icon requires numeric 'x' and 'y'");
+        }
+    }
+
+    if (kind == ElementType::Bitmap) {
+        const json::Value pixels = element["pixels"];
+        const std::int64_t width = element["width"].toInt(0);
+        const std::int64_t height = element["height"].toInt(0);
+        if (!pixels.isArray() || width <= 0 || height <= 0) {
+            addIssue(reportIndex, "bitmap requires 'width', 'height' and a 'pixels' array");
+        } else if (pixels.size() != static_cast<int>(width * height)) {
+            addIssue(reportIndex, "bitmap 'pixels' length does not match width x height");
+        }
+        if (!element["x"].isNumber() || !element["y"].isNumber()) {
+            addIssue(reportIndex, "bitmap requires numeric 'x' and 'y'");
+        }
     }
 
     if (kind == ElementType::Group) {
@@ -531,6 +567,66 @@ void Scene::renderElement(Canvas& canvas,
 
                 const int x = rect.right() - visible + i;
                 canvas.vLine(x, rect.bottom() - height, height, color);
+            }
+            break;
+        }
+
+        case ElementType::Icon: {
+            if (icons_ == nullptr) {
+                break;
+            }
+            const asset::Icon* icon = icons_->find(element["icon"].toString());
+            if (icon == nullptr) {
+                break;
+            }
+
+            const int x = clampToPanel(element["x"].toInt(0));
+            const int y = clampToPanel(element["y"].toInt(0));
+            const int frame = asset::IconStore::frameAt(*icon, elapsedMillis);
+            const BitmapView view = asset::IconStore::frameView(*icon, frame);
+
+            if (icon->hasTransparency) {
+                canvas.blitKeyed(x, y, view, icon->transparent);
+            } else {
+                canvas.blit(x, y, view);
+            }
+            break;
+        }
+
+        case ElementType::Bitmap: {
+            const json::Value pixels = element["pixels"];
+            const int width = clampToPanel(element["width"].toInt(0));
+            const int height = clampToPanel(element["height"].toInt(0));
+            if (!pixels.isArray() || width <= 0 || height <= 0 ||
+                pixels.size() != width * height) {
+                break;
+            }
+
+            // Drawn pixel by pixel rather than materialised into a buffer: an
+            // inline bitmap is bounded by the scene's own size limit, and this
+            // keeps the render path free of allocation.
+            const int x = clampToPanel(element["x"].toInt(0));
+            const int y = clampToPanel(element["y"].toInt(0));
+
+            Rgb transparent;
+            const bool keyed = parseColor(element["transparent"], transparent);
+
+            for (int row = 0; row < height; ++row) {
+                for (int column = 0; column < width; ++column) {
+                    const json::Value entry = pixels[row * width + column];
+                    if (!entry.isNumber()) {
+                        continue;
+                    }
+                    const std::int64_t packed = entry.toInt(0);
+                    if (packed < 0 || packed > 0xFFFFFF) {
+                        continue;
+                    }
+                    const Rgb pixelColor = fromPacked(static_cast<std::uint32_t>(packed));
+                    if (keyed && pixelColor == transparent) {
+                        continue;
+                    }
+                    canvas.pixel(x + column, y + row, pixelColor);
+                }
             }
             break;
         }

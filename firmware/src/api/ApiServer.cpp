@@ -5,6 +5,7 @@
 
 #include "notrix/api/JsonWriter.h"
 #include "notrix/app/AppRegistry.h"
+#include "notrix/asset/IconStore.h"
 #include "notrix/app/Carousel.h"
 #include "notrix/apps/ClockApp.h"
 #include "notrix/config/Config.h"
@@ -146,6 +147,8 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
             return handleNotificationCollection(request, nowMillis);
         case Resource::NotificationItem:
             return handleNotificationItem(request, route.id, nowMillis);
+        case Resource::AssetCollection: return handleAssetCollection(request);
+        case Resource::AssetItem: return handleAssetItem(request, route.id);
         case Resource::Settings: return handleSettings(request);
         case Resource::SystemReboot: return handleReboot(request);
         case Resource::Unknown: break;
@@ -571,6 +574,163 @@ Response ApiServer::handleNotificationItem(const Request& request,
         // leaking which ids exist, so both answer 404 and the queue's own
         // semantics are documented instead.
         return notFound("no such notification, or it cannot be dismissed");
+    }
+    return noContent();
+}
+
+// --- assets ------------------------------------------------------------------
+
+namespace {
+
+void writeIcon(JsonWriter& writer, const asset::Icon& icon) {
+    writer.beginObject()
+        .member("id", icon.id)
+        .member("width", icon.width)
+        .member("height", icon.height)
+        .member("frames", icon.frameCount)
+        .member("frameMillis", static_cast<std::int64_t>(icon.frameMillis))
+        .member("bytes", static_cast<std::int64_t>(icon.byteSize()));
+    writer.key("transparent");
+    if (icon.hasTransparency) {
+        writer.value(static_cast<std::int64_t>(toPacked(icon.transparent)));
+    } else {
+        writer.nullValue();
+    }
+    writer.endObject();
+}
+
+}  // namespace
+
+Response ApiServer::handleAssetCollection(const Request& request) {
+    if (context_.icons == nullptr) {
+        return serverError("icon store unavailable");
+    }
+
+    if (request.method == Method::Get) {
+        JsonWriter writer;
+        writer.beginObject().key("assets").beginArray();
+        for (int i = 0; i < context_.icons->count(); ++i) {
+            writeIcon(writer, *context_.icons->at(i));
+        }
+        writer.endArray();
+        writer.member("count", context_.icons->count());
+        // Storage pressure is worth surfacing: an upload that fails because the
+        // budget is full should be predictable, not a surprise.
+        writer.member("bytesUsed", static_cast<std::int64_t>(context_.icons->bytesUsed()));
+        writer.member("bytesFree", static_cast<std::int64_t>(context_.icons->bytesFree()));
+        writer.endObject();
+        return ok(writer.take());
+    }
+
+    if (request.method == Method::Delete) {
+        context_.icons->clear();
+        return noContent();
+    }
+
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+
+    Body body(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+    if (!body.valid()) {
+        return badRequest(std::string("invalid JSON: ") + body.errorText());
+    }
+    const json::Value root = body.root();
+    if (!root.isObject()) {
+        return badRequest("body must be a JSON object");
+    }
+
+    asset::Icon icon;
+    icon.id = root["id"].toString();
+    icon.width = static_cast<int>(root["width"].toInt(0));
+    icon.height = static_cast<int>(root["height"].toInt(0));
+    icon.frameMillis = static_cast<std::uint32_t>(root["frameMillis"].toInt(100));
+
+    // Packed 0xRRGGBB only. The converter that produces these is code, not a
+    // person, so the several human-friendly colour forms the scene model accepts
+    // would be surface for nothing.
+    if (const json::Value keyed = root["transparent"]; keyed.isNumber()) {
+        const std::int64_t packed = keyed.toInt(-1);
+        if (packed < 0 || packed > 0xFFFFFF) {
+            return unprocessable("'transparent' must be a packed 0xRRGGBB value");
+        }
+        icon.hasTransparency = true;
+        icon.transparent = fromPacked(static_cast<std::uint32_t>(packed));
+    }
+
+    const json::Value frames = root["frames"];
+    if (!frames.isArray() || frames.size() == 0) {
+        return unprocessable("'frames' must be a non-empty array of pixel arrays");
+    }
+    icon.frameCount = frames.size();
+
+    // Reject the geometry before reserving anything, so an absurd declared size
+    // cannot make us allocate first and fail second.
+    if (icon.width <= 0 || icon.height <= 0 ||
+        icon.width > asset::IconStore::kMaxDimension ||
+        icon.height > asset::IconStore::kMaxDimension ||
+        icon.frameCount > asset::IconStore::kMaxFrames) {
+        return unprocessable("width, height or frame count is out of range");
+    }
+
+    const std::size_t perFrame = icon.pixelsPerFrame();
+    icon.pixels.reserve(perFrame * static_cast<std::size_t>(icon.frameCount));
+
+    for (int f = 0; f < icon.frameCount; ++f) {
+        const json::Value frame = frames[f];
+        if (!frame.isArray() || frame.size() != static_cast<int>(perFrame)) {
+            return unprocessable("each frame must hold exactly width x height pixels");
+        }
+        for (int i = 0; i < frame.size(); ++i) {
+            const std::int64_t packed = frame[i].toInt(-1);
+            if (packed < 0 || packed > 0xFFFFFF) {
+                return unprocessable("pixels must be packed 0xRRGGBB values");
+            }
+            icon.pixels.push_back(fromPacked(static_cast<std::uint32_t>(packed)));
+        }
+    }
+
+    const std::string id = icon.id;
+    const asset::IconStore::PutResult result = context_.icons->put(std::move(icon));
+    switch (result) {
+        case asset::IconStore::PutResult::Added:
+        case asset::IconStore::PutResult::Replaced:
+            break;
+        case asset::IconStore::PutResult::InvalidId:
+        case asset::IconStore::PutResult::InvalidGeometry:
+            return unprocessable(asset::IconStore::describe(result));
+        case asset::IconStore::PutResult::TooManyIcons:
+        case asset::IconStore::PutResult::BudgetExceeded:
+            return conflict(asset::IconStore::describe(result));
+    }
+
+    JsonWriter writer;
+    writeIcon(writer, *context_.icons->find(id));
+    return result == asset::IconStore::PutResult::Added ? created(writer.take())
+                                                        : ok(writer.take());
+}
+
+Response ApiServer::handleAssetItem(const Request& request, const std::string& id) {
+    if (context_.icons == nullptr) {
+        return serverError("icon store unavailable");
+    }
+
+    const asset::Icon* icon = context_.icons->find(id);
+
+    if (request.method == Method::Get) {
+        if (icon == nullptr) {
+            return notFound("no such icon");
+        }
+        JsonWriter writer;
+        writeIcon(writer, *icon);
+        return ok(writer.take());
+    }
+
+    if (request.method != Method::Delete) {
+        return methodNotAllowed();
+    }
+    if (!context_.icons->remove(id)) {
+        return notFound("no such icon");
     }
     return noContent();
 }

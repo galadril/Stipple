@@ -94,6 +94,8 @@ enum class Resource : std::uint8_t {
     AppActivate,
     NotificationCollection,
     NotificationItem,
+    AssetCollection,
+    AssetItem,
     Settings,
     SystemReboot,
 };

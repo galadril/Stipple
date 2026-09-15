@@ -18,6 +18,10 @@ namespace notify {
 class NotificationQueue;
 }
 
+namespace asset {
+class IconStore;
+}
+
 namespace config {
 struct Config;
 class ConfigStore;
@@ -38,6 +42,7 @@ struct ApiContext {
     app::AppRegistry* apps = nullptr;
     app::Carousel* carousel = nullptr;
     notify::NotificationQueue* notifications = nullptr;
+    asset::IconStore* icons = nullptr;
     config::Config* config = nullptr;
     config::ConfigStore* configStore = nullptr;
     platform::IPlatformServices* platform = nullptr;
@@ -93,6 +98,9 @@ private:
     Response handleNotificationCollection(const Request& request, std::uint64_t nowMillis);
     Response handleNotificationItem(const Request& request, const std::string& id,
                                     std::uint64_t nowMillis);
+
+    Response handleAssetCollection(const Request& request);
+    Response handleAssetItem(const Request& request, const std::string& id);
 
     Response handleSettings(const Request& request);
     Response handleReboot(const Request& request);

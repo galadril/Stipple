@@ -291,3 +291,50 @@ select.btn option {
     background: var(--surface-raised);
     color: var(--text);
 }
+
+/* --- icon upload -------------------------------------------------------- */
+
+.icons {
+    margin-top: 18px;
+    padding: 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+.icon-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 18px;
+    border: 1px dashed #343945;
+    border-radius: var(--radius);
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 120ms ease, background 120ms ease;
+}
+
+.dropzone:hover,
+.dropzone.is-over {
+    border-color: var(--accent);
+    background: rgba(255, 179, 71, 0.06);
+}
+
+.dropzone strong {
+    font-size: 13.5px;
+    font-weight: 600;
+}
+
+.dropzone span {
+    color: var(--muted);
+    font-size: 12.5px;
+}

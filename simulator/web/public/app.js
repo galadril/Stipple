@@ -41,6 +41,9 @@
         statQueue: document.getElementById('stat-queue'),
         statFrames: document.getElementById('stat-frames'),
         clockTheme: document.getElementById('clock-theme'),
+        dropzone: document.getElementById('dropzone'),
+        iconFile: document.getElementById('icon-file'),
+        iconStatus: document.getElementById('icon-status'),
         notifyLow: document.getElementById('notify-low'),
         notifyHigh: document.getElementById('notify-high'),
         statRender: document.getElementById('stat-render'),
@@ -338,6 +341,133 @@
         });
     }
 
+    // --- icon upload --------------------------------------------------------
+    //
+    // The whole point of doing conversion here: the browser already decodes PNG
+    // and GIF, so the firmware never needs an inflate or LZW decoder against
+    // untrusted input. Any image source works, not just one gallery.
+
+    var TRANSPARENT_KEY = 0xff00ff;   // magenta; nothing legible uses it
+
+    function loadImage(file) {
+        return new Promise(function (resolve, reject) {
+            var url = URL.createObjectURL(file);
+            var image = new Image();
+            image.onload = function () { URL.revokeObjectURL(url); resolve(image); };
+            image.onerror = function () { URL.revokeObjectURL(url); reject(new Error('not an image')); };
+            image.src = url;
+        });
+    }
+
+    /// Scale to fit the panel height, decode to RGB, and map anything
+    /// half-transparent to the colour key. Returns the geometry used.
+    function convert(image, id) {
+        var maxSide = Math.min(16, height);
+        var scale = Math.min(maxSide / image.width, maxSide / image.height, 1);
+        var w = Math.max(1, Math.round(image.width * scale));
+        var h = Math.max(1, Math.round(image.height * scale));
+
+        var work = document.createElement('canvas');
+        work.width = w;
+        work.height = h;
+        var workCtx = work.getContext('2d', { willReadFrequently: true });
+
+        // Nearest-neighbour: smoothing a 64x64 glyph down to 16x16 turns crisp
+        // pixel art into grey mush on a panel that cannot blend.
+        workCtx.imageSmoothingEnabled = false;
+        workCtx.drawImage(image, 0, 0, w, h);
+
+        var data = workCtx.getImageData(0, 0, w, h).data;
+        var staging = core._notrix_icon_staging();
+        var heap = core.HEAPU8;
+
+        for (var i = 0; i < w * h; i++) {
+            var alpha = data[i * 4 + 3];
+            var r, g, b;
+            if (alpha < 128) {
+                r = (TRANSPARENT_KEY >> 16) & 0xff;
+                g = (TRANSPARENT_KEY >> 8) & 0xff;
+                b = TRANSPARENT_KEY & 0xff;
+            } else {
+                r = data[i * 4];
+                g = data[i * 4 + 1];
+                b = data[i * 4 + 2];
+            }
+            heap[staging + i * 3] = r;
+            heap[staging + i * 3 + 1] = g;
+            heap[staging + i * 3 + 2] = b;
+        }
+
+        // Write the id into its own staging buffer, avoiding any allocator or
+        // string-marshalling machinery across the boundary.
+        var idBuffer = core._notrix_icon_id_buffer();
+        var capacity = core._notrix_icon_id_capacity();
+        var bytes = new TextEncoder().encode(id).subarray(0, capacity);
+        core.HEAPU8.set(bytes, idBuffer);
+        core.HEAPU8[idBuffer + bytes.length] = 0;
+
+        return { width: w, height: h };
+    }
+
+    function iconStatus(text) {
+        el.iconStatus.textContent = text;
+    }
+
+    function refreshIconStatus() {
+        var count = core._notrix_icon_count();
+        if (count === 0) {
+            iconStatus('none stored');
+            return;
+        }
+        iconStatus(count + ' stored · ' + core._notrix_icon_bytes_used() + ' bytes');
+    }
+
+    function acceptFile(file) {
+        if (!file) {
+            return;
+        }
+        var id = file.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'icon';
+
+        loadImage(file).then(function (image) {
+            var size = convert(image, id);
+            var result = core._notrix_icon_commit(size.width, size.height, 1, 100,
+                                                  TRANSPARENT_KEY);
+            if (result !== 0) {
+                iconStatus('rejected by the device (code ' + result + ')');
+                return;
+            }
+            core._notrix_show_icon_app(nowMillis());
+            refreshIconStatus();
+            renderFrame();
+        }).catch(function (error) {
+            iconStatus(String(error.message || error));
+        });
+    }
+
+    function wireDropzone() {
+        el.dropzone.addEventListener('click', function () { el.iconFile.click(); });
+        el.iconFile.addEventListener('change', function () {
+            acceptFile(el.iconFile.files && el.iconFile.files[0]);
+            el.iconFile.value = '';
+        });
+
+        ['dragenter', 'dragover'].forEach(function (name) {
+            el.dropzone.addEventListener(name, function (event) {
+                event.preventDefault();
+                el.dropzone.classList.add('is-over');
+            });
+        });
+        ['dragleave', 'drop'].forEach(function (name) {
+            el.dropzone.addEventListener(name, function (event) {
+                event.preventDefault();
+                el.dropzone.classList.remove('is-over');
+            });
+        });
+        el.dropzone.addEventListener('drop', function (event) {
+            acceptFile(event.dataTransfer && event.dataTransfer.files[0]);
+        });
+    }
+
     // --- startup ------------------------------------------------------------
 
     function showNotice(html) {
@@ -387,6 +517,8 @@
 
         resizeCanvas();
         wireControls();
+        wireDropzone();
+        refreshIconStatus();
         syncPauseLabel();
 
         startedAt = performance.now();

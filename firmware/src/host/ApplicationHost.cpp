@@ -31,6 +31,7 @@ api::ApiContext ApplicationHost::makeContext() noexcept {
     context.apps = &registry_;
     context.carousel = &carousel_;
     context.notifications = &notifications_;
+    context.icons = &icons_;
     context.config = &settings_;
     context.configStore = &configStore_;
     context.platform = &platform_;
@@ -112,6 +113,8 @@ bool ApplicationHost::initialize() {
     record.lastBootCompleted = false;
     writeBootRecord(record);
     bootRecord_ = record;
+
+    scene_.setIconStore(&icons_);
 
     // 3. Display. The panel's own floor beats any configured target rate.
     scheduler_.setMinimumInterval(platform_.display().minimumFrameIntervalMillis());
@@ -365,10 +368,13 @@ bool ApplicationHost::refreshActiveScene() {
 
     // Re-parse only when the app or the registry changed. The Scene holds views
     // into the app's JSON, so both must match before it is safe to render.
-    if (parsedAppId_ != active->id || parsedRevision_ != registry_.revision()) {
+    // Icon changes matter too: a scene validated against a missing icon must be
+    // revalidated once that icon exists.
+    const std::uint32_t revision = registry_.revision() ^ (icons_.revision() << 16);
+    if (parsedAppId_ != active->id || parsedRevision_ != revision) {
         sceneReady_ = scene_.load(active->sceneJson);
         parsedAppId_ = active->id;
-        parsedRevision_ = registry_.revision();
+        parsedRevision_ = revision;
 
         if (!sceneReady_) {
             logger_.warn(lastTickMillis_, "active app has an unusable scene");

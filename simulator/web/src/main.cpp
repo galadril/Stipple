@@ -276,6 +276,109 @@ EMSCRIPTEN_KEEPALIVE int notrix_frames_skipped() {
     return static_cast<int>(emulator().device().frameStats().skipped);
 }
 
+}  // extern "C"
+
+// --- icon upload ------------------------------------------------------------
+//
+// The browser decodes PNG and GIF with a canvas in three lines, so the device
+// never needs an inflate or LZW decoder against untrusted input (ADR 0012).
+// JavaScript writes raw RGB bytes straight into a staging buffer here and then
+// commits; no allocator or string marshalling is involved.
+
+namespace {
+/// Sized to the store's whole budget, since that is the largest any single icon
+/// could ever be.
+std::uint8_t g_iconStaging[notrix::asset::IconStore::kMaxTotalBytes];
+char g_iconId[notrix::asset::IconStore::kMaxIdBytes + 1];
+}  // namespace
+
+extern "C" {
+
+EMSCRIPTEN_KEEPALIVE unsigned char* notrix_icon_staging() { return g_iconStaging; }
+EMSCRIPTEN_KEEPALIVE int notrix_icon_staging_capacity() {
+    return static_cast<int>(sizeof(g_iconStaging));
+}
+EMSCRIPTEN_KEEPALIVE char* notrix_icon_id_buffer() { return g_iconId; }
+EMSCRIPTEN_KEEPALIVE int notrix_icon_id_capacity() {
+    return static_cast<int>(sizeof(g_iconId) - 1);
+}
+
+/// Commit whatever is in the staging buffer. Returns 0 on success, or a
+/// negative IconStore::PutResult so the UI can say why it failed.
+EMSCRIPTEN_KEEPALIVE int notrix_icon_commit(int width, int height, int frames,
+                                            int frameMillis, int transparent) {
+    Emulator& state = emulator();
+
+    notrix::asset::Icon icon;
+    g_iconId[sizeof(g_iconId) - 1] = ' ';
+    icon.id = g_iconId;
+    icon.width = width;
+    icon.height = height;
+    icon.frameCount = frames;
+    icon.frameMillis = frameMillis > 0 ? static_cast<std::uint32_t>(frameMillis) : 100u;
+
+    if (transparent >= 0 && transparent <= 0xFFFFFF) {
+        icon.hasTransparency = true;
+        icon.transparent = notrix::fromPacked(static_cast<std::uint32_t>(transparent));
+    }
+
+    const std::size_t count = static_cast<std::size_t>(width) *
+                              static_cast<std::size_t>(height) *
+                              static_cast<std::size_t>(frames);
+    if (width <= 0 || height <= 0 || frames <= 0 || count * 3u > sizeof(g_iconStaging)) {
+        return -1;
+    }
+
+    icon.pixels.reserve(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        icon.pixels.push_back(notrix::Rgb{g_iconStaging[i * 3u], g_iconStaging[i * 3u + 1u],
+                                          g_iconStaging[i * 3u + 2u]});
+    }
+
+    const auto result = state.device().icons().put(std::move(icon));
+    if (result == notrix::asset::IconStore::PutResult::Added ||
+        result == notrix::asset::IconStore::PutResult::Replaced) {
+        state.device().scheduler().invalidate();
+        return 0;
+    }
+    return -static_cast<int>(result);
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_icon_count() {
+    return emulator().device().icons().count();
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_icon_bytes_used() {
+    return static_cast<int>(emulator().device().icons().bytesUsed());
+}
+
+/// Install a demo app that shows the named icon beside a label, so an uploaded
+/// icon is visible immediately.
+EMSCRIPTEN_KEEPALIVE void notrix_show_icon_app(int nowMillis) {
+    Emulator& state = emulator();
+    const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
+
+    g_iconId[sizeof(g_iconId) - 1] = ' ';
+    const std::string id(g_iconId);
+
+    App app;
+    app.id = "uploaded";
+    app.name = "Icon";
+    app.durationSeconds = 10;
+    app.source = AppSource::Local;
+    app.sceneJson = std::string(R"({"elements":[{"type":"icon","x":2,"y":4,"icon":")") + id +
+                    R"("},{"type":"text","rect":[22,4,30,7],"text":")" + id +
+                    R"(","align":"left","color":"#00c8ff","scroll":"auto"}]})";
+
+    state.device().apps().put(std::move(app));
+    state.device().carousel().activate("uploaded", now);
+    state.device().scheduler().invalidate();
+}
+
+}  // extern "C"
+
+extern "C" {
+
 // --- clock themes ----------------------------------------------------------
 
 EMSCRIPTEN_KEEPALIVE int notrix_clock_theme_count() {

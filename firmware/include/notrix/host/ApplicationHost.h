@@ -6,6 +6,7 @@
 
 #include "notrix/api/ApiServer.h"
 #include "notrix/app/Carousel.h"
+#include "notrix/asset/IconStore.h"
 #include "notrix/apps/ClockApp.h"
 #include "notrix/apps/SplashScreen.h"
 #include "notrix/config/Config.h"
@@ -124,6 +125,7 @@ public:
     app::AppRegistry& apps() noexcept { return registry_; }
     app::Carousel& carousel() noexcept { return carousel_; }
     notify::NotificationQueue& notifications() noexcept { return notifications_; }
+    asset::IconStore& icons() noexcept { return icons_; }
     config::Config& settings() noexcept { return settings_; }
     render::FrameScheduler& scheduler() noexcept { return scheduler_; }
     const render::FrameStats& frameStats() const noexcept { return scheduler_.stats(); }
@@ -170,6 +172,7 @@ private:
     app::AppRegistry registry_;
     app::Carousel carousel_;
     notify::NotificationQueue notifications_;
+    asset::IconStore icons_;
     input::InputMapper mapper_;
     render::FrameScheduler scheduler_;
 
