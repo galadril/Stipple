@@ -397,16 +397,29 @@ void Scene::renderElement(Canvas& canvas,
                 style.letterSpacing = clampToPanel(spacing.toInt(1));
             }
 
-            // toString allocates, which is fine here: scenes are rendered from
-            // parsed JSON at a handful of frames per second, not per pixel.
-            const std::string content = element["text"].toString();
+            // Render straight from the document's bytes. toString() would
+            // allocate on every frame for any text longer than a small-string
+            // buffer — which is exactly the text long enough to need scrolling.
+            // Only escaped text has to be materialised, and that is rare.
+            const json::Value content = element["text"];
+            const std::string_view raw = content.isString() ? content.raw() : std::string_view{};
 
-            const text::ScrollMode scroll =
-                text::scrollModeFromName(element["scroll"].toString("none"));
-            if (scroll == text::ScrollMode::None) {
-                text::draw(canvas, content, rect, style);
+            const json::Value scrollValue = element["scroll"];
+            const text::ScrollMode scroll = text::scrollModeFromName(
+                scrollValue.isString() ? scrollValue.raw() : std::string_view{});
+
+            const auto render = [&](std::string_view text) {
+                if (scroll == text::ScrollMode::None) {
+                    text::draw(canvas, text, rect, style);
+                } else {
+                    text::drawScrolling(canvas, text, rect, style, scroll, elapsedMillis);
+                }
+            };
+
+            if (raw.find('\\') == std::string_view::npos) {
+                render(raw);
             } else {
-                text::drawScrolling(canvas, content, rect, style, scroll, elapsedMillis);
+                render(content.toString());
             }
             break;
         }
