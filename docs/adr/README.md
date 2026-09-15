@@ -21,10 +21,12 @@ as the decisions are actually made.
 | 0004 | FlyThings runtime boundary | Pending — needs hardware |
 | 0005 | Headless build | Pending — needs hardware |
 | 0006 | Temporary ADB development | Pending — needs hardware |
-| 0007 | Native API plus compatibility layer | Pending |
+| 0007 | Native API plus compatibility layer | Withdrawn — see 0015 |
 | 0008 | Installer helper | Pending |
 | 0009 | Update security | Pending |
-| 0010 | Font strategy | Pending — Phase 2 |
+| 0010 | Font strategy | Not written — recorded in `firmware/src/text/Font5x7.cpp` |
 | 0011 | Simulator-first development order | Accepted |
 | 0012 | Dependency-free core and test harness | Accepted |
 | 0013 | Required and optional platform capabilities | Accepted |
+| 0014 | In-house bounded JSON parser | Accepted |
+| 0015 | No AWTRIX compatibility layer | Accepted |

@@ -274,3 +274,122 @@ input[type="range"] {
     main { padding: 22px 18px 40px; }
     .bezel { padding: 12px; }
 }
+
+/* Settings controls that are not buttons. */
+.control-label {
+    color: var(--muted);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+select.btn {
+    padding-right: 8px;
+    cursor: pointer;
+}
+
+select.btn option {
+    background: var(--surface-raised);
+    color: var(--text);
+}
+
+/* --- icon upload -------------------------------------------------------- */
+
+.icons {
+    margin-top: 18px;
+    padding: 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+.icon-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 18px;
+    border: 1px dashed #343945;
+    border-radius: var(--radius);
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 120ms ease, background 120ms ease;
+}
+
+.dropzone:hover,
+.dropzone.is-over {
+    border-color: var(--accent);
+    background: rgba(255, 179, 71, 0.06);
+}
+
+.dropzone strong {
+    font-size: 13.5px;
+    font-weight: 600;
+}
+
+.dropzone span {
+    color: var(--muted);
+    font-size: 12.5px;
+}
+
+/* --- device log --------------------------------------------------------- */
+
+.logs {
+    margin-top: 18px;
+    padding: 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+.logview {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    max-height: 190px;
+    overflow-y: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+}
+
+.logview li {
+    display: flex;
+    gap: 10px;
+    padding: 1px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    white-space: pre-wrap;
+}
+
+.logview li:last-child { border-bottom: 0; }
+
+.logview .when {
+    color: #5c636f;
+    flex: 0 0 5.5ch;
+    text-align: right;
+}
+
+.logview .lvl {
+    flex: 0 0 5ch;
+    font-weight: 600;
+}
+
+/* Only the levels that mean something are coloured; INFO stays quiet so the
+   exceptions stand out rather than competing with everything else. */
+.logview .lvl-INFO  { color: var(--muted); }
+.logview .lvl-DEBUG { color: #4a515c; }
+.logview .lvl-TRACE { color: #4a515c; }
+.logview .lvl-WARN  { color: var(--accent); }
+.logview .lvl-ERROR { color: #ff6a4d; }
+.logview .lvl-FATAL { color: #ff6a4d; }
+
+.logview .msg { color: var(--text); }
+
+.logview .empty { color: var(--muted); }

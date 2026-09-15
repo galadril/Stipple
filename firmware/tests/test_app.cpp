@@ -444,6 +444,33 @@ NOTRIX_TEST(Carousel, BackwardsClockDoesNotSkipAhead) {
     NOTRIX_CHECK_EQ(activeOf(carousel), std::string("a"));
 }
 
+NOTRIX_TEST(Carousel, ResetClearsPositionPinAndDwellTimer) {
+    // The dwell timer is an absolute timestamp. Resetting without clearing it
+    // leaves the carousel comparing new times against an old start point, and it
+    // can sit frozen until the clock catches up.
+    AppRegistry registry;
+    registry.put(makeApp("a", 1));
+    registry.put(makeApp("b", 1));
+
+    Carousel carousel(registry);
+    carousel.tick(0);
+    carousel.next(50000);
+    carousel.pin("b", 50000);
+    carousel.setPaused(true);
+
+    carousel.reset(0);
+
+    NOTRIX_CHECK(carousel.active() == nullptr);
+    NOTRIX_CHECK_FALSE(carousel.isPinned());
+    NOTRIX_CHECK_FALSE(carousel.paused());
+
+    // Rotation works again from a fresh clock rather than being stuck.
+    carousel.tick(0);
+    NOTRIX_CHECK_EQ(activeOf(carousel), std::string("a"));
+    carousel.tick(1000);
+    NOTRIX_CHECK_EQ(activeOf(carousel), std::string("b"));
+}
+
 NOTRIX_TEST(Carousel, ZeroDefaultDurationDoesNotSpin) {
     // A misconfigured zero must not advance the carousel every frame.
     AppRegistry registry;

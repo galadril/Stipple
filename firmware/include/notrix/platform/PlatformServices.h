@@ -55,6 +55,8 @@ public:
     virtual void reboot() = 0;
 };
 
+class IHttpServer;
+
 /// The whole of the platform, as core code sees it (blueprint §53).
 ///
 /// Services split into two kinds, and the distinction is the point:
@@ -88,6 +90,11 @@ public:
     virtual IAudioOutput* audio() { return nullptr; }
     virtual INetworkManager* network() { return nullptr; }
     virtual IRebooter* rebooter() { return nullptr; }
+
+    /// HTTP transport. Null everywhere today: the device adapter arrives in
+    /// Phase 7, and the browser has no sockets, so the emulator binds ApiServer
+    /// straight into JavaScript instead. See platform/HttpServer.h.
+    virtual IHttpServer* httpServer() { return nullptr; }
 };
 
 }  // namespace platform

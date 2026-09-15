@@ -9,13 +9,24 @@ add_library(notrix_core
     src/demo/TestPattern.cpp
     src/text/Font5x7.cpp
     src/text/Text.cpp
+    src/text/Scroll.cpp
+    src/notify/Notifications.cpp
     src/input/InputMapper.cpp
     src/json/Json.cpp
     src/scene/Scene.cpp
     src/core/Checksum.cpp
+    src/core/Log.cpp
+    src/render/FrameScheduler.cpp
+    src/asset/IconStore.cpp
+    src/apps/ClockApp.cpp
+    src/apps/SplashScreen.cpp
+    src/host/ApplicationHost.cpp
     src/app/AppRegistry.cpp
     src/app/Carousel.cpp
     src/config/Config.cpp
+    src/api/Http.cpp
+    src/api/JsonWriter.cpp
+    src/api/ApiServer.cpp
 )
 
 target_include_directories(notrix_core

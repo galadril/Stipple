@@ -93,14 +93,15 @@ NOTRIX_TEST(Scene, RejectsOutOfRangeDuration) {
 
 NOTRIX_TEST(Scene, UnimplementedTypesFailLoudly) {
     // Blueprint §19: document incompatibilities rather than silently accepting
-    // fields. A scene asking for an icon must be told icons do not exist yet.
-    Loaded scene(R"({"elements":[{"type":"icon","x":0,"y":0,"icon":"thermometer"}]})");
+    // fields. A scene asking for a sprite must be told sprites do not exist yet.
+    Loaded scene(R"({"elements":[{"type":"sprite","x":0,"y":0,"sprite":"walk"}]})");
     NOTRIX_CHECK(scene.ok);
     NOTRIX_CHECK_EQ(scene.scene.issueCount(), 1);
     NOTRIX_CHECK_EQ(scene.scene.issueAt(0).elementIndex, 0);
 
     NOTRIX_CHECK(isImplemented(ElementType::Text));
-    NOTRIX_CHECK_FALSE(isImplemented(ElementType::Icon));
+    NOTRIX_CHECK(isImplemented(ElementType::Icon));     // implemented in Phase 6
+    NOTRIX_CHECK_FALSE(isImplemented(ElementType::Sprite));
     NOTRIX_CHECK_FALSE(isImplemented(ElementType::Animation));
 }
 

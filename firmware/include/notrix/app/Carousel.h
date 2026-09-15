@@ -45,8 +45,24 @@ public:
     bool next(std::uint64_t nowMillis);
     bool previous(std::uint64_t nowMillis);
 
+    /// Adopt new timing, e.g. once settings have been loaded at boot.
+    void setConfig(const CarouselConfig& config) noexcept { config_ = config; }
+    const CarouselConfig& config() const noexcept { return config_; }
+
     void setPaused(bool paused) noexcept { paused_ = paused; }
     bool paused() const noexcept { return paused_; }
+
+    /// Forget the active app, its dwell timer, any pin, and the paused state.
+    /// The next tick re-selects from the beginning.
+    ///
+    /// Needed because the dwell timer is an absolute timestamp: re-initialising
+    /// without clearing it leaves the carousel comparing new times against an
+    /// old start point, and it can sit frozen until the clock catches up.
+    void reset(std::uint64_t nowMillis) noexcept;
+
+    /// Jump straight to an app. Rotation continues from there — use pin() to
+    /// hold it. Fails if the id is unknown or the app is disabled.
+    bool activate(std::string_view id, std::uint64_t nowMillis);
 
     /// Hold one app on screen. Fails if the id is unknown or disabled.
     bool pin(std::string_view id, std::uint64_t nowMillis);
@@ -65,7 +81,7 @@ public:
     int activeDurationSeconds() const noexcept;
 
 private:
-    void activate(int index, std::uint64_t nowMillis);
+    void activateIndex(int index, std::uint64_t nowMillis);
     std::uint64_t durationMillis(const App& app) const noexcept;
 
     AppRegistry& registry_;

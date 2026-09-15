@@ -30,6 +30,15 @@ struct AppSettings {
 struct ClockSettings {
     bool twentyFourHour = true;
     int utcOffsetSeconds = 0;
+
+    /// Clock face, by name (see apps::clockThemeFromName). Stored as a string
+    /// rather than an enum so that configuration does not depend on the app
+    /// layer, and so an unrecognised value from a newer build degrades to the
+    /// default instead of failing the whole load.
+    ///
+    /// Adding this needed no schema bump: an absent field takes its default, so
+    /// a v2 document still loads unchanged.
+    std::string theme = "minimal";
 };
 
 struct Config {

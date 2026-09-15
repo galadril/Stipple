@@ -6,6 +6,7 @@
 
 #include "notrix/core/Geometry.h"
 #include "notrix/core/Rgb.h"
+#include "notrix/asset/IconStore.h"
 #include "notrix/json/Json.h"
 
 namespace notrix {
@@ -16,11 +17,10 @@ namespace scene {
 
 /// Element kinds from blueprint §11.
 ///
-/// `Icon`, `Bitmap`, `Sprite` and `Animation` are recognised but not yet
-/// implemented: they need an asset store and an animation clock that arrive in
-/// later phases. They are listed here so a scene using them fails with a clear
-/// "not implemented" rather than being silently dropped — blueprint §19's rule
-/// about documenting incompatibilities instead of quietly accepting fields.
+/// `Sprite` and `Animation` are recognised but not yet implemented. They are
+/// listed so a scene using them fails with a clear "not implemented" rather than
+/// being silently dropped — blueprint §19's rule about documenting
+/// incompatibilities instead of quietly accepting fields.
 enum class ElementType {
     Unknown,
     Pixel,
@@ -67,6 +67,11 @@ public:
 
     Scene(json::Token* tokens, int capacity) noexcept : document_(tokens, capacity) {}
 
+    /// Icons are looked up here by name. Without a store, `icon` elements report
+    /// an issue rather than rendering nothing silently.
+    void setIconStore(const asset::IconStore* icons) noexcept { icons_ = icons; }
+    const asset::IconStore* iconStore() const noexcept { return icons_; }
+
     Scene(const Scene&) = delete;
     Scene& operator=(const Scene&) = delete;
 
@@ -92,22 +97,42 @@ public:
 
     int elementCount() const noexcept;
 
+    /// Does this scene change over time?
+    ///
+    /// True when any element scrolls (and, later, animates). The frame scheduler
+    /// uses this to decide whether the scene must be redrawn every frame or can
+    /// sit untouched until its content changes — the difference between a static
+    /// clock face costing ~0 CPU and costing 30 renders a second.
+    bool animates() const noexcept { return animates_; }
+
     /// Draw every renderable element, in document order. Elements that failed
     /// validation are skipped.
-    void render(Canvas& canvas) const;
+    ///
+    /// `elapsedMillis` drives time-varying elements — currently scrolling text.
+    /// It is passed in rather than read from a clock so a scene renders
+    /// identically in a test, the emulator and on the device.
+    void render(Canvas& canvas, std::uint64_t elapsedMillis = 0) const;
 
 private:
     void addIssue(int elementIndex, const char* message) noexcept;
     void validate();
-    void renderElement(Canvas& canvas, const json::Value& element, int depth) const;
+    /// `reportIndex` is the top-level element this belongs to, so an issue
+    /// inside a nested group still points somewhere the caller can find.
+    void validateElement(const json::Value& element, int reportIndex, int depth);
+    void renderElement(Canvas& canvas,
+                       const json::Value& element,
+                       int depth,
+                       std::uint64_t elapsedMillis) const;
 
     json::Document document_;
+    const asset::IconStore* icons_ = nullptr;
     bool loaded_ = false;
     std::string_view name_;
     int durationSeconds_ = 0;
     Issue issues_[kMaxIssues];
     int issueCount_ = 0;
     bool issueOverflow_ = false;
+    bool animates_ = false;
 };
 
 // --- shared field parsing ----------------------------------------------------

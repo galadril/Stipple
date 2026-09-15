@@ -14,7 +14,12 @@
     var FRAME_MS = 1000 / TARGET_FPS;
 
     var PITCH = 13;      // css px between LED centres
-    var DOT = 5.4;       // lit dot diameter
+    // Square emitters with a dark grid between them, which is what the TC002's
+    // panel actually looks like. Circles read as a dot-matrix display and made
+    // the preview subtly unlike the hardware.
+    var LED = 10;        // emitter size
+    var INSET = (PITCH - LED) / 2;
+    var RADIUS = 1.5;    // the tiniest rounding; real emitters are not razor-edged
     var UNLIT = '#16181d';
     var BOARD = '#08090b';
 
@@ -33,6 +38,16 @@
         brightnessValue: document.getElementById('brightness-value'),
         statApp: document.getElementById('stat-app'),
         statDwell: document.getElementById('stat-dwell'),
+        statQueue: document.getElementById('stat-queue'),
+        statFrames: document.getElementById('stat-frames'),
+        clockTheme: document.getElementById('clock-theme'),
+        dropzone: document.getElementById('dropzone'),
+        iconFile: document.getElementById('icon-file'),
+        iconStatus: document.getElementById('icon-status'),
+        logview: document.getElementById('logview'),
+        logMeta: document.getElementById('log-meta'),
+        notifyLow: document.getElementById('notify-low'),
+        notifyHigh: document.getElementById('notify-high'),
         statRender: document.getElementById('stat-render'),
         statFps: document.getElementById('stat-fps'),
         statCore: document.getElementById('stat-core'),
@@ -86,14 +101,26 @@
         ctx.fillRect(0, 0, width * PITCH, height * PITCH);
     }
 
+    /// One emitter. Uses roundRect where available and falls back to a plain
+    /// square, since the rounding is cosmetic.
+    function emitter(x, y) {
+        var px = x * PITCH + INSET;
+        var py = y * PITCH + INSET;
+        ctx.beginPath();
+        if (ctx.roundRect) {
+            ctx.roundRect(px, py, LED, LED, RADIUS);
+        } else {
+            ctx.rect(px, py, LED, LED);
+        }
+        ctx.fill();
+    }
+
     function drawUnlitPanel() {
         drawBoard();
         ctx.fillStyle = UNLIT;
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
-                ctx.beginPath();
-                ctx.arc(x * PITCH + PITCH / 2, y * PITCH + PITCH / 2, DOT / 2, 0, Math.PI * 2);
-                ctx.fill();
+                emitter(x, y);
             }
         }
     }
@@ -108,12 +135,10 @@
                 var g = bytes[i + 1];
                 var b = bytes[i + 2];
 
-                ctx.beginPath();
-                ctx.arc(x * PITCH + PITCH / 2, y * PITCH + PITCH / 2, DOT / 2, 0, Math.PI * 2);
                 ctx.fillStyle = (r === 0 && g === 0 && b === 0)
                     ? UNLIT
                     : 'rgb(' + r + ',' + g + ',' + b + ')';
-                ctx.fill();
+                emitter(x, y);
 
                 var o = (y * width + x) * 4;
                 bloomData.data[o] = r;
@@ -128,7 +153,7 @@
         bloomCtx.putImageData(bloomData, 0, 0);
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = 0.40;
+        ctx.globalAlpha = 0.32;
         ctx.filter = 'blur(7px)';
         ctx.drawImage(bloomCanvas, 0, 0, width * PITCH, height * PITCH);
         ctx.restore();
@@ -163,11 +188,27 @@
     function updateStats(now) {
         el.statApp.textContent = core.UTF8ToString(core._notrix_active_name()) || '-';
 
-        var dwell = core._notrix_dwell_millis(nowMillis()) / 1000;
-        var duration = core._notrix_active_duration_seconds();
-        el.statDwell.textContent = duration > 0
-            ? dwell.toFixed(1) + 's / ' + duration + 's'
-            : '-';
+        if (core._notrix_showing_splash()) {
+            el.statDwell.textContent = 'booting';
+        } else {
+            var dwell = core._notrix_dwell_millis(nowMillis()) / 1000;
+            var duration = core._notrix_active_duration_seconds();
+            el.statDwell.textContent = duration > 0
+                ? dwell.toFixed(1) + 's / ' + duration + 's'
+                : '-';
+        }
+
+        var queued = core._notrix_notification_count();
+        var pending = core._notrix_notification_pending();
+        el.statQueue.textContent = queued === 0
+            ? '0'
+            : (queued - pending) + ' + ' + pending;
+
+        // Dirty rendering made visible: a static screen should skip far more
+        // frames than it draws.
+        var drawn = core._notrix_frames_rendered();
+        var skipped = core._notrix_frames_skipped();
+        el.statFrames.textContent = drawn + ' / ' + (drawn + skipped);
 
         el.statRender.textContent = renderMs.toFixed(2) + ' ms';
 
@@ -200,6 +241,7 @@
 
         if (now - statsSince > 250) {
             updateStats(now);
+            refreshLog();
             statsSince = now;
         }
 
@@ -245,7 +287,32 @@
         // Hardware controls send raw events; the core decides what they mean.
         // Rotary detents are momentary, so they arrive as a single Tick rather
         // than a Down/Up pair.
-        var hardware = document.querySelectorAll('.btn-hw');
+        // Clock faces, named by the core so the list cannot drift out of sync.
+        var themeCount = core._notrix_clock_theme_count();
+        for (var i = 0; i < themeCount; i++) {
+            var option = document.createElement('option');
+            option.value = String(i);
+            option.textContent = core.UTF8ToString(core._notrix_clock_theme_name(i));
+            el.clockTheme.appendChild(option);
+        }
+        el.clockTheme.value = String(core._notrix_clock_theme());
+
+        el.clockTheme.addEventListener('change', function () {
+            core._notrix_set_clock_theme(parseInt(el.clockTheme.value, 10), nowMillis());
+            renderFrame();
+        });
+
+        el.notifyLow.addEventListener('click', function () {
+            core._notrix_notify(1, 4, nowMillis());   // Priority::Normal
+            renderFrame();
+        });
+
+        el.notifyHigh.addEventListener('click', function () {
+            core._notrix_notify(3, 4, nowMillis());   // Priority::Urgent
+            renderFrame();
+        });
+
+        var hardware = document.querySelectorAll('.btn-hw[data-source]');
         Array.prototype.forEach.call(hardware, function (button) {
             var source = parseInt(button.getAttribute('data-source'), 10);
             var isTick = button.getAttribute('data-tick') === '1';
@@ -277,6 +344,288 @@
         });
     }
 
+    // --- icon upload --------------------------------------------------------
+    //
+    // The whole point of doing conversion here: the browser already decodes PNG
+    // and GIF, so the firmware never needs an inflate or LZW decoder against
+    // untrusted input. Any image source works, not just one gallery.
+
+    var TRANSPARENT_KEY = 0xff00ff;   // magenta; nothing legible uses it
+
+    function loadImage(file) {
+        return new Promise(function (resolve, reject) {
+            var url = URL.createObjectURL(file);
+            var image = new Image();
+            image.onload = function () { URL.revokeObjectURL(url); resolve(image); };
+            image.onerror = function () { URL.revokeObjectURL(url); reject(new Error('not an image')); };
+            image.src = url;
+        });
+    }
+
+    /// Scale to fit the panel and decode to RGB, writing into the staging buffer
+    /// at `frameIndex`. Anything half-transparent becomes the colour key.
+    function writeFrame(source, w, h, frameIndex) {
+        var work = document.createElement('canvas');
+        work.width = w;
+        work.height = h;
+        var workCtx = work.getContext('2d', { willReadFrequently: true });
+
+        // Nearest-neighbour: smoothing a 64x64 glyph down to 16x16 turns crisp
+        // pixel art into grey mush on a panel that cannot blend.
+        workCtx.imageSmoothingEnabled = false;
+        workCtx.drawImage(source, 0, 0, w, h);
+
+        var data = workCtx.getImageData(0, 0, w, h).data;
+        var staging = core._notrix_icon_staging() + frameIndex * w * h * 3;
+        var heap = core.HEAPU8;
+
+        for (var i = 0; i < w * h; i++) {
+            var alpha = data[i * 4 + 3];
+            var r, g, b;
+            if (alpha < 128) {
+                r = (TRANSPARENT_KEY >> 16) & 0xff;
+                g = (TRANSPARENT_KEY >> 8) & 0xff;
+                b = TRANSPARENT_KEY & 0xff;
+            } else {
+                r = data[i * 4];
+                g = data[i * 4 + 1];
+                b = data[i * 4 + 2];
+            }
+            heap[staging + i * 3] = r;
+            heap[staging + i * 3 + 1] = g;
+            heap[staging + i * 3 + 2] = b;
+        }
+    }
+
+    function targetSize(sourceWidth, sourceHeight) {
+        var maxSide = Math.min(16, height);
+        var scale = Math.min(maxSide / sourceWidth, maxSide / sourceHeight, 1);
+        return {
+            width: Math.max(1, Math.round(sourceWidth * scale)),
+            height: Math.max(1, Math.round(sourceHeight * scale))
+        };
+    }
+
+    function writeId(id) {
+        var idBuffer = core._notrix_icon_id_buffer();
+        var capacity = core._notrix_icon_id_capacity();
+        var bytes = new TextEncoder().encode(id).subarray(0, capacity);
+        core.HEAPU8.set(bytes, idBuffer);
+        core.HEAPU8[idBuffer + bytes.length] = 0;
+    }
+
+    /// Decode every frame of an animation.
+    ///
+    /// ImageDecoder is the only way to reach individual GIF frames from script:
+    /// an <img> element only ever exposes whichever frame it happens to be
+    /// showing. Resolves to null when the file turns out not to be animated.
+    function decodeAnimated(file, maxFrames) {
+        return file.arrayBuffer().then(function (buffer) {
+            var decoder = new ImageDecoder({ data: buffer, type: file.type });
+            return decoder.completed.then(function () {
+                var track = decoder.tracks.selectedTrack;
+                var total = track ? track.frameCount : 1;
+                if (total <= 1) {
+                    return null;
+                }
+
+                // Sample evenly rather than taking the first N, so a long
+                // animation keeps its whole loop instead of its opening moment.
+                var count = Math.min(total, maxFrames);
+                var indices = [];
+                for (var i = 0; i < count; i++) {
+                    indices.push(Math.floor(i * total / count));
+                }
+
+                var size = null;
+                var durations = [];
+                var chain = Promise.resolve();
+
+                indices.forEach(function (frameIndex, slot) {
+                    chain = chain.then(function () {
+                        return decoder.decode({ frameIndex: frameIndex });
+                    }).then(function (result) {
+                        if (size === null) {
+                            size = targetSize(result.image.displayWidth,
+                                              result.image.displayHeight);
+                        }
+                        writeFrame(result.image, size.width, size.height, slot);
+                        // duration is in microseconds, and may be absent.
+                        durations.push((result.image.duration || 100000) / 1000);
+                        result.image.close();
+                    });
+                });
+
+                return chain.then(function () {
+                    var total_ms = durations.reduce(function (a, b) { return a + b; }, 0);
+                    return {
+                        width: size.width,
+                        height: size.height,
+                        frames: count,
+                        frameMillis: Math.max(20, Math.round(total_ms / durations.length)),
+                        sampledFrom: total
+                    };
+                });
+            });
+        });
+    }
+
+    function iconStatus(text) {
+        el.iconStatus.textContent = text;
+    }
+
+    function refreshIconStatus() {
+        var count = core._notrix_icon_count();
+        if (count === 0) {
+            iconStatus('none stored');
+            return;
+        }
+        iconStatus(count + ' stored · ' + core._notrix_icon_bytes_used() + ' bytes');
+    }
+
+    function commit(size) {
+        var result = core._notrix_icon_commit(size.width, size.height, size.frames || 1,
+                                              size.frameMillis || 100, TRANSPARENT_KEY);
+        if (result !== 0) {
+            iconStatus('rejected by the device (code ' + result + ')');
+            return false;
+        }
+        core._notrix_show_icon_app(nowMillis());
+        refreshIconStatus();
+        renderFrame();
+        return true;
+    }
+
+    function acceptStill(file, id) {
+        return loadImage(file).then(function (image) {
+            var size = targetSize(image.width, image.height);
+            writeFrame(image, size.width, size.height, 0);
+            writeId(id);
+            if (commit({ width: size.width, height: size.height, frames: 1 })) {
+                iconStatus('stored "' + id + '" (' + size.width + 'x' + size.height + ')');
+            }
+        });
+    }
+
+    function acceptFile(file) {
+        if (!file) {
+            return;
+        }
+        var id = file.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'icon';
+        var maxFrames = 16;
+        var animated = file.type === 'image/gif' || file.type === 'image/webp';
+
+        if (animated && typeof ImageDecoder === 'function') {
+            decodeAnimated(file, maxFrames).then(function (size) {
+                if (size === null) {
+                    return acceptStill(file, id);
+                }
+                writeId(id);
+                if (commit(size)) {
+                    var note = size.sampledFrom > size.frames
+                        ? ' (' + size.frames + ' of ' + size.sampledFrom + ' frames)'
+                        : ' (' + size.frames + ' frames)';
+                    iconStatus('stored "' + id + '"' + note);
+                }
+            }).catch(function () {
+                // Any decode failure falls back to a single frame rather than
+                // rejecting the file outright.
+                acceptStill(file, id).catch(function (error) {
+                    iconStatus(String(error.message || error));
+                });
+            });
+            return;
+        }
+
+        if (animated) {
+            iconStatus('this browser cannot split GIF frames; storing one');
+        }
+        acceptStill(file, id).catch(function (error) {
+            iconStatus(String(error.message || error));
+        });
+    }
+
+    function wireDropzone() {
+        el.dropzone.addEventListener('click', function () { el.iconFile.click(); });
+        el.iconFile.addEventListener('change', function () {
+            acceptFile(el.iconFile.files && el.iconFile.files[0]);
+            el.iconFile.value = '';
+        });
+
+        ['dragenter', 'dragover'].forEach(function (name) {
+            el.dropzone.addEventListener(name, function (event) {
+                event.preventDefault();
+                el.dropzone.classList.add('is-over');
+            });
+        });
+        ['dragleave', 'drop'].forEach(function (name) {
+            el.dropzone.addEventListener(name, function (event) {
+                event.preventDefault();
+                el.dropzone.classList.remove('is-over');
+            });
+        });
+        el.dropzone.addEventListener('drop', function (event) {
+            acceptFile(event.dataTransfer && event.dataTransfer.files[0]);
+        });
+    }
+
+    // --- device log ---------------------------------------------------------
+    //
+    // Reads the firmware's own ring buffer (blueprint §22) rather than anything
+    // the page keeps for itself, so what is shown here is exactly what a device
+    // would report over the API.
+
+    var lastLogCount = -1;
+
+    function refreshLog() {
+        var count = core._notrix_log_count();
+        if (count === lastLogCount) {
+            return;   // the ring only ever grows between redraws
+        }
+        lastLogCount = count;
+
+        el.logview.textContent = '';
+        if (count === 0) {
+            var empty = document.createElement('li');
+            empty.className = 'empty';
+            empty.textContent = 'no entries';
+            el.logview.appendChild(empty);
+            el.logMeta.textContent = '-';
+            return;
+        }
+
+        for (var i = 0; i < count; i++) {
+            var raw = core.UTF8ToString(core._notrix_log_line(i));
+            var split = raw.indexOf('  ');
+            var level = split > 0 ? raw.slice(0, split) : 'INFO';
+            var message = split > 0 ? raw.slice(split + 2) : raw;
+
+            var row = document.createElement('li');
+
+            var when = document.createElement('span');
+            when.className = 'when';
+            when.textContent = String(i);
+
+            var lvl = document.createElement('span');
+            lvl.className = 'lvl lvl-' + level;
+            lvl.textContent = level;
+
+            var msg = document.createElement('span');
+            msg.className = 'msg';
+            // textContent, not innerHTML: log lines can carry anything, and an
+            // app name is attacker-controlled once the API is reachable.
+            msg.textContent = message;
+
+            row.appendChild(when);
+            row.appendChild(lvl);
+            row.appendChild(msg);
+            el.logview.appendChild(row);
+        }
+
+        el.logMeta.textContent = count + ' of ' + count + ' retained';
+        el.logview.scrollTop = el.logview.scrollHeight;
+    }
+
     // --- startup ------------------------------------------------------------
 
     function showNotice(html) {
@@ -286,9 +635,13 @@
 
     function coreUnavailable() {
         el.statCore.textContent = 'not built';
-        [el.play, el.step, el.shot, el.brightness].forEach(function (control) {
-            control.disabled = true;
-        });
+        [el.play, el.step, el.shot, el.brightness, el.notifyLow, el.notifyHigh,
+         el.clockTheme]
+            .forEach(function (control) {
+                if (control) {
+                    control.disabled = true;
+                }
+            });
         Array.prototype.forEach.call(document.querySelectorAll('.btn-hw'), function (button) {
             button.disabled = true;
         });
@@ -308,6 +661,11 @@
         framebufferPtr = core._notrix_framebuffer();
         core._notrix_init();
 
+        // Give the device a real time; without it the clock honestly shows
+        // "--:--" because the wall clock was never set.
+        var offsetSeconds = -new Date().getTimezoneOffset() * 60;
+        core._notrix_set_wall_clock(Date.now() / 1000, offsetSeconds);
+
         bloomCanvas.width = width;
         bloomCanvas.height = height;
         bloomData = bloomCtx.createImageData(width, height);
@@ -317,6 +675,9 @@
 
         resizeCanvas();
         wireControls();
+        wireDropzone();
+        refreshIconStatus();
+        refreshLog();
         syncPauseLabel();
 
         startedAt = performance.now();

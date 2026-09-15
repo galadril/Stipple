@@ -52,6 +52,15 @@ jobs:
       - name: Test
         run: ctest --preset ci
 
+      # The memory-budget guards (blueprint §38) only assert in a release build:
+      # MSVC's debug STL allocates an iterator-debug proxy per container, which
+      # swamps the measurement. Without this step that guard would be inert.
+      - name: Build and test release
+        run: |
+          cmake --preset host-release
+          cmake --build --preset host-release
+          ctest --test-dir build/host-release --output-on-failure
+
       - name: Upload golden-image diffs
         if: failure()
         uses: actions/upload-artifact@v4
