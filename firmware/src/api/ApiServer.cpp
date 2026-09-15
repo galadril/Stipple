@@ -6,6 +6,7 @@
 #include "notrix/api/JsonWriter.h"
 #include "notrix/app/AppRegistry.h"
 #include "notrix/app/Carousel.h"
+#include "notrix/apps/ClockApp.h"
 #include "notrix/config/Config.h"
 #include "notrix/core/Version.h"
 #include "notrix/json/Json.h"
@@ -85,6 +86,7 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .beginObject()
         .member("twentyFourHour", settings.clock.twentyFourHour)
         .member("utcOffsetSeconds", settings.clock.utcOffsetSeconds)
+        .member("theme", settings.clock.theme)
         .endObject()
         .endObject();
 }
@@ -641,6 +643,15 @@ Response ApiServer::handleSettings(const Request& request) {
     if (const json::Value clock = root["clock"]; clock.isObject()) {
         if (const json::Value twentyFour = clock["twentyFourHour"]; twentyFour.isBoolean()) {
             updated.clock.twentyFourHour = twentyFour.toBool(true);
+        }
+        if (const json::Value theme = clock["theme"]; theme.isString()) {
+            // Only accept names that round-trip. Falling back silently would
+            // leave a client believing it had selected a face it had not.
+            const std::string name = theme.toString();
+            if (apps::clockThemeName(apps::clockThemeFromName(name)) != name) {
+                return unprocessable("'clock.theme' is not a known clock face");
+            }
+            updated.clock.theme = name;
         }
         if (const json::Value offset = clock["utcOffsetSeconds"]; offset.isNumber()) {
             const std::int64_t value = offset.toInt(0);

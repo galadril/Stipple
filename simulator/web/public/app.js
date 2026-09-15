@@ -14,7 +14,12 @@
     var FRAME_MS = 1000 / TARGET_FPS;
 
     var PITCH = 13;      // css px between LED centres
-    var DOT = 5.4;       // lit dot diameter
+    // Square emitters with a dark grid between them, which is what the TC002's
+    // panel actually looks like. Circles read as a dot-matrix display and made
+    // the preview subtly unlike the hardware.
+    var LED = 10;        // emitter size
+    var INSET = (PITCH - LED) / 2;
+    var RADIUS = 1.5;    // the tiniest rounding; real emitters are not razor-edged
     var UNLIT = '#16181d';
     var BOARD = '#08090b';
 
@@ -35,6 +40,7 @@
         statDwell: document.getElementById('stat-dwell'),
         statQueue: document.getElementById('stat-queue'),
         statFrames: document.getElementById('stat-frames'),
+        clockTheme: document.getElementById('clock-theme'),
         notifyLow: document.getElementById('notify-low'),
         notifyHigh: document.getElementById('notify-high'),
         statRender: document.getElementById('stat-render'),
@@ -90,14 +96,26 @@
         ctx.fillRect(0, 0, width * PITCH, height * PITCH);
     }
 
+    /// One emitter. Uses roundRect where available and falls back to a plain
+    /// square, since the rounding is cosmetic.
+    function emitter(x, y) {
+        var px = x * PITCH + INSET;
+        var py = y * PITCH + INSET;
+        ctx.beginPath();
+        if (ctx.roundRect) {
+            ctx.roundRect(px, py, LED, LED, RADIUS);
+        } else {
+            ctx.rect(px, py, LED, LED);
+        }
+        ctx.fill();
+    }
+
     function drawUnlitPanel() {
         drawBoard();
         ctx.fillStyle = UNLIT;
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
-                ctx.beginPath();
-                ctx.arc(x * PITCH + PITCH / 2, y * PITCH + PITCH / 2, DOT / 2, 0, Math.PI * 2);
-                ctx.fill();
+                emitter(x, y);
             }
         }
     }
@@ -112,12 +130,10 @@
                 var g = bytes[i + 1];
                 var b = bytes[i + 2];
 
-                ctx.beginPath();
-                ctx.arc(x * PITCH + PITCH / 2, y * PITCH + PITCH / 2, DOT / 2, 0, Math.PI * 2);
                 ctx.fillStyle = (r === 0 && g === 0 && b === 0)
                     ? UNLIT
                     : 'rgb(' + r + ',' + g + ',' + b + ')';
-                ctx.fill();
+                emitter(x, y);
 
                 var o = (y * width + x) * 4;
                 bloomData.data[o] = r;
@@ -132,7 +148,7 @@
         bloomCtx.putImageData(bloomData, 0, 0);
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = 0.40;
+        ctx.globalAlpha = 0.32;
         ctx.filter = 'blur(7px)';
         ctx.drawImage(bloomCanvas, 0, 0, width * PITCH, height * PITCH);
         ctx.restore();
@@ -265,6 +281,21 @@
         // Hardware controls send raw events; the core decides what they mean.
         // Rotary detents are momentary, so they arrive as a single Tick rather
         // than a Down/Up pair.
+        // Clock faces, named by the core so the list cannot drift out of sync.
+        var themeCount = core._notrix_clock_theme_count();
+        for (var i = 0; i < themeCount; i++) {
+            var option = document.createElement('option');
+            option.value = String(i);
+            option.textContent = core.UTF8ToString(core._notrix_clock_theme_name(i));
+            el.clockTheme.appendChild(option);
+        }
+        el.clockTheme.value = String(core._notrix_clock_theme());
+
+        el.clockTheme.addEventListener('change', function () {
+            core._notrix_set_clock_theme(parseInt(el.clockTheme.value, 10), nowMillis());
+            renderFrame();
+        });
+
         el.notifyLow.addEventListener('click', function () {
             core._notrix_notify(1, 4, nowMillis());   // Priority::Normal
             renderFrame();
@@ -316,7 +347,8 @@
 
     function coreUnavailable() {
         el.statCore.textContent = 'not built';
-        [el.play, el.step, el.shot, el.brightness, el.notifyLow, el.notifyHigh]
+        [el.play, el.step, el.shot, el.brightness, el.notifyLow, el.notifyHigh,
+         el.clockTheme]
             .forEach(function (control) {
                 if (control) {
                     control.disabled = true;

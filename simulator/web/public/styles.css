@@ -274,3 +274,20 @@ input[type="range"] {
     main { padding: 22px 18px 40px; }
     .bezel { padding: 12px; }
 }
+
+/* Settings controls that are not buttons. */
+.control-label {
+    color: var(--muted);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+select.btn {
+    padding-right: 8px;
+    cursor: pointer;
+}
+
+select.btn option {
+    background: var(--surface-raised);
+    color: var(--text);
+}

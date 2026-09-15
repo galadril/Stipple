@@ -153,6 +153,11 @@ private:
     void renderFrame(std::uint64_t nowMillis);
     void renderSafeMode();
     bool refreshActiveScene();
+
+    /// Clock style with the user's stored preferences applied over the host
+    /// defaults, so a settings change takes effect on the next frame without
+    /// any extra wiring.
+    apps::ClockStyle currentClockStyle() const noexcept;
     bool splashElapsed(std::uint64_t nowMillis) const noexcept;
 
     platform::IPlatformServices& platform_;

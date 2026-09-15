@@ -306,7 +306,7 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
             if (active->builtin == app::Builtin::TestPattern) {
                 scheduler_.invalidate();
             } else if (active->builtin == app::Builtin::Clock) {
-                if (apps::clockChanged(platform_.clock(), config_.clock, lastClockMillis_,
+                if (apps::clockChanged(platform_.clock(), currentClockStyle(), lastClockMillis_,
                                        nowMillis)) {
                     scheduler_.invalidate();
                 }
@@ -349,6 +349,13 @@ std::uint64_t ApplicationHost::nextDueMillis(std::uint64_t nowMillis) const {
 }
 
 // --- rendering ---------------------------------------------------------------
+
+apps::ClockStyle ApplicationHost::currentClockStyle() const noexcept {
+    apps::ClockStyle style = config_.clock;
+    style.theme = apps::clockThemeFromName(settings_.clock.theme);
+    style.twentyFourHour = settings_.clock.twentyFourHour;
+    return style;
+}
 
 bool ApplicationHost::refreshActiveScene() {
     const app::App* active = carousel_.active();
@@ -414,7 +421,7 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
 
     switch (active->builtin) {
         case app::Builtin::Clock:
-            apps::renderClock(canvas, platform_.clock(), config_.clock);
+            apps::renderClock(canvas, platform_.clock(), currentClockStyle());
             return;
         case app::Builtin::TestPattern:
             demo::drawTestPattern(canvas, static_cast<int>(nowMillis / 33u));

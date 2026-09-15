@@ -86,6 +86,8 @@ std::string buildBody(const Config& config) {
     body += config.clock.twentyFourHour ? "true" : "false";
     body += ",\"utcOffsetSeconds\":";
     body += std::to_string(config.clock.utcOffsetSeconds);
+    body += ",\"theme\":";
+    appendEscaped(body, config.clock.theme);
     body += '}';
 
     body += '}';
@@ -189,6 +191,7 @@ bool ConfigStore::deserialize(std::string_view payload,
     parsed.clock.twentyFourHour = clock["twentyFourHour"].toBool(parsed.clock.twentyFourHour);
     parsed.clock.utcOffsetSeconds =
         clampUtcOffset(clock["utcOffsetSeconds"].toInt(parsed.clock.utcOffsetSeconds));
+    parsed.clock.theme = clock["theme"].toString(parsed.clock.theme);
 
     out = std::move(parsed);
     return true;

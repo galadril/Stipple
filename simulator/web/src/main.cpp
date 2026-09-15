@@ -276,6 +276,40 @@ EMSCRIPTEN_KEEPALIVE int notrix_frames_skipped() {
     return static_cast<int>(emulator().device().frameStats().skipped);
 }
 
+// --- clock themes ----------------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE int notrix_clock_theme_count() {
+    return notrix::apps::kClockThemeCount;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* notrix_clock_theme_name(int index) {
+    return notrix::apps::clockThemeName(notrix::apps::clockThemeAt(index));
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_clock_theme() {
+    Emulator& state = emulator();
+    const notrix::apps::ClockTheme theme =
+        notrix::apps::clockThemeFromName(state.device().settings().clock.theme);
+    for (int i = 0; i < notrix::apps::kClockThemeCount; ++i) {
+        if (notrix::apps::clockThemeAt(i) == theme) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+/// Set the clock face and jump to the clock app so the change is visible at
+/// once, rather than whenever the carousel next comes round.
+EMSCRIPTEN_KEEPALIVE void notrix_set_clock_theme(int index, int nowMillis) {
+    Emulator& state = emulator();
+    const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
+
+    state.device().settings().clock.theme =
+        notrix::apps::clockThemeName(notrix::apps::clockThemeAt(index));
+    state.device().carousel().activate("clock", now);
+    state.device().scheduler().invalidate();
+}
+
 EMSCRIPTEN_KEEPALIVE int notrix_log_count() {
     return emulator().device().logger().count();
 }
