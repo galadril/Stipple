@@ -88,6 +88,7 @@ class ApplicationHost : public platform::IHttpRequestHandler {
 public:
     static constexpr std::string_view kBootStateKey = "boot";
     static constexpr std::string_view kClockAppId = "clock";
+    static constexpr std::string_view kIconStateKey = "icons";
     static constexpr int kSceneTokens = 512;
 
     ApplicationHost(platform::IPlatformServices& platform, HostConfig config = HostConfig{});
@@ -151,6 +152,10 @@ private:
     void markHealthy();
 
     void installBuiltins();
+    void loadIcons();
+    /// Writes the icon set if it has changed since the last save. Called from
+    /// tick(), so every mutation path is covered rather than just the API.
+    void persistIconsIfChanged();
     void pumpInput(std::uint64_t nowMillis);
     void renderFrame(std::uint64_t nowMillis);
     void renderSafeMode();
@@ -192,6 +197,7 @@ private:
     int framesSinceBoot_ = 0;
     std::uint64_t lastTickMillis_ = 0;
     std::uint64_t lastClockMillis_ = 0;
+    std::uint32_t persistedIconRevision_ = 0;
 
     bool splashActive_ = false;
     bool ticking_ = false;

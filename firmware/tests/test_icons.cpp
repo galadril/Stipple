@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/asset/IconStore.h"
 
+#include <cstring>
 #include <string>
 
 #include "notrix/graphics/Canvas.h"
@@ -373,4 +374,112 @@ NOTRIX_TEST(Icons, ThermometerSceneMatchesGolden) {
     NOTRIX_CHECK(scene.ok);
     NOTRIX_CHECK_EQ(scene.scene.issueCount(), 0);
     NOTRIX_CHECK_GOLDEN("icon-thermometer", scene.render());
+}
+
+// --- persistence -------------------------------------------------------------
+
+NOTRIX_TEST(Icons, RoundTripsThroughStorage) {
+    IconStore original;
+
+    Icon flag = solid("flag", 6, colors::kGreen);
+    flag.hasTransparency = true;
+    flag.transparent = colors::kMagenta;
+    flag.pixels[0] = colors::kMagenta;
+    original.put(std::move(flag));
+
+    Icon spin = solid("spin", 4, colors::kBlue, 3);
+    spin.frameMillis = 250;
+    original.put(std::move(spin));
+
+    const std::string blob = original.serialize();
+
+    IconStore restored;
+    NOTRIX_CHECK(restored.deserialize(blob));
+    NOTRIX_CHECK_EQ(restored.count(), 2);
+    NOTRIX_CHECK_EQ(restored.bytesUsed(), original.bytesUsed());
+
+    const Icon* flagBack = restored.find("flag");
+    NOTRIX_CHECK(flagBack != nullptr);
+    NOTRIX_CHECK_EQ(flagBack->width, 6);
+    NOTRIX_CHECK(flagBack->hasTransparency);
+    NOTRIX_CHECK_EQ(flagBack->transparent, colors::kMagenta);
+    NOTRIX_CHECK_EQ(flagBack->pixels[0], colors::kMagenta);
+    NOTRIX_CHECK_EQ(flagBack->pixels[1], colors::kGreen);
+
+    const Icon* spinBack = restored.find("spin");
+    NOTRIX_CHECK_EQ(spinBack->frameCount, 3);
+    NOTRIX_CHECK_EQ(spinBack->frameMillis, std::uint32_t(250));
+}
+
+NOTRIX_TEST(Icons, BinaryIsFarSmallerThanJsonWouldBe) {
+    // The reason for a binary format rather than reusing the JSON path: an
+    // animation encoded as decimal text would not fit in a storage value.
+    IconStore store;
+    store.put(solid("a", 16, colors::kRed, 8));
+
+    const std::size_t pixels = 16u * 16u * 8u;
+    const std::size_t blob = store.serialize().size();
+
+    NOTRIX_CHECK(blob < pixels * 4u);           // ~3 bytes per pixel plus a header
+    NOTRIX_CHECK(blob > pixels * 3u);           // and it really does hold them all
+}
+
+NOTRIX_TEST(Icons, EmptyStoreRoundTrips) {
+    IconStore empty;
+    IconStore restored;
+    restored.put(solid("stale", 4, colors::kRed));
+
+    NOTRIX_CHECK(restored.deserialize(empty.serialize()));
+    NOTRIX_CHECK_EQ(restored.count(), 0);
+}
+
+NOTRIX_TEST(Icons, RejectsCorruptBlobsWithoutCrashing) {
+    IconStore store;
+    const char* samples[] = {"", "NIC", "NIC\x01", "garbage", "NIC\x02\x01", "\x00\x00\x00\x00"};
+
+    for (const char* sample : samples) {
+        IconStore target;
+        NOTRIX_CHECK_FALSE(target.deserialize(std::string(sample, std::strlen(sample))));
+        NOTRIX_CHECK_EQ(target.count(), 0);
+    }
+}
+
+NOTRIX_TEST(Icons, EveryTruncationOfAValidBlobIsRejected) {
+    // Truncation is what an interrupted write looks like. No prefix may be
+    // accepted as a partial set, and none may read past the end.
+    IconStore store;
+    store.put(solid("a", 5, colors::kRed, 2));
+    store.put(solid("b", 4, colors::kBlue));
+
+    const std::string blob = store.serialize();
+    for (std::size_t length = 0; length < blob.size(); ++length) {
+        IconStore target;
+        NOTRIX_CHECK_FALSE(target.deserialize(blob.substr(0, length)));
+    }
+    IconStore target;
+    NOTRIX_CHECK(target.deserialize(blob));
+}
+
+NOTRIX_TEST(Icons, TrailingRubbishIsRejected) {
+    // Accepting extra bytes would mean a blob could carry something we did not
+    // write and did not notice.
+    IconStore store;
+    store.put(solid("a", 4, colors::kRed));
+
+    IconStore target;
+    NOTRIX_CHECK_FALSE(target.deserialize(store.serialize() + "extra"));
+}
+
+NOTRIX_TEST(Icons, LyingGeometryInAStoredBlobIsRejected) {
+    IconStore store;
+    store.put(solid("a", 4, colors::kRed));
+    std::string blob = store.serialize();
+
+    // Header is "NIC" + version + count + idLen + "a", so width sits next.
+    const std::size_t widthOffset = 3 + 1 + 1 + 1 + 1;
+    blob[widthOffset] = static_cast<char>(32);  // claims 32 wide with 4x4 of pixels
+
+    IconStore target;
+    NOTRIX_CHECK_FALSE(target.deserialize(blob));
+    NOTRIX_CHECK_EQ(target.count(), 0);
 }

@@ -135,12 +135,14 @@ bool ApplicationHost::initialize() {
     carousel.defaultDurationSeconds = settings_.apps.defaultDurationSeconds;
     carousel_.setConfig(carousel);
 
-    // 5. Apps.
+    // 5. Apps and stored assets.
     if (bootMode_ == BootMode::Normal) {
         installBuiltins();
+        loadIcons();
     } else {
-        logger_.warn(0, "safe mode: no apps installed");
+        logger_.warn(0, "safe mode: no apps or icons loaded");
     }
+    persistedIconRevision_ = icons_.revision();
 
     // 6. Capabilities this build does not have. Logged rather than silently
     //    absent, so a device that cannot be reached says why.
@@ -170,6 +172,38 @@ void ApplicationHost::installBuiltins() {
     clock.builtin = app::Builtin::Clock;
     clock.durationSeconds = 0;  // uses the carousel default
     registry_.put(std::move(clock));
+}
+
+void ApplicationHost::loadIcons() {
+    std::string blob;
+    if (!platform_.storage().read(kIconStateKey, blob)) {
+        return;  // nothing stored yet
+    }
+
+    if (!icons_.deserialize(blob)) {
+        // Corrupt icon data must not stop the device starting; it just means no
+        // icons. Dropping the key avoids re-reading the same broken blob every
+        // boot and keeps the failure from looking intermittent.
+        logger_.warn(0, "stored icons unreadable; discarding them");
+        platform_.storage().remove(kIconStateKey);
+        return;
+    }
+    logger_.info(0, "icons loaded");
+}
+
+void ApplicationHost::persistIconsIfChanged() {
+    if (icons_.revision() == persistedIconRevision_) {
+        return;
+    }
+    persistedIconRevision_ = icons_.revision();
+
+    if (icons_.count() == 0) {
+        platform_.storage().remove(kIconStateKey);
+        return;
+    }
+    if (!platform_.storage().write(kIconStateKey, icons_.serialize())) {
+        logger_.error(lastTickMillis_, "could not persist icons");
+    }
 }
 
 void ApplicationHost::shutdown() {
@@ -281,6 +315,7 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
     }
 
     pumpInput(nowMillis);
+    persistIconsIfChanged();
 
     if (splashActive_) {
         if (splashElapsed(nowMillis)) {

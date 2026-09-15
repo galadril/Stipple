@@ -98,6 +98,31 @@ public:
     /// the icon is empty.
     static BitmapView frameView(const Icon& icon, int frameIndex) noexcept;
 
+    // --- persistence ---------------------------------------------------------
+    //
+    // Everything is written as one binary blob under a single key, rather than
+    // a key per icon plus an index. A single write is atomic under the IStorage
+    // contract, so there is no window where an index and the icons it names can
+    // disagree after a power cut. Rewriting the whole set on every change costs
+    // little for data that changes rarely.
+    //
+    // Binary rather than JSON because the difference is not marginal: 256 pixels
+    // as decimal text is roughly 2 KB for 768 bytes of data, and an animation
+    // would not fit in a storage value at all.
+
+    static constexpr std::uint8_t kFormatVersion = 1;
+
+    /// Pack every stored icon. The result is binary and may contain NUL bytes.
+    std::string serialize() const;
+
+    /// Replace the contents from a blob produced by `serialize`.
+    ///
+    /// Returns false and leaves the store empty if the data is unusable. Storage
+    /// can be corrupt, so every field is bounds-checked before it is trusted —
+    /// a declared width is never used to size a read until it has been verified
+    /// against the bytes actually present.
+    bool deserialize(std::string_view blob);
+
 private:
     std::vector<Icon> icons_;
     std::size_t bytesUsed_ = 0;

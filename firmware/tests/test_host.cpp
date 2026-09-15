@@ -3,6 +3,7 @@
 
 #include <string>
 
+#include "notrix/asset/IconStore.h"
 #include "notrix/platform/simulator/SimulatorPlatform.h"
 #include "support/TestFramework.h"
 
@@ -455,4 +456,80 @@ NOTRIX_TEST(Host, NotificationsInterruptTheCarousel) {
 
     run(host, platform, 1000);
     NOTRIX_CHECK(host.frame() != clockFace);
+}
+
+// --- icon persistence --------------------------------------------------------
+
+NOTRIX_TEST(Host, IconsSurviveAReboot) {
+    SimulatorPlatform platform;
+
+    {
+        ApplicationHost host(platform, quietConfig());
+        host.initialize();
+
+        notrix::asset::Icon icon;
+        icon.id = "bell";
+        icon.width = 4;
+        icon.height = 4;
+        icon.frameCount = 2;
+        icon.frameMillis = 120;
+        icon.hasTransparency = true;
+        icon.transparent = colors::kMagenta;
+        icon.pixels.assign(32, colors::kYellow);
+        host.icons().put(std::move(icon));
+
+        run(host, platform, 3500);  // a tick persists the change
+    }
+
+    ApplicationHost rebooted(platform, quietConfig());
+    rebooted.initialize();
+
+    const notrix::asset::Icon* restored = rebooted.icons().find("bell");
+    NOTRIX_CHECK(restored != nullptr);
+    NOTRIX_CHECK_EQ(restored->frameCount, 2);
+    NOTRIX_CHECK_EQ(restored->frameMillis, std::uint32_t(120));
+    NOTRIX_CHECK(restored->hasTransparency);
+}
+
+NOTRIX_TEST(Host, SafeModeDoesNotLoadStoredIcons) {
+    // Safe mode ignores everything stored, since stored data is one of the
+    // things that could have caused the failures that got us here.
+    SimulatorPlatform platform;
+
+    {
+        ApplicationHost host(platform, quietConfig());
+        host.initialize();
+        notrix::asset::Icon icon;
+        icon.id = "x";
+        icon.width = 2;
+        icon.height = 2;
+        icon.frameCount = 1;
+        icon.pixels.assign(4, colors::kRed);
+        host.icons().put(std::move(icon));
+        run(host, platform, 3500);
+    }
+
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        ApplicationHost failing(platform, quietConfig());
+        failing.initialize();  // never renders
+    }
+
+    ApplicationHost recovered(platform, quietConfig());
+    recovered.initialize();
+    NOTRIX_CHECK(recovered.bootMode() == BootMode::SafeMode);
+    NOTRIX_CHECK_EQ(recovered.icons().count(), 0);
+}
+
+NOTRIX_TEST(Host, CorruptStoredIconsDoNotStopStartup) {
+    SimulatorPlatform platform;
+    platform.storage().write(ApplicationHost::kIconStateKey, "NIC\x01\x7f garbage");
+
+    ApplicationHost host(platform, quietConfig());
+    NOTRIX_CHECK(host.initialize());
+    NOTRIX_CHECK_EQ(host.icons().count(), 0);
+
+    // The unusable blob is dropped rather than re-read every boot, which would
+    // make the failure look intermittent.
+    std::string leftover;
+    NOTRIX_CHECK_FALSE(platform.storage().read(ApplicationHost::kIconStateKey, leftover));
 }

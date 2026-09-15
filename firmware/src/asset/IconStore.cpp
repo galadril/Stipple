@@ -136,5 +136,171 @@ BitmapView IconStore::frameView(const Icon& icon, int frameIndex) noexcept {
     return view;
 }
 
+// --- persistence -------------------------------------------------------------
+
+namespace {
+
+void pushByte(std::string& out, std::uint8_t value) {
+    out.push_back(static_cast<char>(value));
+}
+
+void pushUint16(std::string& out, std::uint16_t value) {
+    pushByte(out, static_cast<std::uint8_t>(value & 0xFFu));
+    pushByte(out, static_cast<std::uint8_t>((value >> 8) & 0xFFu));
+}
+
+/// Reads sequentially, refusing to run past the end. Every read is checked, so
+/// a truncated or corrupt blob fails cleanly instead of walking off the buffer.
+class Reader {
+public:
+    explicit Reader(std::string_view data) noexcept : data_(data) {}
+
+    bool byte(std::uint8_t& out) noexcept {
+        if (offset_ >= data_.size()) {
+            return false;
+        }
+        out = static_cast<std::uint8_t>(data_[offset_++]);
+        return true;
+    }
+
+    bool uint16(std::uint16_t& out) noexcept {
+        std::uint8_t low = 0;
+        std::uint8_t high = 0;
+        if (!byte(low) || !byte(high)) {
+            return false;
+        }
+        out = static_cast<std::uint16_t>(low | (high << 8));
+        return true;
+    }
+
+    bool bytes(std::size_t count, std::string_view& out) noexcept {
+        if (count > data_.size() - offset_) {
+            return false;
+        }
+        out = data_.substr(offset_, count);
+        offset_ += count;
+        return true;
+    }
+
+    bool atEnd() const noexcept { return offset_ >= data_.size(); }
+
+private:
+    std::string_view data_;
+    std::size_t offset_ = 0;
+};
+
+}  // namespace
+
+std::string IconStore::serialize() const {
+    std::string out;
+    out.reserve(bytesUsed_ + static_cast<std::size_t>(count()) * 64u + 8u);
+
+    out += "NIC";
+    pushByte(out, kFormatVersion);
+    pushByte(out, static_cast<std::uint8_t>(count()));
+
+    for (const Icon& icon : icons_) {
+        pushByte(out, static_cast<std::uint8_t>(icon.id.size()));
+        out += icon.id;
+
+        pushByte(out, static_cast<std::uint8_t>(icon.width));
+        pushByte(out, static_cast<std::uint8_t>(icon.height));
+        pushByte(out, static_cast<std::uint8_t>(icon.frameCount));
+        pushByte(out, icon.hasTransparency ? 1u : 0u);
+        pushUint16(out, static_cast<std::uint16_t>(icon.frameMillis > 0xFFFFu
+                                                       ? 0xFFFFu
+                                                       : icon.frameMillis));
+        pushByte(out, icon.transparent.r);
+        pushByte(out, icon.transparent.g);
+        pushByte(out, icon.transparent.b);
+
+        for (const Rgb& pixel : icon.pixels) {
+            pushByte(out, pixel.r);
+            pushByte(out, pixel.g);
+            pushByte(out, pixel.b);
+        }
+    }
+    return out;
+}
+
+bool IconStore::deserialize(std::string_view blob) {
+    clear();
+
+    Reader reader(blob);
+
+    std::string_view magic;
+    std::uint8_t version = 0;
+    std::uint8_t iconCount = 0;
+    if (!reader.bytes(3, magic) || magic != "NIC" || !reader.byte(version) ||
+        version != kFormatVersion || !reader.byte(iconCount)) {
+        return false;
+    }
+
+    for (std::uint8_t i = 0; i < iconCount; ++i) {
+        std::uint8_t idLength = 0;
+        std::string_view id;
+        if (!reader.byte(idLength) || !reader.bytes(idLength, id)) {
+            clear();
+            return false;
+        }
+
+        std::uint8_t width = 0;
+        std::uint8_t height = 0;
+        std::uint8_t frames = 0;
+        std::uint8_t flags = 0;
+        std::uint16_t frameMillis = 0;
+        std::uint8_t r = 0;
+        std::uint8_t g = 0;
+        std::uint8_t b = 0;
+        if (!reader.byte(width) || !reader.byte(height) || !reader.byte(frames) ||
+            !reader.byte(flags) || !reader.uint16(frameMillis) || !reader.byte(r) ||
+            !reader.byte(g) || !reader.byte(b)) {
+            clear();
+            return false;
+        }
+
+        // Validate the geometry before it is used to size anything.
+        if (width == 0 || height == 0 || frames == 0 || width > kMaxDimension ||
+            height > kMaxDimension || frames > kMaxFrames) {
+            clear();
+            return false;
+        }
+
+        const std::size_t pixelCount =
+            static_cast<std::size_t>(width) * height * frames;
+        std::string_view pixelBytes;
+        if (!reader.bytes(pixelCount * 3u, pixelBytes)) {
+            clear();
+            return false;
+        }
+
+        Icon icon;
+        icon.id = std::string(id);
+        icon.width = width;
+        icon.height = height;
+        icon.frameCount = frames;
+        icon.frameMillis = frameMillis == 0 ? 100u : frameMillis;
+        icon.hasTransparency = (flags & 1u) != 0u;
+        icon.transparent = Rgb{r, g, b};
+
+        icon.pixels.reserve(pixelCount);
+        for (std::size_t p = 0; p < pixelCount; ++p) {
+            icon.pixels.push_back(Rgb{static_cast<std::uint8_t>(pixelBytes[p * 3u]),
+                                      static_cast<std::uint8_t>(pixelBytes[p * 3u + 1u]),
+                                      static_cast<std::uint8_t>(pixelBytes[p * 3u + 2u])});
+        }
+
+        const PutResult result = put(std::move(icon));
+        if (result != PutResult::Added && result != PutResult::Replaced) {
+            // A blob that no longer fits the current limits is not usable, and
+            // silently keeping a partial set would be worse than starting clean.
+            clear();
+            return false;
+        }
+    }
+
+    return reader.atEnd();
+}
+
 }  // namespace asset
 }  // namespace notrix

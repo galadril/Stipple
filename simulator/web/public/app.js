@@ -359,14 +359,9 @@
         });
     }
 
-    /// Scale to fit the panel height, decode to RGB, and map anything
-    /// half-transparent to the colour key. Returns the geometry used.
-    function convert(image, id) {
-        var maxSide = Math.min(16, height);
-        var scale = Math.min(maxSide / image.width, maxSide / image.height, 1);
-        var w = Math.max(1, Math.round(image.width * scale));
-        var h = Math.max(1, Math.round(image.height * scale));
-
+    /// Scale to fit the panel and decode to RGB, writing into the staging buffer
+    /// at `frameIndex`. Anything half-transparent becomes the colour key.
+    function writeFrame(source, w, h, frameIndex) {
         var work = document.createElement('canvas');
         work.width = w;
         work.height = h;
@@ -375,10 +370,10 @@
         // Nearest-neighbour: smoothing a 64x64 glyph down to 16x16 turns crisp
         // pixel art into grey mush on a panel that cannot blend.
         workCtx.imageSmoothingEnabled = false;
-        workCtx.drawImage(image, 0, 0, w, h);
+        workCtx.drawImage(source, 0, 0, w, h);
 
         var data = workCtx.getImageData(0, 0, w, h).data;
-        var staging = core._notrix_icon_staging();
+        var staging = core._notrix_icon_staging() + frameIndex * w * h * 3;
         var heap = core.HEAPU8;
 
         for (var i = 0; i < w * h; i++) {
@@ -397,16 +392,79 @@
             heap[staging + i * 3 + 1] = g;
             heap[staging + i * 3 + 2] = b;
         }
+    }
 
-        // Write the id into its own staging buffer, avoiding any allocator or
-        // string-marshalling machinery across the boundary.
+    function targetSize(sourceWidth, sourceHeight) {
+        var maxSide = Math.min(16, height);
+        var scale = Math.min(maxSide / sourceWidth, maxSide / sourceHeight, 1);
+        return {
+            width: Math.max(1, Math.round(sourceWidth * scale)),
+            height: Math.max(1, Math.round(sourceHeight * scale))
+        };
+    }
+
+    function writeId(id) {
         var idBuffer = core._notrix_icon_id_buffer();
         var capacity = core._notrix_icon_id_capacity();
         var bytes = new TextEncoder().encode(id).subarray(0, capacity);
         core.HEAPU8.set(bytes, idBuffer);
         core.HEAPU8[idBuffer + bytes.length] = 0;
+    }
 
-        return { width: w, height: h };
+    /// Decode every frame of an animation.
+    ///
+    /// ImageDecoder is the only way to reach individual GIF frames from script:
+    /// an <img> element only ever exposes whichever frame it happens to be
+    /// showing. Resolves to null when the file turns out not to be animated.
+    function decodeAnimated(file, maxFrames) {
+        return file.arrayBuffer().then(function (buffer) {
+            var decoder = new ImageDecoder({ data: buffer, type: file.type });
+            return decoder.completed.then(function () {
+                var track = decoder.tracks.selectedTrack;
+                var total = track ? track.frameCount : 1;
+                if (total <= 1) {
+                    return null;
+                }
+
+                // Sample evenly rather than taking the first N, so a long
+                // animation keeps its whole loop instead of its opening moment.
+                var count = Math.min(total, maxFrames);
+                var indices = [];
+                for (var i = 0; i < count; i++) {
+                    indices.push(Math.floor(i * total / count));
+                }
+
+                var size = null;
+                var durations = [];
+                var chain = Promise.resolve();
+
+                indices.forEach(function (frameIndex, slot) {
+                    chain = chain.then(function () {
+                        return decoder.decode({ frameIndex: frameIndex });
+                    }).then(function (result) {
+                        if (size === null) {
+                            size = targetSize(result.image.displayWidth,
+                                              result.image.displayHeight);
+                        }
+                        writeFrame(result.image, size.width, size.height, slot);
+                        // duration is in microseconds, and may be absent.
+                        durations.push((result.image.duration || 100000) / 1000);
+                        result.image.close();
+                    });
+                });
+
+                return chain.then(function () {
+                    var total_ms = durations.reduce(function (a, b) { return a + b; }, 0);
+                    return {
+                        width: size.width,
+                        height: size.height,
+                        frames: count,
+                        frameMillis: Math.max(20, Math.round(total_ms / durations.length)),
+                        sampledFrom: total
+                    };
+                });
+            });
+        });
     }
 
     function iconStatus(text) {
@@ -422,24 +480,64 @@
         iconStatus(count + ' stored · ' + core._notrix_icon_bytes_used() + ' bytes');
     }
 
+    function commit(size) {
+        var result = core._notrix_icon_commit(size.width, size.height, size.frames || 1,
+                                              size.frameMillis || 100, TRANSPARENT_KEY);
+        if (result !== 0) {
+            iconStatus('rejected by the device (code ' + result + ')');
+            return false;
+        }
+        core._notrix_show_icon_app(nowMillis());
+        refreshIconStatus();
+        renderFrame();
+        return true;
+    }
+
+    function acceptStill(file, id) {
+        return loadImage(file).then(function (image) {
+            var size = targetSize(image.width, image.height);
+            writeFrame(image, size.width, size.height, 0);
+            writeId(id);
+            if (commit({ width: size.width, height: size.height, frames: 1 })) {
+                iconStatus('stored "' + id + '" (' + size.width + 'x' + size.height + ')');
+            }
+        });
+    }
+
     function acceptFile(file) {
         if (!file) {
             return;
         }
         var id = file.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'icon';
+        var maxFrames = 16;
+        var animated = file.type === 'image/gif' || file.type === 'image/webp';
 
-        loadImage(file).then(function (image) {
-            var size = convert(image, id);
-            var result = core._notrix_icon_commit(size.width, size.height, 1, 100,
-                                                  TRANSPARENT_KEY);
-            if (result !== 0) {
-                iconStatus('rejected by the device (code ' + result + ')');
-                return;
-            }
-            core._notrix_show_icon_app(nowMillis());
-            refreshIconStatus();
-            renderFrame();
-        }).catch(function (error) {
+        if (animated && typeof ImageDecoder === 'function') {
+            decodeAnimated(file, maxFrames).then(function (size) {
+                if (size === null) {
+                    return acceptStill(file, id);
+                }
+                writeId(id);
+                if (commit(size)) {
+                    var note = size.sampledFrom > size.frames
+                        ? ' (' + size.frames + ' of ' + size.sampledFrom + ' frames)'
+                        : ' (' + size.frames + ' frames)';
+                    iconStatus('stored "' + id + '"' + note);
+                }
+            }).catch(function () {
+                // Any decode failure falls back to a single frame rather than
+                // rejecting the file outright.
+                acceptStill(file, id).catch(function (error) {
+                    iconStatus(String(error.message || error));
+                });
+            });
+            return;
+        }
+
+        if (animated) {
+            iconStatus('this browser cannot split GIF frames; storing one');
+        }
+        acceptStill(file, id).catch(function (error) {
             iconStatus(String(error.message || error));
         });
     }
