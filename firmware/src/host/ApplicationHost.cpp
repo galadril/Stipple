@@ -483,8 +483,28 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
 api::Response ApplicationHost::handle(const api::Request& request) {
     const api::Response response = apiServer_.handle(request, lastTickMillis_);
 
-    // Anything that mutates state may have changed what should be on screen.
-    if (request.method != api::Method::Get && response.status < 400) {
+    // Log what changed the device and what failed, but not routine reads. A
+    // dashboard polling /health every second would otherwise push everything
+    // worth seeing out of a 24-entry ring within half a minute.
+    const bool mutating = request.method != api::Method::Get;
+    if (mutating || response.status >= 400) {
+        std::string line = api::methodName(request.method);
+        line += ' ';
+        line += request.path;
+        line += ' ';
+        line += std::to_string(response.status);
+
+        if (response.status >= 500) {
+            logger_.error(lastTickMillis_, line);
+        } else if (response.status >= 400) {
+            logger_.warn(lastTickMillis_, line);
+        } else {
+            logger_.info(lastTickMillis_, line);
+        }
+    }
+
+    if (mutating && response.status < 400) {
+        // Anything that mutates state may have changed what should be on screen.
         scheduler_.invalidate();
     }
     return response;

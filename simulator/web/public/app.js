@@ -44,6 +44,8 @@
         dropzone: document.getElementById('dropzone'),
         iconFile: document.getElementById('icon-file'),
         iconStatus: document.getElementById('icon-status'),
+        logview: document.getElementById('logview'),
+        logMeta: document.getElementById('log-meta'),
         notifyLow: document.getElementById('notify-low'),
         notifyHigh: document.getElementById('notify-high'),
         statRender: document.getElementById('stat-render'),
@@ -239,6 +241,7 @@
 
         if (now - statsSince > 250) {
             updateStats(now);
+            refreshLog();
             statsSince = now;
         }
 
@@ -566,6 +569,63 @@
         });
     }
 
+    // --- device log ---------------------------------------------------------
+    //
+    // Reads the firmware's own ring buffer (blueprint §22) rather than anything
+    // the page keeps for itself, so what is shown here is exactly what a device
+    // would report over the API.
+
+    var lastLogCount = -1;
+
+    function refreshLog() {
+        var count = core._notrix_log_count();
+        if (count === lastLogCount) {
+            return;   // the ring only ever grows between redraws
+        }
+        lastLogCount = count;
+
+        el.logview.textContent = '';
+        if (count === 0) {
+            var empty = document.createElement('li');
+            empty.className = 'empty';
+            empty.textContent = 'no entries';
+            el.logview.appendChild(empty);
+            el.logMeta.textContent = '-';
+            return;
+        }
+
+        for (var i = 0; i < count; i++) {
+            var raw = core.UTF8ToString(core._notrix_log_line(i));
+            var split = raw.indexOf('  ');
+            var level = split > 0 ? raw.slice(0, split) : 'INFO';
+            var message = split > 0 ? raw.slice(split + 2) : raw;
+
+            var row = document.createElement('li');
+
+            var when = document.createElement('span');
+            when.className = 'when';
+            when.textContent = String(i);
+
+            var lvl = document.createElement('span');
+            lvl.className = 'lvl lvl-' + level;
+            lvl.textContent = level;
+
+            var msg = document.createElement('span');
+            msg.className = 'msg';
+            // textContent, not innerHTML: log lines can carry anything, and an
+            // app name is attacker-controlled once the API is reachable.
+            msg.textContent = message;
+
+            row.appendChild(when);
+            row.appendChild(lvl);
+            row.appendChild(msg);
+            el.logview.appendChild(row);
+        }
+
+        el.logMeta.textContent = count + ' of ' + count + ' retained';
+        el.logview.scrollTop = el.logview.scrollHeight;
+    }
+
     // --- startup ------------------------------------------------------------
 
     function showNotice(html) {
@@ -617,6 +677,7 @@
         wireControls();
         wireDropzone();
         refreshIconStatus();
+        refreshLog();
         syncPauseLabel();
 
         startedAt = performance.now();
