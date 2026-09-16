@@ -83,6 +83,7 @@ MQTT namespace is `notrix/{deviceId}/...`. MQTT is optional — HTTP-only and MQ
 .\dev.ps1 build        # configure + build core and tests
 .\dev.ps1 test         # build and run the suite
 .\dev.ps1 test Canvas  # only tests whose "Suite.Name" contains "Canvas"
+.\dev.ps1 ci           # what CI runs: warnings as errors + strict goldens
 .\dev.ps1 golden       # rewrite golden fixtures after an intentional change
 .\dev.ps1 emulator     # build the WASM emulator (needs EMSDK)
 .\dev.ps1 serve        # build it and serve on http://localhost:8080/
@@ -113,3 +114,5 @@ Work stage by stage (blueprint §37). Never take on "build the complete firmware
 Per task: inspect existing code, state assumptions, make the smallest coherent change, add/update tests, run them, summarize changed files, list risks/TODOs, and do not silently widen scope.
 
 The open research questions in §46 are deliberately unresolved (hardware revisions, `/tmp` override reliability, `update.img` packaging, FlyThings SDK redistribution rights, OTA safety). Do not paper over them with guesses — each answer becomes documentation or an ADR.
+
+`docs/research/tc002-platform-findings.md` records what a third-party TC002 port demonstrates about the hardware — packaging format and the 8 MiB res ceiling, the `zkswe` launcher, ~42 FPS, an Android-style property service, no ambient light sensor, a knob plus two buttons. It is second-hand and flagged as such; confirm on real hardware before depending on any of it. When gathering more: **read their documentation, never their source** (ADR 0001).

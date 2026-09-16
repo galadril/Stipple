@@ -3,6 +3,7 @@
 
 #include <string>
 
+#include "notrix/apps/ClockApp.h"
 #include "notrix/core/Checksum.h"
 #include "notrix/platform/simulator/SimulatorPlatform.h"
 #include "support/TestFramework.h"
@@ -39,7 +40,7 @@ NOTRIX_TEST(Config, SavesAndLoads) {
     Config written;
     written.deviceName = "kitchen-clock";
     written.display.brightness = 200;
-    written.display.autoBrightness = true;
+    written.display.power = false;
     written.apps.defaultDurationSeconds = 12;
     written.apps.transitions = false;
     written.clock.twentyFourHour = false;
@@ -53,11 +54,106 @@ NOTRIX_TEST(Config, SavesAndLoads) {
     NOTRIX_CHECK_EQ(status(report.status), status(LoadStatus::Loaded));
     NOTRIX_CHECK_EQ(read.deviceName, std::string("kitchen-clock"));
     NOTRIX_CHECK_EQ(static_cast<int>(read.display.brightness), 200);
-    NOTRIX_CHECK(read.display.autoBrightness);
+    NOTRIX_CHECK_FALSE(read.display.power);
     NOTRIX_CHECK_EQ(read.apps.defaultDurationSeconds, 12);
     NOTRIX_CHECK_FALSE(read.apps.transitions);
     NOTRIX_CHECK_FALSE(read.clock.twentyFourHour);
     NOTRIX_CHECK_EQ(read.clock.utcOffsetSeconds, 3600);
+}
+
+NOTRIX_TEST(Config, ClockStyleSurvivesARoundTrip) {
+    SimulatorPlatform platform;
+    ConfigStore store(platform.storage());
+
+    Config written;
+    written.clock.theme = "calendar";
+    written.clock.leadingZero = false;
+    written.clock.showAmPm = true;
+    written.clock.color = 0x123456u;
+    written.clock.accentColor = 0xABCDEFu;
+    written.clock.dateColor = 0x0000FFu;
+    written.clock.dateOrder = "yearMonthDay";
+    written.clock.dateSeparator = "dash";
+    written.clock.dateYear = "twoDigit";
+    written.clock.blinkPeriodMillis = 250;
+    NOTRIX_CHECK(store.save(written));
+
+    Config read;
+    NOTRIX_CHECK_EQ(status(store.load(read).status), status(LoadStatus::Loaded));
+    NOTRIX_CHECK_EQ(read.clock.theme, std::string("calendar"));
+    NOTRIX_CHECK_FALSE(read.clock.leadingZero);
+    NOTRIX_CHECK(read.clock.showAmPm);
+    NOTRIX_CHECK_EQ(static_cast<int>(read.clock.color), 0x123456);
+    NOTRIX_CHECK_EQ(static_cast<int>(read.clock.accentColor), 0xABCDEF);
+    NOTRIX_CHECK_EQ(static_cast<int>(read.clock.dateColor), 0x0000FF);
+    NOTRIX_CHECK_EQ(read.clock.dateOrder, std::string("yearMonthDay"));
+    NOTRIX_CHECK_EQ(read.clock.dateSeparator, std::string("dash"));
+    NOTRIX_CHECK_EQ(read.clock.dateYear, std::string("twoDigit"));
+    NOTRIX_CHECK_EQ(static_cast<int>(read.clock.blinkPeriodMillis), 250);
+}
+
+NOTRIX_TEST(Config, EveryDefaultClockNameRoundTripsThroughTheAppLayer) {
+    // The settings API accepts only names that survive name -> enum -> name. A
+    // default that did not round-trip would be rejected by the same endpoint
+    // that reports it, which is a maddening bug to find from the outside.
+    const Config defaults;
+    NOTRIX_CHECK_EQ(
+        std::string(notrix::apps::clockThemeName(
+            notrix::apps::clockThemeFromName(defaults.clock.theme))),
+        defaults.clock.theme);
+    NOTRIX_CHECK_EQ(
+        std::string(notrix::apps::dateOrderName(
+            notrix::apps::dateOrderFromName(defaults.clock.dateOrder))),
+        defaults.clock.dateOrder);
+    NOTRIX_CHECK_EQ(
+        std::string(notrix::apps::dateSeparatorName(
+            notrix::apps::dateSeparatorFromName(defaults.clock.dateSeparator))),
+        defaults.clock.dateSeparator);
+    NOTRIX_CHECK_EQ(
+        std::string(notrix::apps::dateYearName(
+            notrix::apps::dateYearFromName(defaults.clock.dateYear))),
+        defaults.clock.dateYear);
+}
+
+NOTRIX_TEST(Config, AMalformedColourKeepsTheDefaultRatherThanFailingTheLoad) {
+    // One bad field must not cost the user every other setting they have.
+    SimulatorPlatform platform;
+    ConfigStore store(platform.storage());
+
+    platform.storage().write(
+        ConfigStore::kPrimaryKey,
+        envelope(R"({"schemaVersion":2,"deviceName":"kept",
+                     "clock":{"color":"not-a-colour","accentColor":"#00FF00"}})"));
+
+    Config read;
+    const LoadReport report = store.load(read);
+
+    NOTRIX_CHECK_EQ(status(report.status), status(LoadStatus::Loaded));
+    NOTRIX_CHECK_EQ(read.deviceName, std::string("kept"));
+    NOTRIX_CHECK_EQ(static_cast<int>(read.clock.color), 0xFFFFFF);   // default
+    NOTRIX_CHECK_EQ(static_cast<int>(read.clock.accentColor), 0x00FF00);  // applied
+}
+
+NOTRIX_TEST(Config, BlinkPeriodIsClampedButZeroIsPreserved) {
+    SimulatorPlatform platform;
+    ConfigStore store(platform.storage());
+
+    const auto loadedBlink = [&](const char* raw) {
+        platform.storage().write(
+            ConfigStore::kPrimaryKey,
+            envelope(std::string(R"({"schemaVersion":2,"clock":{"blinkPeriodMillis":)") + raw +
+                     "}}"));
+        Config read;
+        store.load(read);
+        return static_cast<int>(read.clock.blinkPeriodMillis);
+    };
+
+    // 0 is not "unset"; it means hold the colon lit, so it must survive.
+    NOTRIX_CHECK_EQ(loadedBlink("0"), 0);
+    NOTRIX_CHECK_EQ(loadedBlink("-5"), 0);
+    NOTRIX_CHECK_EQ(loadedBlink("10"), 100);
+    NOTRIX_CHECK_EQ(loadedBlink("999999"), 60000);
+    NOTRIX_CHECK_EQ(loadedBlink("1500"), 1500);
 }
 
 NOTRIX_TEST(Config, FirstBootUsesDefaults) {

@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 
 namespace notrix {
 
@@ -57,6 +58,19 @@ constexpr Rgb scale(Rgb c, std::uint8_t factor) noexcept {
     };
     return Rgb{mul(c.r), mul(c.g), mul(c.b)};
 }
+
+/// Parse `#RRGGBB` or `RRGGBB`, case-insensitive. Returns false and leaves `out`
+/// untouched on anything else — including short, long or non-hex input.
+///
+/// Lives here rather than in the scene layer because configuration, the HTTP API
+/// and scene elements all take colours from text and must agree on exactly what
+/// is accepted. Three near-identical parsers would eventually disagree.
+bool parseHexColor(std::string_view text, Rgb& out) noexcept;
+
+/// Write `#RRGGBB` plus a terminator. The buffer is the reason this takes an
+/// array rather than returning a string: it is called while serialising config
+/// and has no business allocating.
+void formatHexColor(Rgb color, char out[8]) noexcept;
 
 namespace colors {
 inline constexpr Rgb kBlack{0, 0, 0};

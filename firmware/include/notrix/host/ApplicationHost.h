@@ -134,6 +134,12 @@ public:
     /// The most recently rendered frame.
     const Framebuffer& frame() const noexcept { return framebuffer_; }
 
+    /// Clock style with the user's stored preferences applied over the host
+    /// defaults, so a settings change takes effect on the next frame without any
+    /// extra wiring. Public because the resolved style — not the raw strings in
+    /// config — is what a settings UI needs to show what is actually in force.
+    apps::ClockStyle clockStyle() const noexcept;
+
     /// Feed a raw hardware event. Normally the platform's input queue supplies
     /// these; exposed so a host can inject them directly.
     void handleInput(const platform::InputEvent& event);
@@ -161,10 +167,6 @@ private:
     void renderSafeMode();
     bool refreshActiveScene();
 
-    /// Clock style with the user's stored preferences applied over the host
-    /// defaults, so a settings change takes effect on the next frame without
-    /// any extra wiring.
-    apps::ClockStyle currentClockStyle() const noexcept;
     bool splashElapsed(std::uint64_t nowMillis) const noexcept;
 
     platform::IPlatformServices& platform_;
@@ -198,6 +200,9 @@ private:
     std::uint64_t lastTickMillis_ = 0;
     std::uint64_t lastClockMillis_ = 0;
     std::uint32_t persistedIconRevision_ = 0;
+    /// Display power as of the last rendered frame, so a change made through any
+    /// route forces one more redraw. Starts true to match the default setting.
+    bool renderedWithPower_ = true;
 
     bool splashActive_ = false;
     bool ticking_ = false;

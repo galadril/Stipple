@@ -16,6 +16,7 @@ add_library(notrix_core
     src/scene/Scene.cpp
     src/core/Checksum.cpp
     src/core/Log.cpp
+    src/core/Rgb.cpp
     src/render/FrameScheduler.cpp
     src/asset/IconStore.cpp
     src/apps/ClockApp.cpp

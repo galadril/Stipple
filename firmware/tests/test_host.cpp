@@ -116,6 +116,170 @@ NOTRIX_TEST(Host, AppliesStoredBrightnessAtBoot) {
     NOTRIX_CHECK_EQ(static_cast<int>(platform.display().brightness()), 42);
 }
 
+// --- display power -----------------------------------------------------------
+
+NOTRIX_TEST(Host, DisplayPowerOffBlanksThePanel) {
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    notrix::config::ConfigStore store(platform.storage());
+    notrix::config::Config saved;
+    saved.display.power = false;
+    store.save(saved);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 1000);
+
+    // Presented, not merely skipped: the panel has to actually go dark rather
+    // than hold whatever happened to be on it.
+    NOTRIX_CHECK(platform.simulatedDisplay().presentCount() > 0);
+    NOTRIX_CHECK_EQ(countLit(host.frame()), 0);
+}
+
+NOTRIX_TEST(Host, SwitchingTheDisplayOffTakesEffectImmediately) {
+    // The bug this guards: with dirty rendering, a panel switched off mid-minute
+    // would otherwise stay lit until the clock next changed.
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 1000);
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
+
+    host.settings().display.power = false;
+    run(host, platform, 1200);
+
+    NOTRIX_CHECK_EQ(countLit(host.frame()), 0);
+}
+
+NOTRIX_TEST(Host, SwitchingTheDisplayBackOnRestoresIt) {
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.power = false;
+    run(host, platform, 1000);
+    NOTRIX_CHECK_EQ(countLit(host.frame()), 0);
+
+    host.settings().display.power = true;
+    run(host, platform, 2000);
+
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
+}
+
+NOTRIX_TEST(Host, ADarkPanelOnlyRedrawsForThePeriodicRefresh) {
+    // An off switch that still rendered black at 30 FPS would defeat its own
+    // purpose. What should remain is the self-healing refresh and nothing else,
+    // so this is asserted against the refresh cadence rather than against zero.
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    HostConfig config = quietConfig();
+    config.frame.periodicRefreshMillis = 5000;
+    ApplicationHost host(platform, config);
+    host.initialize();
+
+    host.settings().display.power = false;
+    run(host, platform, 1000);
+    const int settled = static_cast<int>(host.frameStats().rendered);
+
+    const std::uint64_t spanMillis = 20000;
+    run(host, platform, 1000 + spanMillis);
+
+    const int drawn = static_cast<int>(host.frameStats().rendered) - settled;
+    const int refreshes = static_cast<int>(spanMillis / config.frame.periodicRefreshMillis);
+    NOTRIX_CHECK(drawn <= refreshes + 1);
+
+    // And the comparison that gives the number meaning: a lit clock over the
+    // same span redraws many times more often.
+    SimulatorPlatform lit;
+    lit.simulatedClock().setWallClock(1'700'000'000);
+    ApplicationHost litHost(lit, config);
+    litHost.initialize();
+    run(litHost, lit, 1000);
+    const int litSettled = static_cast<int>(litHost.frameStats().rendered);
+    run(litHost, lit, 1000 + spanMillis);
+
+    NOTRIX_CHECK(static_cast<int>(litHost.frameStats().rendered) - litSettled > drawn);
+}
+
+NOTRIX_TEST(Host, TimeKeepsRunningWhileTheDisplayIsOff) {
+    // Switching the panel back on should show the current moment, not resume
+    // where it left off.
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().display.power = false;
+    run(host, platform, 500);
+
+    platform.simulatedClock().setWallClock(1'700'003'600);  // an hour later
+    run(host, platform, 1500);
+    host.settings().display.power = true;
+    run(host, platform, 3000);
+
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
+}
+
+// --- clock settings reach the renderer ---------------------------------------
+
+NOTRIX_TEST(Host, StoredClockSettingsBecomeTheRenderedStyle) {
+    SimulatorPlatform platform;
+    notrix::config::ConfigStore store(platform.storage());
+    notrix::config::Config saved;
+    saved.clock.theme = "weekday";
+    saved.clock.twentyFourHour = false;
+    saved.clock.leadingZero = false;
+    saved.clock.showAmPm = true;
+    saved.clock.color = 0xFF8800u;
+    saved.clock.accentColor = 0x00FF00u;
+    saved.clock.dateColor = 0xFF00FFu;
+    saved.clock.dateOrder = "monthDayYear";
+    saved.clock.dateSeparator = "slash";
+    saved.clock.dateYear = "fourDigit";
+    saved.clock.blinkPeriodMillis = 0;
+    store.save(saved);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    const notrix::apps::ClockStyle style = host.clockStyle();
+    NOTRIX_CHECK(style.theme == notrix::apps::ClockTheme::Weekday);
+    NOTRIX_CHECK_FALSE(style.twentyFourHour);
+    NOTRIX_CHECK_FALSE(style.leadingZero);
+    NOTRIX_CHECK(style.showAmPm);
+    NOTRIX_CHECK(style.color == notrix::rgb(255, 136, 0));
+    NOTRIX_CHECK(style.accentColor == notrix::rgb(0, 255, 0));
+    NOTRIX_CHECK(style.dateColor == notrix::rgb(255, 0, 255));
+    NOTRIX_CHECK(style.dateOrder == notrix::apps::DateOrder::MonthDayYear);
+    NOTRIX_CHECK(style.dateSeparator == notrix::apps::DateSeparator::Slash);
+    NOTRIX_CHECK(style.dateYear == notrix::apps::DateYear::FourDigit);
+    NOTRIX_CHECK_EQ(static_cast<int>(style.blinkPeriodMillis), 0);
+}
+
+NOTRIX_TEST(Host, UnknownClockSettingNamesFallBackInsteadOfFailing) {
+    // A config written by a newer build can name a face this one does not have.
+    // Degrading to the default beats refusing to show a clock at all.
+    SimulatorPlatform platform;
+    notrix::config::ConfigStore store(platform.storage());
+    notrix::config::Config saved;
+    saved.clock.theme = "holographic";
+    saved.clock.dateOrder = "stardate";
+    store.save(saved);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    const notrix::apps::ClockStyle style = host.clockStyle();
+    NOTRIX_CHECK(style.theme == notrix::apps::ClockTheme::Minimal);
+    NOTRIX_CHECK(style.dateOrder == notrix::apps::DateOrder::DayMonthYear);
+}
+
 // --- the loop ----------------------------------------------------------------
 
 NOTRIX_TEST(Host, RendersAndPresentsFrames) {

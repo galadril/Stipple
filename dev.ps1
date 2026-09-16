@@ -18,7 +18,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'golden', 'preview', 'emulator', 'serve', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'serve', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -104,12 +104,12 @@ function Invoke-Build([string]$Preset) {
     if ($LASTEXITCODE -ne 0) { throw "build failed for preset '$Preset'" }
 }
 
-function Get-TestBinary {
+function Get-TestBinary([string]$Preset = 'host-debug') {
     # Single-config generators emit into the preset directory; multi-config ones
     # nest under the configuration name. Switching generators leaves the old
     # binary behind, and running a stale one silently reports stale results, so
     # pick the most recently written rather than the first path that exists.
-    $testDir = Join-Path $repoRoot "build\host-debug\firmware\tests"
+    $testDir = Join-Path $repoRoot "build\$Preset\firmware\tests"
     if (-not (Test-Path $testDir)) {
         throw "no test output at $testDir — did the build succeed?"
     }
@@ -134,6 +134,18 @@ switch ($Command) {
         $filter = if ($Rest) { $Rest[0] } else { '' }
         & $binary $filter
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+
+    'ci' {
+        # What CI actually runs: warnings as errors, and missing golden fixtures
+        # treated as failures rather than quietly created. Worth having locally,
+        # because the alternative is finding out from a red build.
+        Invoke-Build 'ci'
+        $binary = Get-TestBinary 'ci'
+        $env:NOTRIX_STRICT_GOLDEN = '1'
+        try { & $binary } finally { Remove-Item env:NOTRIX_STRICT_GOLDEN -ErrorAction SilentlyContinue }
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Write-Host "`nCI checks passed." -ForegroundColor Green
     }
 
     'golden' {

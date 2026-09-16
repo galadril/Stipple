@@ -19,8 +19,21 @@ inline constexpr int kCurrentSchemaVersion = 2;
 
 struct DisplaySettings {
     std::uint8_t brightness = 128;
-    bool autoBrightness = false;
+
+    /// Panel on or off, without cutting power. Off still renders and presents —
+    /// a black frame, so the panel is genuinely dark rather than holding the
+    /// last image.
+    bool power = true;
 };
+
+// Note: there is deliberately no `autoBrightness`. It was here, copied from what
+// pixel-clock settings pages usually offer, until a third-party TC002 port
+// confirmed the hardware has no ambient light sensor at all — see
+// docs/research/tc002-platform-findings.md. A switch nothing can honour is
+// exactly the kind of quietly-lying control this project refuses to ship
+// elsewhere. If a future device does have a sensor, the honest shape is an
+// optional platform capability that reports its presence (ADR 0013), not a
+// config flag that hopes.
 
 struct AppSettings {
     int defaultDurationSeconds = 8;
@@ -39,6 +52,34 @@ struct ClockSettings {
     /// Adding this needed no schema bump: an absent field takes its default, so
     /// a v2 document still loads unchanged.
     std::string theme = "minimal";
+
+    /// Show 07:05 rather than 7:05.
+    bool leadingZero = true;
+
+    /// 12-hour clock only, and only on faces with room for it.
+    bool showAmPm = false;
+
+    /// Colours as packed 0xRRGGBB. Packed rather than `Rgb` so that config stays
+    /// a plain serialisable aggregate, and stored as integers rather than
+    /// strings so a malformed colour cannot appear mid-load; the text form is a
+    /// presentation detail of the API and the stored document.
+    std::uint32_t color = 0xFFFFFFu;
+    std::uint32_t accentColor = 0x00BEFFu;
+    std::uint32_t dateColor = 0x00BEFFu;
+
+    /// Date field order, separator and year width, by name. Same reasoning as
+    /// `theme`: an unrecognised value from a newer build degrades to the default
+    /// rather than failing the load.
+    /// These must be spelled exactly as apps::dateOrderName and friends return
+    /// them: the settings API accepts only names that survive a name -> enum ->
+    /// name round trip, so a default that did not round-trip would be rejected
+    /// by the very endpoint that reports it.
+    std::string dateOrder = "dayMonthYear";
+    std::string dateSeparator = "dot";
+    std::string dateYear = "none";
+
+    /// Colon blink period in milliseconds; 0 holds it lit.
+    std::uint32_t blinkPeriodMillis = 1000;
 };
 
 struct Config {

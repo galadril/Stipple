@@ -542,6 +542,107 @@ NOTRIX_TEST(Api, PatchRejectsOutOfRangeValues) {
     NOTRIX_CHECK_EQ(fixture.call("PATCH", "/api/v1/settings", R"({"deviceName":""})").status, 422);
 }
 
+NOTRIX_TEST(Api, ReportsClockStyleAsReadableText) {
+    // Colours go out as #RRGGBB rather than integers: a settings UI can bind a
+    // colour input to it directly, and a human reading the response can tell
+    // what it is.
+    Fixture fixture;
+    fixture.config.clock.accentColor = 0x00BEFFu;
+    Parsed parsed(fixture.call("GET", "/api/v1/settings").body);
+
+    NOTRIX_CHECK(parsed.ok);
+    const auto clock = parsed.root()["clock"];
+    NOTRIX_CHECK(clock["accentColor"].stringEquals("#00BEFF"));
+    NOTRIX_CHECK(clock["dateOrder"].stringEquals("dayMonthYear"));
+    NOTRIX_CHECK(clock["dateYear"].stringEquals("none"));
+    NOTRIX_CHECK_EQ(clock["blinkPeriodMillis"].toInt(), std::int64_t(1000));
+}
+
+NOTRIX_TEST(Api, PatchAcceptsClockStyle) {
+    Fixture fixture;
+    const Response response = fixture.call("PATCH", "/api/v1/settings",
+                                           R"({"clock":{"color":"#FF8800",
+                                                        "dateOrder":"monthDayYear",
+                                                        "dateSeparator":"slash",
+                                                        "dateYear":"fourDigit",
+                                                        "leadingZero":false,
+                                                        "blinkPeriodMillis":0}})");
+
+    NOTRIX_CHECK_EQ(response.status, 200);
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.config.clock.color), 0xFF8800);
+    NOTRIX_CHECK_EQ(fixture.config.clock.dateOrder, std::string("monthDayYear"));
+    NOTRIX_CHECK_EQ(fixture.config.clock.dateSeparator, std::string("slash"));
+    NOTRIX_CHECK_EQ(fixture.config.clock.dateYear, std::string("fourDigit"));
+    NOTRIX_CHECK_FALSE(fixture.config.clock.leadingZero);
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.config.clock.blinkPeriodMillis), 0);
+}
+
+NOTRIX_TEST(Api, PatchRejectsUnknownClockNames) {
+    // Silently falling back would leave a client believing it had selected
+    // something it had not.
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"clock":{"dateOrder":"stardate"}})").status,
+        422);
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"clock":{"dateSeparator":"comma"}})").status,
+        422);
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"clock":{"dateYear":"roman"}})").status, 422);
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"clock":{"theme":"holographic"}})").status,
+        422);
+}
+
+NOTRIX_TEST(Api, PatchRejectsMalformedColours) {
+    Fixture fixture;
+    const char* bad[] = {R"({"clock":{"color":"blue"}})", R"({"clock":{"color":"#FFF"}})",
+                         R"({"clock":{"color":"#GGGGGG"}})",
+                         R"({"clock":{"accentColor":"#1234567"}})"};
+    for (const char* body : bad) {
+        NOTRIX_CHECK_EQ(fixture.call("PATCH", "/api/v1/settings", body).status, 422);
+    }
+    // ...and the default survived every rejection.
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.config.clock.color), 0xFFFFFF);
+}
+
+NOTRIX_TEST(Api, PatchAcceptsZeroBlinkButNotAStrobe) {
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"clock":{"blinkPeriodMillis":0}})").status,
+        200);
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"clock":{"blinkPeriodMillis":5}})").status,
+        422);
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"clock":{"blinkPeriodMillis":99999}})")
+            .status,
+        422);
+}
+
+NOTRIX_TEST(Api, SettingsSurviveAGetPatchGetCycle) {
+    // Whatever GET reports must be acceptable to PATCH. If the two ever disagree
+    // a settings page will start refusing values it just displayed.
+    Fixture fixture;
+    const std::string first = fixture.call("GET", "/api/v1/settings").body;
+    Parsed parsed(first);
+    NOTRIX_CHECK(parsed.ok);
+
+    JsonWriter writer;
+    writer.beginObject().key("clock").beginObject();
+    writer.member("theme", parsed.root()["clock"]["theme"].toString());
+    writer.member("color", parsed.root()["clock"]["color"].toString());
+    writer.member("accentColor", parsed.root()["clock"]["accentColor"].toString());
+    writer.member("dateColor", parsed.root()["clock"]["dateColor"].toString());
+    writer.member("dateOrder", parsed.root()["clock"]["dateOrder"].toString());
+    writer.member("dateSeparator", parsed.root()["clock"]["dateSeparator"].toString());
+    writer.member("dateYear", parsed.root()["clock"]["dateYear"].toString());
+    writer.endObject().endObject();
+
+    NOTRIX_CHECK_EQ(fixture.call("PATCH", "/api/v1/settings", writer.str()).status, 200);
+    NOTRIX_CHECK_EQ(fixture.call("GET", "/api/v1/settings").body, first);
+}
+
 NOTRIX_TEST(Api, RejectedPatchLeavesSettingsUntouched) {
     // Applied to a copy, so a bad field cannot half-update the device.
     Fixture fixture;

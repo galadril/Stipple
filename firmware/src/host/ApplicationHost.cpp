@@ -329,27 +329,44 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
     }
 
     if (!splashActive_ && bootMode_ == BootMode::Normal) {
-        if (carousel_.tick(nowMillis)) {
-            scheduler_.invalidate();
-        }
-        if (notifications_.tick(nowMillis)) {
+        // Settings are shared by pointer with the API, so the display can be
+        // switched off between two ticks. Noticing it here rather than at the
+        // call site means every future route to the setting — MQTT, buttons, a
+        // schedule — gets the redraw for free.
+        if (settings_.display.power != renderedWithPower_) {
+            renderedWithPower_ = settings_.display.power;
             scheduler_.invalidate();
         }
 
-        // Anything time-varying has to say so, or dirty tracking would leave it
-        // frozen between content changes.
-        if (notifications_.active() != nullptr) {
-            scheduler_.invalidate();
-        } else if (const app::App* active = carousel_.active()) {
-            if (active->builtin == app::Builtin::TestPattern) {
+        // Timekeeping continues while the panel is off — apps still rotate and
+        // notifications still expire — so switching it back on shows the present
+        // moment rather than a resumed backlog.
+        const bool carouselMoved = carousel_.tick(nowMillis);
+        const bool notificationsMoved = notifications_.tick(nowMillis);
+
+        // Only the redrawing stops. Without this a dark panel would re-render
+        // black at the full frame rate, which is the one thing an off switch is
+        // supposed to avoid.
+        if (settings_.display.power) {
+            if (carouselMoved || notificationsMoved) {
                 scheduler_.invalidate();
-            } else if (active->builtin == app::Builtin::Clock) {
-                if (apps::clockChanged(platform_.clock(), currentClockStyle(), lastClockMillis_,
-                                       nowMillis)) {
+            }
+
+            // Anything time-varying has to say so, or dirty tracking would leave
+            // it frozen between content changes.
+            if (notifications_.active() != nullptr) {
+                scheduler_.invalidate();
+            } else if (const app::App* active = carousel_.active()) {
+                if (active->builtin == app::Builtin::TestPattern) {
+                    scheduler_.invalidate();
+                } else if (active->builtin == app::Builtin::Clock) {
+                    if (apps::clockChanged(platform_.clock(), clockStyle(),
+                                           lastClockMillis_, nowMillis)) {
+                        scheduler_.invalidate();
+                    }
+                } else if (refreshActiveScene() && scene_.animates()) {
                     scheduler_.invalidate();
                 }
-            } else if (refreshActiveScene() && scene_.animates()) {
-                scheduler_.invalidate();
             }
         }
     }
@@ -388,10 +405,22 @@ std::uint64_t ApplicationHost::nextDueMillis(std::uint64_t nowMillis) const {
 
 // --- rendering ---------------------------------------------------------------
 
-apps::ClockStyle ApplicationHost::currentClockStyle() const noexcept {
+apps::ClockStyle ApplicationHost::clockStyle() const noexcept {
+    // Starts from the build-time style so anything the user has not chosen keeps
+    // whatever this build considers sensible, then applies stored settings over
+    // the top. Names that are not recognised fall back inside the converters.
     apps::ClockStyle style = config_.clock;
     style.theme = apps::clockThemeFromName(settings_.clock.theme);
     style.twentyFourHour = settings_.clock.twentyFourHour;
+    style.leadingZero = settings_.clock.leadingZero;
+    style.showAmPm = settings_.clock.showAmPm;
+    style.color = fromPacked(settings_.clock.color);
+    style.accentColor = fromPacked(settings_.clock.accentColor);
+    style.dateColor = fromPacked(settings_.clock.dateColor);
+    style.dateOrder = apps::dateOrderFromName(settings_.clock.dateOrder);
+    style.dateSeparator = apps::dateSeparatorFromName(settings_.clock.dateSeparator);
+    style.dateYear = apps::dateYearFromName(settings_.clock.dateYear);
+    style.blinkPeriodMillis = settings_.clock.blinkPeriodMillis;
     return style;
 }
 
@@ -442,6 +471,14 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
     Canvas canvas(framebuffer_);
     canvas.clear();
 
+    // Display off. The panel is cleared and still presented, so it goes properly
+    // dark rather than freezing on whatever was last drawn. Safe mode is checked
+    // first on purpose: a stored `power: false` must never be able to hide the
+    // reason the device ended up in safe mode.
+    if (!settings_.display.power) {
+        return;
+    }
+
     if (splashActive_) {
         apps::renderSplash(canvas, "NOTRIX", splashDetail_, nowMillis - firstTickMillis_,
                            config_.splash);
@@ -462,7 +499,7 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
 
     switch (active->builtin) {
         case app::Builtin::Clock:
-            apps::renderClock(canvas, platform_.clock(), currentClockStyle());
+            apps::renderClock(canvas, platform_.clock(), clockStyle());
             return;
         case app::Builtin::TestPattern:
             demo::drawTestPattern(canvas, static_cast<int>(nowMillis / 33u));

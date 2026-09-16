@@ -44,6 +44,15 @@ LocalTime localTimeOf(const platform::ISystemClock& clock) noexcept {
     return time;
 }
 
+char separatorChar(DateSeparator separator) noexcept {
+    switch (separator) {
+        case DateSeparator::Slash: return '/';
+        case DateSeparator::Dash: return '-';
+        case DateSeparator::Dot: break;
+    }
+    return '.';
+}
+
 int displayHours(const LocalTime& time, bool twentyFourHour) noexcept {
     if (twentyFourHour) {
         return time.hours;
@@ -102,7 +111,9 @@ void drawHourMinute(Canvas& canvas, int x, int y, const LocalTime& time,
                     const ClockStyle& style, bool colonLit) {
     const int hours = displayHours(time, style.twentyFourHour);
 
-    drawTwoDigits(canvas, x, y, hours, style.color, !style.twentyFourHour);
+    // A blanked leading zero leaves its slot empty rather than narrowing the
+    // field, so the time never slides sideways at ten o'clock.
+    drawTwoDigits(canvas, x, y, hours, style.color, !style.leadingZero);
     if (colonLit) {
         drawGlyphAt(canvas, x + kPairWidth + kGap, y, ':', style.accentColor);
     }
@@ -204,6 +215,51 @@ const char* clockThemeName(ClockTheme theme) noexcept {
     return "minimal";
 }
 
+DateOrder dateOrderFromName(std::string_view name) noexcept {
+    if (name == "monthDayYear") return DateOrder::MonthDayYear;
+    if (name == "yearMonthDay") return DateOrder::YearMonthDay;
+    return DateOrder::DayMonthYear;
+}
+
+const char* dateOrderName(DateOrder order) noexcept {
+    switch (order) {
+        case DateOrder::MonthDayYear: return "monthDayYear";
+        case DateOrder::YearMonthDay: return "yearMonthDay";
+        case DateOrder::DayMonthYear: break;
+    }
+    return "dayMonthYear";
+}
+
+DateSeparator dateSeparatorFromName(std::string_view name) noexcept {
+    if (name == "slash") return DateSeparator::Slash;
+    if (name == "dash") return DateSeparator::Dash;
+    return DateSeparator::Dot;
+}
+
+const char* dateSeparatorName(DateSeparator separator) noexcept {
+    switch (separator) {
+        case DateSeparator::Slash: return "slash";
+        case DateSeparator::Dash: return "dash";
+        case DateSeparator::Dot: break;
+    }
+    return "dot";
+}
+
+DateYear dateYearFromName(std::string_view name) noexcept {
+    if (name == "twoDigit") return DateYear::TwoDigit;
+    if (name == "fourDigit") return DateYear::FourDigit;
+    return DateYear::Hidden;
+}
+
+const char* dateYearName(DateYear year) noexcept {
+    switch (year) {
+        case DateYear::TwoDigit: return "twoDigit";
+        case DateYear::FourDigit: return "fourDigit";
+        case DateYear::Hidden: break;
+    }
+    return "none";
+}
+
 ClockTheme clockThemeAt(int index) noexcept {
     switch (index) {
         case 1: return ClockTheme::Seconds;
@@ -217,6 +273,104 @@ ClockTheme clockThemeAt(int index) noexcept {
 
 // --- rendering ---------------------------------------------------------------
 
+namespace {
+
+/// Width of a date rendered in the configured format, in fixed slots so it does
+/// not jitter as the day or month rolls over.
+int dateWidthFor(const ClockStyle& style) noexcept {
+    int fields = 2;  // day and month are always present
+    if (style.dateYear != DateYear::Hidden) {
+        ++fields;
+    }
+    const int digitFieldWidth = style.dateYear == DateYear::FourDigit ? kPairWidth * 2 + kGap
+                                                                      : kPairWidth;
+    // Year is wider only when it is four digits; the others are always a pair.
+    int width = kPairWidth * 2 + kSeparatorWidth;
+    if (fields == 3) {
+        width += kSeparatorWidth + (style.dateYear == DateYear::FourDigit
+                                        ? digitFieldWidth
+                                        : kPairWidth);
+    }
+    return width;
+}
+
+void drawDate(Canvas& canvas, const CivilDate& date, int y, const ClockStyle& style) {
+    const char separator = separatorChar(style.dateSeparator);
+    const int twoDigitYear = ((date.year % 100) + 100) % 100;
+
+    // Build the field order once, so each layout is described rather than
+    // special-cased three times over.
+    int values[3] = {date.day, date.month, twoDigitYear};
+    bool fourDigit[3] = {false, false, false};
+    int count = 2;
+
+    switch (style.dateOrder) {
+        case DateOrder::MonthDayYear:
+            values[0] = date.month;
+            values[1] = date.day;
+            break;
+        case DateOrder::YearMonthDay:
+            values[0] = twoDigitYear;
+            values[1] = date.month;
+            values[2] = date.day;
+            fourDigit[0] = style.dateYear == DateYear::FourDigit;
+            break;
+        case DateOrder::DayMonthYear:
+            break;
+    }
+
+    if (style.dateYear != DateYear::Hidden) {
+        count = 3;
+        if (style.dateOrder != DateOrder::YearMonthDay) {
+            fourDigit[2] = style.dateYear == DateYear::FourDigit;
+            if (fourDigit[2]) {
+                values[2] = date.year;
+            }
+        } else if (fourDigit[0]) {
+            values[0] = date.year;
+        }
+    } else if (style.dateOrder == DateOrder::YearMonthDay) {
+        // No year to lead with, so fall back to month then day.
+        values[0] = date.month;
+        values[1] = date.day;
+    }
+
+    int width = 0;
+    for (int i = 0; i < count; ++i) {
+        width += fourDigit[i] ? kPairWidth * 2 + kGap : kPairWidth;
+        if (i + 1 < count) {
+            width += kSeparatorWidth;
+        }
+    }
+
+    int x = centreX(width);
+    for (int i = 0; i < count; ++i) {
+        if (fourDigit[i]) {
+            drawTwoDigits(canvas, x, y, (values[i] / 100) % 100, style.dateColor);
+            drawTwoDigits(canvas, x + kPairWidth + kGap, y, values[i] % 100, style.dateColor);
+            x += kPairWidth * 2 + kGap;
+        } else {
+            drawTwoDigits(canvas, x, y, values[i], style.dateColor);
+            x += kPairWidth;
+        }
+        if (i + 1 < count) {
+            drawGlyphAt(canvas, x + kGap, y, separator, style.dateColor);
+            x += kSeparatorWidth;
+        }
+    }
+}
+
+/// "AM"/"PM" beside the time. Only meaningful on a 12-hour clock, and only where
+/// the layout has room left.
+void drawMeridiem(Canvas& canvas, int x, int y, const LocalTime& time,
+                  const ClockStyle& style) {
+    const char letter = time.hours < 12 ? 'A' : 'P';
+    drawGlyphAt(canvas, x, y, letter, style.accentColor);
+    drawGlyphAt(canvas, x + kDigitWidth + kGap, y, 'M', style.accentColor);
+}
+
+}  // namespace
+
 void renderClock(Canvas& canvas, const platform::ISystemClock& clock, const ClockStyle& style) {
     if (!clock.wallClockValid()) {
         // Honest about not knowing, rather than confidently wrong.
@@ -229,8 +383,16 @@ void renderClock(Canvas& canvas, const platform::ISystemClock& clock, const Cloc
 
     switch (style.theme) {
         case ClockTheme::Minimal: {
-            drawHourMinute(canvas, centreX(kTimeWidth), (Framebuffer::kHeight - 7) / 2, time,
-                           style, colonLit);
+            const bool meridiem = style.showAmPm && !style.twentyFourHour;
+            const int meridiemWidth = kPairWidth + kSeparatorWidth;
+            const int total = kTimeWidth + (meridiem ? meridiemWidth : 0);
+            const int x = centreX(total);
+            const int y = (Framebuffer::kHeight - 7) / 2;
+
+            drawHourMinute(canvas, x, y, time, style, colonLit);
+            if (meridiem) {
+                drawMeridiem(canvas, x + kTimeWidth + kSeparatorWidth, y, time, style);
+            }
             break;
         }
 
@@ -241,23 +403,15 @@ void renderClock(Canvas& canvas, const platform::ISystemClock& clock, const Cloc
         }
 
         case ClockTheme::DateBelow: {
-            const CivilDate date = civilFromDays(time.days);
             drawHourMinute(canvas, centreX(kTimeWidth), 0, time, style, colonLit);
-
-            // DD.MM in fixed slots, so the date does not jitter either.
-            const int dateWidth = kPairWidth + kGap + kColonWidth + kGap + kPairWidth;
-            const int x = centreX(dateWidth);
-            drawTwoDigits(canvas, x, 9, date.day, style.accentColor);
-            drawGlyphAt(canvas, x + kPairWidth + kGap, 9 + 0, '.', style.accentColor);
-            drawTwoDigits(canvas, x + kPairWidth + kSeparatorWidth, 9, date.month,
-                          style.accentColor);
+            drawDate(canvas, civilFromDays(time.days), 9, style);
             break;
         }
 
         case ClockTheme::Weekday: {
             drawHourMinute(canvas, centreX(kTimeWidth), 0, time, style, colonLit);
             drawCentredText(canvas, weekdayName(weekdayFromDays(time.days)), 9,
-                            style.accentColor);
+                            style.dateColor);
             break;
         }
 

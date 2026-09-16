@@ -76,7 +76,7 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .key("display")
         .beginObject()
         .member("brightness", static_cast<int>(settings.display.brightness))
-        .member("autoBrightness", settings.display.autoBrightness)
+        .member("power", settings.display.power)
         .endObject()
         .key("apps")
         .beginObject()
@@ -88,6 +88,21 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .member("twentyFourHour", settings.clock.twentyFourHour)
         .member("utcOffsetSeconds", settings.clock.utcOffsetSeconds)
         .member("theme", settings.clock.theme)
+        .member("leadingZero", settings.clock.leadingZero)
+        .member("showAmPm", settings.clock.showAmPm);
+
+    char hex[8];
+    formatHexColor(fromPacked(settings.clock.color), hex);
+    writer.member("color", hex);
+    formatHexColor(fromPacked(settings.clock.accentColor), hex);
+    writer.member("accentColor", hex);
+    formatHexColor(fromPacked(settings.clock.dateColor), hex);
+    writer.member("dateColor", hex);
+
+    writer.member("dateOrder", settings.clock.dateOrder)
+        .member("dateSeparator", settings.clock.dateSeparator)
+        .member("dateYear", settings.clock.dateYear)
+        .member("blinkPeriodMillis", static_cast<int>(settings.clock.blinkPeriodMillis))
         .endObject()
         .endObject();
 }
@@ -781,9 +796,8 @@ Response ApiServer::handleSettings(const Request& request) {
             }
             updated.display.brightness = static_cast<std::uint8_t>(value);
         }
-        if (const json::Value autoBrightness = display["autoBrightness"];
-            autoBrightness.isBoolean()) {
-            updated.display.autoBrightness = autoBrightness.toBool(false);
+        if (const json::Value power = display["power"]; power.isBoolean()) {
+            updated.display.power = power.toBool(true);
         }
     }
 
@@ -819,6 +833,80 @@ Response ApiServer::handleSettings(const Request& request) {
                 return unprocessable("'clock.utcOffsetSeconds' is outside any real time zone");
             }
             updated.clock.utcOffsetSeconds = static_cast<int>(value);
+        }
+        if (const json::Value value = clock["leadingZero"]; value.isBoolean()) {
+            updated.clock.leadingZero = value.toBool(true);
+        }
+        if (const json::Value value = clock["showAmPm"]; value.isBoolean()) {
+            updated.clock.showAmPm = value.toBool(false);
+        }
+
+        // Same contract as `theme`: only names that round-trip are accepted, so
+        // a client is never left believing it selected something it did not.
+        struct NameField {
+            const char* key;
+            std::string* target;
+            std::string (*canonical)(const std::string&);
+            const char* complaint;
+        };
+        const NameField nameFields[] = {
+            {"dateOrder", &updated.clock.dateOrder,
+             [](const std::string& n) {
+                 return std::string(apps::dateOrderName(apps::dateOrderFromName(n)));
+             },
+             "'clock.dateOrder' must be dayMonthYear, monthDayYear or yearMonthDay"},
+            {"dateSeparator", &updated.clock.dateSeparator,
+             [](const std::string& n) {
+                 return std::string(apps::dateSeparatorName(apps::dateSeparatorFromName(n)));
+             },
+             "'clock.dateSeparator' must be dot, slash or dash"},
+            {"dateYear", &updated.clock.dateYear,
+             [](const std::string& n) {
+                 return std::string(apps::dateYearName(apps::dateYearFromName(n)));
+             },
+             "'clock.dateYear' must be none, twoDigit or fourDigit"},
+        };
+        for (const NameField& field : nameFields) {
+            const json::Value value = clock[field.key];
+            if (!value.isString()) {
+                continue;
+            }
+            const std::string name = value.toString();
+            if (field.canonical(name) != name) {
+                return unprocessable(field.complaint);
+            }
+            *field.target = name;
+        }
+
+        const struct {
+            const char* key;
+            std::uint32_t* target;
+            const char* complaint;
+        } colorFields[] = {
+            {"color", &updated.clock.color, "'clock.color' must be #RRGGBB"},
+            {"accentColor", &updated.clock.accentColor, "'clock.accentColor' must be #RRGGBB"},
+            {"dateColor", &updated.clock.dateColor, "'clock.dateColor' must be #RRGGBB"},
+        };
+        for (const auto& field : colorFields) {
+            const json::Value value = clock[field.key];
+            if (!value.isString()) {
+                continue;
+            }
+            Rgb parsedColor;
+            if (!parseHexColor(value.raw(), parsedColor)) {
+                return unprocessable(field.complaint);
+            }
+            *field.target = toPacked(parsedColor);
+        }
+
+        if (const json::Value blink = clock["blinkPeriodMillis"]; blink.isNumber()) {
+            const std::int64_t value = blink.toInt(-1);
+            // 0 is meaningful — it holds the colon lit rather than blinking.
+            if (value != 0 && (value < 100 || value > 60000)) {
+                return unprocessable(
+                    "'clock.blinkPeriodMillis' must be 0 to hold the colon lit, or 100-60000");
+            }
+            updated.clock.blinkPeriodMillis = static_cast<std::uint32_t>(value);
         }
     }
 
