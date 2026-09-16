@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "notrix/platform/MqttClient.h"
 #include "notrix/platform/PlatformServices.h"
 
 namespace notrix {
@@ -166,6 +167,60 @@ private:
     std::uint32_t rebootCount_ = 0;
 };
 
+/// An in-memory broker of one.
+///
+/// Records what the device published and lets a test deliver inbound messages,
+/// so the whole MQTT surface is exercisable with no broker, no socket and no
+/// network. Connection succeeds or fails on command, which is the only way to
+/// test a reconnect policy without waiting for a real outage.
+class SimulatorMqtt : public IMqttClient {
+public:
+    bool connect(const MqttConnectOptions& options, IMqttListener& listener) override;
+    void disconnect() override;
+    MqttState state() const override { return state_; }
+    bool publish(const MqttMessage& message) override;
+    bool subscribe(std::string_view topicFilter, int qos) override;
+    void poll(std::uint64_t nowMillis) override;
+
+    // --- simulator-only controls --------------------------------------------
+
+    /// Make the next connect() fail to reach the broker. The call still
+    /// succeeds — an unreachable broker is a state change, not an argument
+    /// error — but the client lands in Disconnected rather than Connected.
+    void setReachable(bool reachable) { reachable_ = reachable; }
+
+    /// Deliver a message as though the broker had sent it.
+    void deliver(const MqttMessage& message);
+
+    /// Drop the connection, as a broker restart or a lost link would.
+    void dropConnection();
+
+    const std::vector<MqttMessage>& published() const { return published_; }
+    const std::vector<std::string>& subscriptions() const { return subscriptions_; }
+    const MqttConnectOptions& lastConnectOptions() const { return options_; }
+
+    /// Most recent message on a topic, or nullptr. Retained state is what a
+    /// subscriber would see, so this is usually what a test wants.
+    const MqttMessage* lastOn(std::string_view topic) const;
+
+    void clear() { published_.clear(); }
+
+    /// Refuse further publishes, as a full send queue would. §38 forbids an
+    /// unbounded queue, so callers must cope with a refusal.
+    void setPublishAccepted(bool accepted) { publishAccepted_ = accepted; }
+
+private:
+    void setState(MqttState state);
+
+    IMqttListener* listener_ = nullptr;
+    MqttConnectOptions options_;
+    MqttState state_ = MqttState::Disabled;
+    bool reachable_ = true;
+    bool publishAccepted_ = true;
+    std::vector<MqttMessage> published_;
+    std::vector<std::string> subscriptions_;
+};
+
 /// Which optional capabilities this simulated device claims to have.
 ///
 /// Turning one off makes the matching accessor return nullptr, so tests can
@@ -176,6 +231,7 @@ struct SimulatorCapabilities {
     bool audio = true;
     bool network = true;
     bool rebooter = true;
+    bool mqtt = true;
 };
 
 /// Complete simulator implementation of the §53 platform boundary.
@@ -194,6 +250,7 @@ public:
     IAudioOutput* audio() override { return capabilities_.audio ? &audio_ : nullptr; }
     INetworkManager* network() override { return capabilities_.network ? &network_ : nullptr; }
     IRebooter* rebooter() override { return capabilities_.rebooter ? &rebooter_ : nullptr; }
+    IMqttClient* mqtt() override { return capabilities_.mqtt ? &mqtt_ : nullptr; }
 
     // Concrete accessors for tests and the emulator shell, which need the
     // simulator-only controls that the interfaces deliberately do not expose.
@@ -204,6 +261,7 @@ public:
     SimulatorAudio& simulatedAudio() { return audio_; }
     SimulatorNetwork& simulatedNetwork() { return network_; }
     SimulatorRebooter& simulatedRebooter() { return rebooter_; }
+    SimulatorMqtt& simulatedMqtt() { return mqtt_; }
 
 private:
     SimulatorCapabilities capabilities_;
@@ -213,6 +271,7 @@ private:
     SimulatorStorage storage_;
     SimulatorAudio audio_;
     SimulatorNetwork network_;
+    SimulatorMqtt mqtt_;
     SimulatorRebooter rebooter_;
 };
 

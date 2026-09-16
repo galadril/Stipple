@@ -210,6 +210,49 @@
         }
     }
 
+    // --- mqtt ---------------------------------------------------------------
+    //
+    // The password is the one setting that does not round-trip: the API accepts
+    // it and never returns it. So it cannot use the data-setting binding, which
+    // assumes a value can be read back.
+
+    function wireMqtt() {
+        var field = $('mqtt-password');
+
+        field.addEventListener('change', function () {
+            send('PATCH', '/api/v1/settings', { mqtt: { password: field.value } })
+                .then(function (updated) {
+                    settings = updated;
+                    field.value = '';  // never hold a credential in the DOM
+                    describePassword();
+                    toast(updated.mqtt.passwordSet ? 'Password saved' : 'Password cleared');
+                })
+                .catch(fail);
+        });
+
+        $('mqtt-baseTopic').addEventListener('input', previewTopic);
+        $('deviceName').addEventListener('input', previewTopic);
+    }
+
+    function describePassword() {
+        $('mqtt-password-help').textContent =
+            settings && settings.mqtt && settings.mqtt.passwordSet
+                ? 'A password is set. Type to replace it, or clear the box and save to remove it.'
+                : 'Not set.';
+    }
+
+    // Mirrors mqtt::deviceIdFromName. Duplicated deliberately and only for the
+    // preview: showing the wrong topic is a cosmetic bug, whereas asking the
+    // device for it on every keystroke would not be.
+    function previewTopic() {
+        var base = $('mqtt-baseTopic').value || 'notrix';
+        var id = $('deviceName').value
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+        $('mqtt-topic-preview').textContent = 'Topics: ' + base + '/' + (id || 'device') + '/...';
+    }
+
     // --- device -------------------------------------------------------------
 
     function loadDevice() {
@@ -471,11 +514,16 @@
         bindControls();
         wireTabs();
         wireNotify();
+        wireMqtt();
         wireReboot();
         showPanel('panel-display');
 
         Promise.all([loadSettings(), loadDevice()])
-            .then(function () { markConnection(true); })
+            .then(function () {
+                describePassword();
+                previewTopic();
+                markConnection(true);
+            })
             .catch(function (error) {
                 markConnection(false);
                 fail(error);

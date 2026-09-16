@@ -643,6 +643,66 @@ NOTRIX_TEST(Api, SettingsSurviveAGetPatchGetCycle) {
     NOTRIX_CHECK_EQ(fixture.call("GET", "/api/v1/settings").body, first);
 }
 
+NOTRIX_TEST(Api, TheMqttPasswordIsWriteOnly) {
+    // §22. A settings page needs to know whether a password is set; it must
+    // never be able to read one back, and must not be handed a masked
+    // placeholder it might helpfully save again.
+    Fixture fixture;
+    fixture.config.mqtt.password = "hunter2-do-not-leak";
+
+    const std::string body = fixture.call("GET", "/api/v1/settings").body;
+
+    NOTRIX_CHECK(body.find("hunter2-do-not-leak") == std::string::npos);
+    NOTRIX_CHECK(body.find("\"passwordSet\":true") != std::string::npos);
+    NOTRIX_CHECK(body.find("\"password\"") == std::string::npos);
+}
+
+NOTRIX_TEST(Api, TheMqttPasswordCanBeSetAndCleared) {
+    Fixture fixture;
+
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"mqtt":{"password":"secret"}})").status, 200);
+    NOTRIX_CHECK_EQ(fixture.config.mqtt.password, std::string("secret"));
+
+    // An empty string is the only way to remove a stored credential.
+    fixture.call("PATCH", "/api/v1/settings", R"({"mqtt":{"password":""}})");
+    NOTRIX_CHECK(fixture.config.mqtt.password.empty());
+}
+
+NOTRIX_TEST(Api, PatchAcceptsMqttSettings) {
+    Fixture fixture;
+    const Response response = fixture.call("PATCH", "/api/v1/settings",
+                                           R"({"mqtt":{"enabled":true,"host":"broker.local",
+                                                       "port":8883,"baseTopic":"home",
+                                                       "tls":true,"keepAliveSeconds":45}})");
+
+    NOTRIX_CHECK_EQ(response.status, 200);
+    NOTRIX_CHECK(fixture.config.mqtt.enabled);
+    NOTRIX_CHECK_EQ(fixture.config.mqtt.host, std::string("broker.local"));
+    NOTRIX_CHECK_EQ(fixture.config.mqtt.port, 8883);
+    NOTRIX_CHECK_EQ(fixture.config.mqtt.baseTopic, std::string("home"));
+    NOTRIX_CHECK(fixture.config.mqtt.tls);
+}
+
+NOTRIX_TEST(Api, PatchRejectsUnusableMqttSettings) {
+    Fixture fixture;
+
+    // A wildcard base topic would make the device publish to a filter, which no
+    // broker accepts and which is miserable to diagnose from the other end.
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"mqtt":{"baseTopic":"home/#"}})").status,
+        422);
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"mqtt":{"baseTopic":"a/+/b"}})").status, 422);
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"mqtt":{"baseTopic":""}})").status, 422);
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"mqtt":{"port":0}})").status, 422);
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"mqtt":{"keepAliveSeconds":1}})").status,
+        422);
+}
+
 NOTRIX_TEST(Api, RejectedPatchLeavesSettingsUntouched) {
     // Applied to a copy, so a bad field cannot half-update the device.
     Fixture fixture;

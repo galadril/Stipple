@@ -148,6 +148,82 @@ void SimulatorAudio::stop() {
     ++stopCount_;
 }
 
+// --- MQTT --------------------------------------------------------------------
+
+void SimulatorMqtt::setState(MqttState state) {
+    if (state_ == state) {
+        return;
+    }
+    state_ = state;
+    if (listener_ != nullptr) {
+        listener_->onStateChanged(state_);
+    }
+}
+
+bool SimulatorMqtt::connect(const MqttConnectOptions& options, IMqttListener& listener) {
+    // A broker that cannot be reached is reported through the state, not the
+    // return value: the caller's reconnect policy needs to see an attempt that
+    // was made and failed, not one that was never started.
+    if (options.host.empty()) {
+        return false;
+    }
+
+    listener_ = &listener;
+    options_ = options;
+
+    setState(MqttState::Connecting);
+    setState(reachable_ ? MqttState::Connected : MqttState::Disconnected);
+    return true;
+}
+
+void SimulatorMqtt::disconnect() {
+    subscriptions_.clear();
+    setState(MqttState::Disabled);
+    listener_ = nullptr;
+}
+
+bool SimulatorMqtt::publish(const MqttMessage& message) {
+    if (state_ != MqttState::Connected || !publishAccepted_) {
+        return false;
+    }
+    published_.push_back(message);
+    return true;
+}
+
+bool SimulatorMqtt::subscribe(std::string_view topicFilter, int qos) {
+    (void)qos;
+    if (state_ != MqttState::Connected) {
+        return false;
+    }
+    subscriptions_.emplace_back(topicFilter);
+    return true;
+}
+
+void SimulatorMqtt::poll(std::uint64_t nowMillis) {
+    (void)nowMillis;  // nothing arrives on its own; tests call deliver()
+}
+
+void SimulatorMqtt::deliver(const MqttMessage& message) {
+    if (listener_ != nullptr && state_ == MqttState::Connected) {
+        listener_->onMessage(message);
+    }
+}
+
+void SimulatorMqtt::dropConnection() {
+    subscriptions_.clear();
+    setState(MqttState::Disconnected);
+}
+
+const MqttMessage* SimulatorMqtt::lastOn(std::string_view topic) const {
+    for (std::size_t i = published_.size(); i > 0; --i) {
+        const MqttMessage& message = published_[i - 1];
+        if (message.topic == topic) {
+            return &message;
+        }
+    }
+    return nullptr;
+}
+
 }  // namespace simulator
 }  // namespace platform
 }  // namespace notrix

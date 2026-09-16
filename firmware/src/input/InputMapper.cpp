@@ -8,6 +8,21 @@ using platform::ButtonPhase;
 using platform::InputEvent;
 using platform::RawInput;
 
+const char* actionName(Action action) noexcept {
+    switch (action) {
+        case Action::AppPrevious: return "appPrevious";
+        case Action::AppNext: return "appNext";
+        case Action::AppAction: return "appAction";
+        case Action::NotificationDismiss: return "notificationDismiss";
+        case Action::BrightnessUp: return "brightnessUp";
+        case Action::BrightnessDown: return "brightnessDown";
+        case Action::VolumeUp: return "volumeUp";
+        case Action::VolumeDown: return "volumeDown";
+        case Action::None: break;
+    }
+    return "none";
+}
+
 InputMapper::InputMapper(const InputMapperConfig& config) noexcept : config_(config) {
     reset();
 }

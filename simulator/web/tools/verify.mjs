@@ -119,6 +119,36 @@ check('lost history is reported', typeof logBody.totalWritten === 'number');
 check('mutating calls are logged',
       logBody.entries.some((entry) => entry.message.includes('PATCH')));
 
+group('mqtt');
+// Off until asked for: a device must never dial out to a broker on its own.
+const mqttBefore = JSON.parse(request('GET', '/api/v1/settings').body).mqtt;
+check('mqtt is off by default', mqttBefore.enabled === false);
+check('no password is reported', mqttBefore.passwordSet === false);
+check('the password field is absent entirely',
+      !Object.prototype.hasOwnProperty.call(mqttBefore, 'password'));
+
+check('a wildcard base topic is refused',
+      request('PATCH', '/api/v1/settings',
+              JSON.stringify({ mqtt: { baseTopic: 'home/#' } })).status === 422);
+
+const enabled = request('PATCH', '/api/v1/settings', JSON.stringify({
+    mqtt: { enabled: true, host: 'broker.local', password: 'hunter2-do-not-leak' },
+}));
+check('mqtt can be configured', enabled.status === 200,
+      `${enabled.status}: ${enabled.body.slice(0, 120)}`);
+
+const mqttAfter = JSON.parse(request('GET', '/api/v1/settings').body).mqtt;
+check('the device knows a password is set', mqttAfter.passwordSet === true);
+check('but never returns it', !enabled.body.includes('hunter2-do-not-leak'));
+check('nor on a later read',
+      !request('GET', '/api/v1/settings').body.includes('hunter2-do-not-leak'));
+
+// The credential must not reach diagnostics either.
+for (const path of ['/api/v1/logs', '/api/v1/diagnostics', '/api/v1/device']) {
+    check(`no credential leaks through ${path}`,
+          !request('GET', path).body.includes('hunter2-do-not-leak'));
+}
+
 const device = JSON.parse(request('GET', '/api/v1/device').body);
 check('capabilities are reported', typeof device.capabilities.audio === 'boolean');
 check('panel geometry is right',

@@ -29,6 +29,21 @@ int clampDuration(std::int64_t value) noexcept {
     return static_cast<int>(value);
 }
 
+int clampPort(std::int64_t value) noexcept {
+    if (value < 1) {
+        return 1883;
+    }
+    return value > 65535 ? 65535 : static_cast<int>(value);
+}
+
+/// MQTT allows up to 18 hours; anything under 5 seconds is a keepalive storm.
+int clampKeepAlive(std::int64_t value) noexcept {
+    if (value < 5) {
+        return 5;
+    }
+    return value > 65535 ? 65535 : static_cast<int>(value);
+}
+
 std::uint8_t clampPercent(std::int64_t value) noexcept {
     if (value < 0) {
         return 0;
@@ -105,6 +120,30 @@ std::string buildBody(const Config& config) {
 
     body += ",\"audio\":{\"volumePercent\":";
     body += std::to_string(static_cast<int>(config.audio.volumePercent));
+    body += '}';
+
+    body += ",\"mqtt\":{\"enabled\":";
+    body += config.mqtt.enabled ? "true" : "false";
+    body += ",\"host\":";
+    appendEscaped(body, config.mqtt.host);
+    body += ",\"port\":";
+    body += std::to_string(config.mqtt.port);
+    body += ",\"clientId\":";
+    appendEscaped(body, config.mqtt.clientId);
+    body += ",\"baseTopic\":";
+    appendEscaped(body, config.mqtt.baseTopic);
+    body += ",\"username\":";
+    appendEscaped(body, config.mqtt.username);
+    // The one place a credential is written down. It has to be here - the device
+    // reconnects unattended - but it must never reach the API or the log (§22).
+    body += ",\"password\":";
+    appendEscaped(body, config.mqtt.password);
+    body += ",\"tls\":";
+    body += config.mqtt.tls ? "true" : "false";
+    body += ",\"keepAliveSeconds\":";
+    body += std::to_string(config.mqtt.keepAliveSeconds);
+    body += ",\"discovery\":";
+    body += config.mqtt.discovery ? "true" : "false";
     body += '}';
 
     body += ",\"apps\":{\"defaultDurationSeconds\":";
@@ -241,6 +280,25 @@ bool ConfigStore::deserialize(std::string_view payload,
     const json::Value audio = body["audio"];
     parsed.audio.volumePercent =
         clampPercent(audio["volumePercent"].toInt(parsed.audio.volumePercent));
+
+    const json::Value mqtt = body["mqtt"];
+    parsed.mqtt.enabled = mqtt["enabled"].toBool(parsed.mqtt.enabled);
+    parsed.mqtt.host = mqtt["host"].toString(parsed.mqtt.host);
+    parsed.mqtt.port = clampPort(mqtt["port"].toInt(parsed.mqtt.port));
+    parsed.mqtt.clientId = mqtt["clientId"].toString(parsed.mqtt.clientId);
+    parsed.mqtt.baseTopic = mqtt["baseTopic"].toString(parsed.mqtt.baseTopic);
+    parsed.mqtt.username = mqtt["username"].toString(parsed.mqtt.username);
+    parsed.mqtt.password = mqtt["password"].toString(parsed.mqtt.password);
+    parsed.mqtt.tls = mqtt["tls"].toBool(parsed.mqtt.tls);
+    parsed.mqtt.keepAliveSeconds =
+        clampKeepAlive(mqtt["keepAliveSeconds"].toInt(parsed.mqtt.keepAliveSeconds));
+    parsed.mqtt.discovery = mqtt["discovery"].toBool(parsed.mqtt.discovery);
+
+    // An empty base topic would publish to "/{deviceId}/status" - a leading
+    // slash is legal MQTT but a well-known source of confusion, so fall back.
+    if (parsed.mqtt.baseTopic.empty()) {
+        parsed.mqtt.baseTopic = "notrix";
+    }
 
     const json::Value apps = body["apps"];
     parsed.apps.defaultDurationSeconds = clampDuration(

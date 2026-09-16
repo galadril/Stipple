@@ -756,6 +756,84 @@ NOTRIX_TEST(Host, ReadingTheUiIsNotLogged) {
     NOTRIX_CHECK_EQ(host.logger().count(), before);
 }
 
+NOTRIX_TEST(Host, MqttStaysOffUntilItIsConfigured) {
+    // §20: the device must be fully usable without a broker, and must never dial
+    // out to one nobody asked it to talk to.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 2000);
+
+    NOTRIX_CHECK(host.mqttService().state() == notrix::platform::MqttState::Disabled);
+    NOTRIX_CHECK(platform.simulatedMqtt().published().empty());
+}
+
+NOTRIX_TEST(Host, ConfiguringMqttOverTheApiConnectsIt) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    notrix::api::Request request;
+    request.method = notrix::api::Method::Patch;
+    request.path = "/api/v1/settings";
+    request.body = R"({"mqtt":{"enabled":true,"host":"broker.local"}})";
+    NOTRIX_CHECK_EQ(host.handle(request).status, 200);
+
+    run(host, platform, 2000);
+
+    NOTRIX_CHECK(host.mqttService().state() == notrix::platform::MqttState::Connected);
+    NOTRIX_CHECK(platform.simulatedMqtt().lastOn(host.mqttService().topics().availability) !=
+                 nullptr);
+}
+
+NOTRIX_TEST(Host, SafeModeStaysOffTheBroker) {
+    // Whatever put the device in safe mode might be reachable from a broker, and
+    // a boot loop republishing retained state each time is worse than a quiet
+    // one.
+    SimulatorPlatform platform;
+
+    notrix::config::ConfigStore store(platform.storage());
+    notrix::config::Config saved;
+    saved.mqtt.enabled = true;
+    saved.mqtt.host = "broker.local";
+    store.save(saved);
+
+    platform.storage().write(ApplicationHost::kBootStateKey,
+                             R"({"consecutiveFailures":5,"lastBootCompleted":false})");
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 2000);
+
+    NOTRIX_CHECK(host.bootMode() == BootMode::SafeMode);
+    NOTRIX_CHECK(platform.simulatedMqtt().published().empty());
+}
+
+NOTRIX_TEST(Host, ButtonPressesReachTheBroker) {
+    SimulatorPlatform platform;
+
+    // Saved rather than poked in after construction: initialize() loads stored
+    // settings over whatever is in memory, so anything set beforehand is lost.
+    notrix::config::ConfigStore store(platform.storage());
+    notrix::config::Config saved;
+    saved.mqtt.enabled = true;
+    saved.mqtt.host = "broker.local";
+    store.save(saved);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 1000);
+
+    platform.simulatedMqtt().clear();
+    platform.simulatedInput().pressAndRelease(RawInput::RotaryPress, 1100, 50);
+    run(host, platform, 1400);
+
+    const notrix::platform::MqttMessage* event =
+        platform.simulatedMqtt().lastOn(host.mqttService().topics().button);
+    NOTRIX_REQUIRE(event != nullptr);
+    NOTRIX_CHECK(std::string(event->payload).find("appAction") != std::string::npos);
+}
+
 NOTRIX_TEST(Host, MutatingApiCallsTriggerARedraw) {
     SimulatorPlatform platform;
     ApplicationHost host(platform, quietConfig());

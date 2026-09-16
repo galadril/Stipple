@@ -2,6 +2,9 @@
 #include "notrix/config/Config.h"
 
 #include <string>
+#include <vector>
+
+#include "notrix/json/Json.h"
 
 #include "notrix/apps/ClockApp.h"
 #include "notrix/core/Checksum.h"
@@ -399,6 +402,95 @@ NOTRIX_TEST(Config, SaveRejectsOversizedPayload) {
     Config written;
     written.deviceName = std::string(platform.storage().maxValueBytes() + 1, 'n');
     NOTRIX_CHECK_FALSE(store.save(written));
+}
+
+NOTRIX_TEST(Config, TokenBudgetHasHeadroom) {
+    // Overflowing kMaxTokens makes a perfectly good configuration read as
+    // corrupt, and the device silently falls back to defaults -- losing every
+    // setting the user had. Each field added since this was written eats into
+    // the margin, so measure it with the real parser rather than by eye.
+    Config config;
+    config.deviceName = std::string(64, 'n');
+    config.mqtt.host = "broker.example.invalid";
+    config.mqtt.clientId = "notrix-kitchen";
+    config.mqtt.username = "user";
+    config.mqtt.password = "secret";
+
+    const std::string payload = ConfigStore::serialize(config);
+
+    // Find what a maximal document actually costs, by parsing it at rising
+    // budgets until it fits.
+    int needed = 0;
+    for (int budget = 1; budget <= ConfigStore::kMaxTokens; ++budget) {
+        std::vector<notrix::json::Token> tokens(static_cast<std::size_t>(budget));
+        notrix::json::Document document(tokens.data(), budget);
+        if (document.parse(payload) == notrix::json::Error::None) {
+            needed = budget;
+            break;
+        }
+    }
+
+    NOTRIX_CHECK(needed > 0);  // it fits at all
+    // Half the budget spare. Tighter than that and the next few settings would
+    // silently push a real device over.
+    NOTRIX_CHECK(needed <= ConfigStore::kMaxTokens / 2);
+
+    // And the end-to-end proof, which is what actually matters.
+    SimulatorPlatform platform;
+    ConfigStore store(platform.storage());
+    NOTRIX_CHECK(store.save(config));
+
+    Config read;
+    NOTRIX_CHECK_EQ(status(store.load(read).status), status(LoadStatus::Loaded));
+    NOTRIX_CHECK_EQ(read.mqtt.host, config.mqtt.host);
+    NOTRIX_CHECK_EQ(read.deviceName, config.deviceName);
+}
+
+NOTRIX_TEST(Config, MqttSettingsRoundTrip) {
+    SimulatorPlatform platform;
+    ConfigStore store(platform.storage());
+
+    Config written;
+    written.mqtt.enabled = true;
+    written.mqtt.host = "broker.local";
+    written.mqtt.port = 8883;
+    written.mqtt.clientId = "kitchen";
+    written.mqtt.baseTopic = "home";
+    written.mqtt.username = "user";
+    written.mqtt.password = "secret";
+    written.mqtt.tls = true;
+    written.mqtt.keepAliveSeconds = 45;
+    written.mqtt.discovery = true;
+    NOTRIX_CHECK(store.save(written));
+
+    Config read;
+    NOTRIX_CHECK_EQ(status(store.load(read).status), status(LoadStatus::Loaded));
+    NOTRIX_CHECK(read.mqtt.enabled);
+    NOTRIX_CHECK_EQ(read.mqtt.host, std::string("broker.local"));
+    NOTRIX_CHECK_EQ(read.mqtt.port, 8883);
+    NOTRIX_CHECK_EQ(read.mqtt.baseTopic, std::string("home"));
+    // The credential has to survive storage, or the device cannot reconnect.
+    NOTRIX_CHECK_EQ(read.mqtt.password, std::string("secret"));
+    NOTRIX_CHECK(read.mqtt.tls);
+    NOTRIX_CHECK_EQ(read.mqtt.keepAliveSeconds, 45);
+}
+
+NOTRIX_TEST(Config, MqttValuesAreClamped) {
+    SimulatorPlatform platform;
+    ConfigStore store(platform.storage());
+
+    platform.storage().write(
+        ConfigStore::kPrimaryKey,
+        envelope(R"({"schemaVersion":2,"mqtt":{"port":999999,"keepAliveSeconds":0,
+                     "baseTopic":""}})"));
+
+    Config read;
+    store.load(read);
+
+    NOTRIX_CHECK_EQ(read.mqtt.port, 65535);
+    NOTRIX_CHECK_EQ(read.mqtt.keepAliveSeconds, 5);
+    // An empty base would publish to "/{deviceId}/status".
+    NOTRIX_CHECK_EQ(read.mqtt.baseTopic, std::string("notrix"));
 }
 
 NOTRIX_TEST(Config, EveryStatusHasADescription) {

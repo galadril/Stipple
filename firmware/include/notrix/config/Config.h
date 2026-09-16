@@ -49,6 +49,37 @@ constexpr std::uint8_t volumeToByte(std::uint8_t percent) noexcept {
     return static_cast<std::uint8_t>((clamped * 255u + 50u) / 100u);
 }
 
+struct MqttSettings {
+    /// Off by default. MQTT is optional in both directions (§20): a device must
+    /// be fully usable without it, and must never dial out to a broker nobody
+    /// asked it to talk to.
+    bool enabled = false;
+
+    std::string host;
+    int port = 1883;
+
+    /// Empty means "derive from the device name", which is what makes a
+    /// factory-fresh device work without anyone inventing an identifier.
+    std::string clientId;
+    std::string baseTopic = "notrix";
+
+    std::string username;
+
+    /// Never returned by the API and never written to the log (§22). It is
+    /// stored because the device has to reconnect unattended; that is the only
+    /// reason, and the only place it may appear.
+    std::string password;
+
+    /// Requested, not guaranteed — an adapter that cannot do TLS must refuse to
+    /// connect rather than quietly send these credentials in the clear.
+    bool tls = false;
+
+    int keepAliveSeconds = 30;
+
+    /// Publish Home Assistant discovery documents on connect.
+    bool discovery = false;
+};
+
 struct AppSettings {
     int defaultDurationSeconds = 8;
     bool transitions = true;
@@ -101,6 +132,7 @@ struct Config {
     std::string deviceName = "notrix";
     DisplaySettings display;
     AudioSettings audio;
+    MqttSettings mqtt;
     AppSettings apps;
     ClockSettings clock;
 };
@@ -138,7 +170,11 @@ class ConfigStore {
 public:
     static constexpr std::string_view kPrimaryKey = "config";
     static constexpr std::string_view kBackupKey = "config.bak";
-    static constexpr int kMaxTokens = 128;
+    /// Token budget for parsing a stored document. Must stay comfortably ahead
+    /// of what serialize() produces: overflowing it makes a perfectly good
+    /// configuration read as corrupt, and the device would silently fall back to
+    /// defaults. ConfigTokenBudgetHasHeadroom asserts the margin.
+    static constexpr int kMaxTokens = 256;
 
     explicit ConfigStore(platform::IStorage& storage) noexcept : storage_(storage) {}
 

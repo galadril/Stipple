@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Phases 0–6b are done; 6c (MQTT) and 7 (bring-up) remain.
+Phases 0–6 are done; only Phase 7 (TC002 bring-up) remains, and it is blocked on hardware.
 
-What exists: `notrix_core` (framebuffer, Canvas, font/text, scenes, icon store, app carousel, notifications, config, frame scheduler, ring log, `ApplicationHost`, the `/api/v1/*` server and the embedded device web UI), `notrix_imageio` (dependency-free PNG encoder), the simulator platform adapter, a host test suite with golden-image comparison, and a WebAssembly browser emulator that serves the real config page through the real router.
+What exists: `notrix_core` (framebuffer, Canvas, font/text, scenes, icon store, app carousel, notifications, config, frame scheduler, ring log, `ApplicationHost`, the `/api/v1/*` server, the embedded device web UI and the MQTT bridge), `notrix_imageio` (dependency-free PNG encoder), the simulator platform adapter, a host test suite with golden-image comparison, and a WebAssembly browser emulator that serves the real config page through the real router.
 
 Directories for `sdk/`, `installer/`, `integrations/` and `tooling/` do not exist yet — they appear as their phases begin. The device UI lives in `firmware/web/` and is compiled into the binary by `cmake/EmbedWebAssets.cmake`; there is no top-level `web/`.
 
@@ -68,7 +68,7 @@ The public/native API is declarative **scenes** (JSON elements: pixel, line, rec
 
 **One API surface: `/api/v1/*`.** There is no AWTRIX compatibility layer and none is planned — blueprint §19.2 and the compatibility half of §3.5 are withdrawn, and blueprint Stage 7 is dropped. See `docs/adr/0015-no-awtrix-compatibility-layer.md`. Any `/api/*` path outside `/api/v1/*` answers 404 saying so explicitly. If compatibility is ever wanted it belongs outside the firmware as a translating proxy, never as device routes.
 
-MQTT namespace is `notrix/{deviceId}/...`. MQTT is optional — HTTP-only and MQTT-only operation must both work.
+MQTT namespace is `notrix/{deviceId}/...`, off by default. Commands are translated into `api::Request` objects and answered by the same `ApiServer` as HTTP, so the two surfaces cannot drift — see `docs/mqtt.md`. No adapter implements `IMqttClient` yet; the transport arrives in Phase 7.
 
 ## Non-obvious constraints
 

@@ -46,6 +46,8 @@ add_library(notrix_core
     src/api/Http.cpp
     src/api/JsonWriter.cpp
     src/api/ApiServer.cpp
+    src/mqtt/MqttBridge.cpp
+    src/mqtt/MqttService.cpp
 )
 
 target_include_directories(notrix_core

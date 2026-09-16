@@ -15,6 +15,7 @@
 #include "notrix/graphics/Framebuffer.h"
 #include "notrix/input/InputMapper.h"
 #include "notrix/json/Json.h"
+#include "notrix/mqtt/MqttService.h"
 #include "notrix/notify/Notifications.h"
 #include "notrix/platform/HttpServer.h"
 #include "notrix/platform/PlatformServices.h"
@@ -133,6 +134,9 @@ public:
     /// Exposed so a settings UI can show what the controls currently do, rather
     /// than hard-coding a copy of the default mapping that then drifts.
     const input::InputMapper& inputMapper() const noexcept { return mapper_; }
+
+    mqtt::MqttService& mqttService() noexcept { return mqtt_; }
+    const mqtt::MqttService& mqttService() const noexcept { return mqtt_; }
     render::FrameScheduler& scheduler() noexcept { return scheduler_; }
     const render::FrameStats& frameStats() const noexcept { return scheduler_.stats(); }
 
@@ -221,6 +225,7 @@ private:
     // already be constructed when it is built.
     api::ApiServer apiServer_;
     web::StaticFiles staticFiles_;
+    mqtt::MqttService mqtt_;
 };
 
 }  // namespace host

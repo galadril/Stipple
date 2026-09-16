@@ -23,6 +23,7 @@
     <button class="tab" data-panel="panel-clock" role="tab" type="button">Clock</button>
     <button class="tab" data-panel="panel-apps" role="tab" type="button">Apps</button>
     <button class="tab" data-panel="panel-notify" role="tab" type="button">Notify</button>
+    <button class="tab" data-panel="panel-mqtt" role="tab" type="button">MQTT</button>
     <button class="tab" data-panel="panel-system" role="tab" type="button">System</button>
     <button class="tab" data-panel="panel-logs" role="tab" type="button">Logs</button>
 </nav>
@@ -191,6 +192,66 @@
     <button class="btn primary" id="notify-send" type="button">Send</button>
     <h2>Queued</h2>
     <ul class="list" id="notify-list"></ul>
+</section>
+
+<section class="panel" id="panel-mqtt">
+    <h2>Broker</h2>
+    <div class="field">
+        <label for="mqtt-enabled">MQTT</label>
+        <label class="switch">
+            <input type="checkbox" id="mqtt-enabled" data-setting="mqtt.enabled">
+            <span>Enabled</span>
+        </label>
+        <p class="help">
+            Optional. Everything here is also available over HTTP, and the device works
+            fully with no broker at all.
+        </p>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="mqtt-host">Host</label>
+            <input type="text" id="mqtt-host" maxlength="255" placeholder="192.168.1.10"
+                   data-setting="mqtt.host">
+        </div>
+        <div class="field">
+            <label for="mqtt-port">Port</label>
+            <input type="number" id="mqtt-port" min="1" max="65535" data-setting="mqtt.port">
+        </div>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="mqtt-username">Username</label>
+            <input type="text" id="mqtt-username" maxlength="128" data-setting="mqtt.username">
+        </div>
+        <div class="field">
+            <label for="mqtt-password">Password</label>
+            <input type="password" id="mqtt-password" maxlength="128" autocomplete="new-password">
+            <p class="help" id="mqtt-password-help">Not set.</p>
+        </div>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="mqtt-baseTopic">Base topic</label>
+            <input type="text" id="mqtt-baseTopic" maxlength="64" data-setting="mqtt.baseTopic">
+            <p class="help" id="mqtt-topic-preview"></p>
+        </div>
+        <div class="field">
+            <label for="mqtt-keepAlive">Keep-alive</label>
+            <input type="number" id="mqtt-keepAlive" min="5" max="65535"
+                   data-setting="mqtt.keepAliveSeconds">
+        </div>
+    </div>
+    <div class="field">
+        <label for="mqtt-tls">TLS</label>
+        <label class="switch">
+            <input type="checkbox" id="mqtt-tls" data-setting="mqtt.tls">
+            <span>Use TLS</span>
+        </label>
+        <p class="help">
+            The device refuses to connect rather than falling back to plaintext, so
+            credentials are never sent in the clear by accident.
+        </p>
+    </div>
 </section>
 
 <section class="panel" id="panel-system">
