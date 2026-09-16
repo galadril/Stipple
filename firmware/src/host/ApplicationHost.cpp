@@ -130,6 +130,9 @@ bool ApplicationHost::initialize() {
         logger_.info(0, config::describe(report.status));
     }
     platform_.display().setBrightness(settings_.display.brightness);
+    if (platform_.audio() != nullptr) {
+        platform_.audio()->setVolume(config::volumeToByte(settings_.audio.volumePercent));
+    }
 
     app::CarouselConfig carousel;
     carousel.defaultDurationSeconds = settings_.apps.defaultDurationSeconds;
@@ -151,6 +154,12 @@ bool ApplicationHost::initialize() {
     }
     if (platform_.httpServer() == nullptr) {
         logger_.info(0, "no HTTP transport; API is reachable in-process only");
+    }
+    if (platform_.audio() == nullptr) {
+        // Said out loud because the default button mapping puts volume on the
+        // − / + taps: without a speaker those presses do nothing, and a silent
+        // no-op reads as broken hardware.
+        logger_.info(0, "no audio output; volume controls will do nothing");
     }
 
     splashDetail_ = apps::splashDetail(kVersion, platform_.network());
@@ -269,14 +278,39 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
             break;
         case input::Action::BrightnessUp:
         case input::Action::BrightnessDown: {
-            const int delta = action.action == input::Action::BrightnessUp ? 16 : -16;
+            const int step = mapper_.config().brightnessStep;
+            const int delta = action.action == input::Action::BrightnessUp ? step : -step;
             int level = static_cast<int>(settings_.display.brightness) + delta * action.repeat;
             level = level < 0 ? 0 : (level > 255 ? 255 : level);
             settings_.display.brightness = static_cast<std::uint8_t>(level);
             platform_.display().setBrightness(settings_.display.brightness);
+
+            // Turning the panel up is also the obvious way to ask for it back
+            // after switching it off, and leaving it dark would look like the
+            // button had failed.
+            if (level > 0) {
+                settings_.display.power = true;
+            }
             break;
         }
-        default:
+        case input::Action::VolumeUp:
+        case input::Action::VolumeDown: {
+            // Silently ignored when the platform has no speaker: an absent
+            // capability is reported at boot rather than faked here (ADR 0013).
+            if (platform_.audio() == nullptr) {
+                break;
+            }
+            // Percent, because that is how a volume control reads to a person,
+            // converted once at the edge where the hardware wants 0-255.
+            const int step = mapper_.config().volumeStepPercent;
+            const int delta = action.action == input::Action::VolumeUp ? step : -step;
+            int percent = static_cast<int>(settings_.audio.volumePercent) + delta * action.repeat;
+            percent = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+            settings_.audio.volumePercent = static_cast<std::uint8_t>(percent);
+            platform_.audio()->setVolume(config::volumeToByte(settings_.audio.volumePercent));
+            break;
+        }
+        case input::Action::None:
             break;
     }
 

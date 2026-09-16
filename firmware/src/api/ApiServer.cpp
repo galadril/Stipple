@@ -78,6 +78,10 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .member("brightness", static_cast<int>(settings.display.brightness))
         .member("power", settings.display.power)
         .endObject()
+        .key("audio")
+        .beginObject()
+        .member("volumePercent", static_cast<int>(settings.audio.volumePercent))
+        .endObject()
         .key("apps")
         .beginObject()
         .member("defaultDurationSeconds", settings.apps.defaultDurationSeconds)
@@ -801,6 +805,16 @@ Response ApiServer::handleSettings(const Request& request) {
         }
     }
 
+    if (const json::Value audio = root["audio"]; audio.isObject()) {
+        if (const json::Value volume = audio["volumePercent"]; volume.isNumber()) {
+            const std::int64_t value = volume.toInt(-1);
+            if (value < 0 || value > 100) {
+                return unprocessable("'audio.volumePercent' must be 0-100");
+            }
+            updated.audio.volumePercent = static_cast<std::uint8_t>(value);
+        }
+    }
+
     if (const json::Value apps = root["apps"]; apps.isObject()) {
         if (const json::Value duration = apps["defaultDurationSeconds"]; duration.isNumber()) {
             const std::int64_t value = duration.toInt(-1);
@@ -917,6 +931,10 @@ Response ApiServer::handleSettings(const Request& request) {
     }
     if (context_.platform != nullptr) {
         context_.platform->display().setBrightness(updated.display.brightness);
+        if (context_.platform->audio() != nullptr) {
+            context_.platform->audio()->setVolume(
+                config::volumeToByte(updated.audio.volumePercent));
+        }
     }
 
     JsonWriter writer;

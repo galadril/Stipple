@@ -250,17 +250,21 @@
 
     // --- controls -----------------------------------------------------------
 
+    // RawInput ordinals, mirroring firmware/include/notrix/platform/Input.h.
+    var INPUT_ROTARY_PRESS = 2;
+    var INPUT_ROTARY_RIGHT = 4;
+
     function wireControls() {
-        // Middle button short-press toggles pause in the core's default input
-        // map, so the on-screen control sends exactly that.
+        // A short knob press toggles pause in the core's default input map, so
+        // the on-screen control sends exactly that rather than reaching past the
+        // mapper to the carousel.
         el.play.addEventListener('click', function () {
-            sendInput(1, PHASE_DOWN);
-            sendInput(1, PHASE_UP);
+            sendInput(INPUT_ROTARY_PRESS, PHASE_DOWN);
+            sendInput(INPUT_ROTARY_PRESS, PHASE_UP);
         });
 
         el.step.addEventListener('click', function () {
-            sendInput(2, PHASE_DOWN);
-            sendInput(2, PHASE_UP);
+            sendInput(INPUT_ROTARY_RIGHT, PHASE_TICK);
         });
 
         el.brightness.addEventListener('input', function () {

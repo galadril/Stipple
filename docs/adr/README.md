@@ -30,3 +30,4 @@ as the decisions are actually made.
 | 0013 | Required and optional platform capabilities | Accepted |
 | 0014 | In-house bounded JSON parser | Accepted |
 | 0015 | No AWTRIX compatibility layer | Accepted |
+| 0016 | TC002 input layout: a knob and two buttons | Accepted, pending hardware confirmation |

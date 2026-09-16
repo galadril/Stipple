@@ -52,9 +52,20 @@ struct InputMapperConfig {
     /// unbounded number of apps.
     int maxRotaryRepeat = 5;
 
-    ButtonBinding keyLeft{Action::AppPrevious, Action::None};
-    ButtonBinding keyMiddle{Action::AppAction, Action::NotificationDismiss};
-    ButtonBinding keyRight{Action::AppNext, Action::None};
+    /// How far one press moves each quantity. Volume is a percentage; brightness
+    /// is the panel's own 0-255, so the steps are not the same size by accident.
+    int volumeStepPercent = 5;
+    int brightnessStep = 16;
+
+    /// Defaults follow the case: navigation on the knob, and the − / + buttons
+    /// adjusting something. Tap changes volume, hold changes brightness — the
+    /// two most-wanted adjustments on the only two labelled controls, with the
+    /// commoner one on the shorter gesture.
+    ///
+    /// Nothing here is binding: §15 puts mappings in configuration, and these
+    /// are only what an unconfigured device does.
+    ButtonBinding keyMinus{Action::VolumeDown, Action::BrightnessDown};
+    ButtonBinding keyPlus{Action::VolumeUp, Action::BrightnessUp};
     ButtonBinding rotaryPress{Action::AppAction, Action::NotificationDismiss};
 };
 
@@ -84,7 +95,7 @@ public:
     const InputMapperConfig& config() const noexcept { return config_; }
 
 private:
-    static constexpr int kButtonCount = 4;  // left, middle, right, rotary press
+    static constexpr int kButtonCount = 3;  // minus, plus, rotary press
 
     static int buttonIndex(platform::RawInput source) noexcept;
     const ButtonBinding& bindingFor(platform::RawInput source) const noexcept;

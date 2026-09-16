@@ -29,6 +29,16 @@ int clampDuration(std::int64_t value) noexcept {
     return static_cast<int>(value);
 }
 
+std::uint8_t clampPercent(std::int64_t value) noexcept {
+    if (value < 0) {
+        return 0;
+    }
+    if (value > 100) {
+        return 100;
+    }
+    return static_cast<std::uint8_t>(value);
+}
+
 /// 0 means "hold the colon lit", so it has to survive clamping. Anything faster
 /// than 100 ms is a strobe rather than a blink, and the ceiling keeps the
 /// scheduler's next-due arithmetic in comfortable range.
@@ -91,6 +101,10 @@ std::string buildBody(const Config& config) {
     body += std::to_string(static_cast<int>(config.display.brightness));
     body += ",\"power\":";
     body += config.display.power ? "true" : "false";
+    body += '}';
+
+    body += ",\"audio\":{\"volumePercent\":";
+    body += std::to_string(static_cast<int>(config.audio.volumePercent));
     body += '}';
 
     body += ",\"apps\":{\"defaultDurationSeconds\":";
@@ -223,6 +237,10 @@ bool ConfigStore::deserialize(std::string_view payload,
                                     ? clampToByte((rawBrightness * 255 + 50) / 100)
                                     : clampToByte(rawBrightness);
     parsed.display.power = display["power"].toBool(parsed.display.power);
+
+    const json::Value audio = body["audio"];
+    parsed.audio.volumePercent =
+        clampPercent(audio["volumePercent"].toInt(parsed.audio.volumePercent));
 
     const json::Value apps = body["apps"];
     parsed.apps.defaultDurationSeconds = clampDuration(

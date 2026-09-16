@@ -35,6 +35,20 @@ struct DisplaySettings {
 // optional platform capability that reports its presence (ADR 0013), not a
 // config flag that hopes.
 
+struct AudioSettings {
+    /// 0-100. Stored as a percentage because that is how a volume control reads
+    /// to a person; the conversion to the hardware's 0-255 happens once, at the
+    /// edge, via volumeToByte.
+    std::uint8_t volumePercent = 50;
+};
+
+/// 0-100 to 0-255, rounded rather than truncated so that 100% is exactly 255 and
+/// a round trip through the settings API does not drift downwards.
+constexpr std::uint8_t volumeToByte(std::uint8_t percent) noexcept {
+    const unsigned clamped = percent > 100u ? 100u : percent;
+    return static_cast<std::uint8_t>((clamped * 255u + 50u) / 100u);
+}
+
 struct AppSettings {
     int defaultDurationSeconds = 8;
     bool transitions = true;
@@ -86,6 +100,7 @@ struct Config {
     int schemaVersion = kCurrentSchemaVersion;
     std::string deviceName = "notrix";
     DisplaySettings display;
+    AudioSettings audio;
     AppSettings apps;
     ClockSettings clock;
 };

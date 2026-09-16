@@ -226,6 +226,111 @@ NOTRIX_TEST(Host, TimeKeepsRunningWhileTheDisplayIsOff) {
     NOTRIX_CHECK(countLit(host.frame()) > 0);
 }
 
+// --- volume and brightness from the buttons ----------------------------------
+
+NOTRIX_TEST(Host, TappingPlusAndMinusChangesVolume) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    const int start = static_cast<int>(host.settings().audio.volumePercent);
+    const int step = host.inputMapper().config().volumeStepPercent;
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
+    host.tick(200);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), start + step);
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 300, 50);
+    host.tick(400);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), start);
+}
+
+NOTRIX_TEST(Host, VolumeReachesTheSpeaker) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.settings().audio.volumePercent = 100;
+    host.initialize();  // re-reads config, so set it again below
+
+    host.settings().audio.volumePercent = 40;
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
+    host.tick(200);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedAudio().volume()),
+                    static_cast<int>(notrix::config::volumeToByte(45)));
+}
+
+NOTRIX_TEST(Host, VolumeStopsAtTheEnds) {
+    // Holding a button against the end of the range must not wrap around.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    for (int i = 0; i < 40; ++i) {
+        platform.simulatedInput().pressAndRelease(
+            RawInput::KeyMinus, static_cast<std::uint64_t>(i) * 100u + 100u, 50);
+        host.tick(static_cast<std::uint64_t>(i) * 100u + 180u);
+    }
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 0);
+
+    for (int i = 0; i < 40; ++i) {
+        platform.simulatedInput().pressAndRelease(
+            RawInput::KeyPlus, 10000u + static_cast<std::uint64_t>(i) * 100u, 50);
+        host.tick(10000u + static_cast<std::uint64_t>(i) * 100u + 80u);
+    }
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 100);
+}
+
+NOTRIX_TEST(Host, HoldingPlusAndMinusChangesBrightness) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    const int start = static_cast<int>(host.settings().display.brightness);
+    const int step = host.inputMapper().config().brightnessStep;
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 900);
+    host.tick(1100);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), start + step);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.display().brightness()), start + step);
+}
+
+NOTRIX_TEST(Host, TurningBrightnessUpWakesADarkPanel) {
+    // Otherwise the button appears to do nothing on a panel that is switched
+    // off, which reads as broken hardware.
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.power = false;
+    run(host, platform, 1000);
+    NOTRIX_CHECK_EQ(countLit(host.frame()), 0);
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 1100, 900);
+    run(host, platform, 4000);
+
+    NOTRIX_CHECK(host.settings().display.power);
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
+}
+
+NOTRIX_TEST(Host, VolumeIsIgnoredWithoutASpeaker) {
+    // An absent capability is reported, not faked.
+    notrix::platform::simulator::SimulatorCapabilities none;
+    none.audio = false;
+    SimulatorPlatform platform(none);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    const int start = static_cast<int>(host.settings().audio.volumePercent);
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
+    host.tick(200);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), start);
+    NOTRIX_CHECK(logContains(host, "no audio output"));
+}
+
 // --- clock settings reach the renderer ---------------------------------------
 
 NOTRIX_TEST(Host, StoredClockSettingsBecomeTheRenderedStyle) {
@@ -400,15 +505,15 @@ NOTRIX_TEST(Host, AnyButtonDismissesTheSplash) {
     host.tick(0);
     NOTRIX_CHECK(host.showingSplash());
 
-    platform.simulatedInput().pressAndRelease(RawInput::KeyMiddle, 100, 50);
+    platform.simulatedInput().pressAndRelease(RawInput::RotaryPress, 100, 50);
     host.tick(200);
 
     NOTRIX_CHECK_FALSE(host.showingSplash());
 }
 
 NOTRIX_TEST(Host, ThePressThatSkipsTheSplashDoesNothingElse) {
-    // Middle is bound to pause. Tapping it to skip the splash must not also
-    // pause the carousel — the user asked to move on, not to stop.
+    // The knob press is bound to pause. Tapping it to skip the splash must not
+    // also pause the carousel — the user asked to move on, not to stop.
     SimulatorPlatform platform;
     HostConfig config;
     config.splashMillis = 60000;
@@ -416,14 +521,14 @@ NOTRIX_TEST(Host, ThePressThatSkipsTheSplashDoesNothingElse) {
     host.initialize();
     host.tick(0);
 
-    platform.simulatedInput().pressAndRelease(RawInput::KeyMiddle, 100, 50);
+    platform.simulatedInput().pressAndRelease(RawInput::RotaryPress, 100, 50);
     host.tick(200);
 
     NOTRIX_CHECK_FALSE(host.showingSplash());
     NOTRIX_CHECK_FALSE(host.carousel().paused());
 
     // The next press behaves normally.
-    platform.simulatedInput().pressAndRelease(RawInput::KeyMiddle, 300, 50);
+    platform.simulatedInput().pressAndRelease(RawInput::RotaryPress, 300, 50);
     host.tick(400);
     NOTRIX_CHECK(host.carousel().paused());
 }

@@ -275,25 +275,6 @@ ClockTheme clockThemeAt(int index) noexcept {
 
 namespace {
 
-/// Width of a date rendered in the configured format, in fixed slots so it does
-/// not jitter as the day or month rolls over.
-int dateWidthFor(const ClockStyle& style) noexcept {
-    int fields = 2;  // day and month are always present
-    if (style.dateYear != DateYear::Hidden) {
-        ++fields;
-    }
-    const int digitFieldWidth = style.dateYear == DateYear::FourDigit ? kPairWidth * 2 + kGap
-                                                                      : kPairWidth;
-    // Year is wider only when it is four digits; the others are always a pair.
-    int width = kPairWidth * 2 + kSeparatorWidth;
-    if (fields == 3) {
-        width += kSeparatorWidth + (style.dateYear == DateYear::FourDigit
-                                        ? digitFieldWidth
-                                        : kPairWidth);
-    }
-    return width;
-}
-
 void drawDate(Canvas& canvas, const CivilDate& date, int y, const ClockStyle& style) {
     const char separator = separatorChar(style.dateSeparator);
     const int twoDigitYear = ((date.year % 100) + 100) % 100;

@@ -98,16 +98,19 @@ the natural mapping puts navigation on the knob, volume on a tap and brightness
 on a hold.
 
 `InputMapper` already models a rotary with acceleration, which is the part that
-would have been painful to retrofit. But its defaults assume `left / middle /
-right / rotary-press` — three buttons plus the knob — and bind left and right to
-previous/next app, duplicating what the knob does. If this device really has two
-buttons, `kButtonCount = 4` and those bindings describe hardware that is not
-there.
+would have been painful to retrofit. Its defaults assumed `left / middle / right
+/ rotary-press` — three buttons plus the knob — and bound left and right to
+previous/next app, duplicating what the knob does.
 
-Not changed yet, on purpose. Which physical controls exist is exactly the kind of
-§46 question that wants a device rather than a confident guess, and §15 already
-puts mappings in configuration, so this is a default to revisit at Phase 7 rather
-than an architectural problem.
+**Acted on.** `RawInput` is now `KeyMinus / KeyPlus / RotaryPress / RotaryLeft /
+RotaryRight`, with navigation on the knob, volume on a tap and brightness on a
+hold. See [ADR 0016](../adr/0016-tc002-input-layout.md), which records the
+reasoning, what it costs if this is wrong, and exactly which test should fail
+first. Volume was implemented at the same time, because a default binding to an
+unimplemented action is just a dead button.
+
+This is the one finding in this document that has been built on rather than
+merely recorded, so it carries the most risk if the source is wrong.
 
 ### The platform is Android-flavoured, not plain Linux init
 
@@ -201,7 +204,8 @@ first thing to check rather than the last.
    a `libzkgui.so` export. No change to the §53 boundary.
 4. The 180-second trial limit, the 8 MiB res ceiling and the green-flicker quirk
    are recorded here so Phase 7 does not rediscover them.
-5. `InputMapper`'s default bindings are left alone but flagged: they assume three
-   buttons plus a knob, and the device may have two.
+5. `RawInput` and the default bindings were rewritten for a knob plus two
+   labelled buttons (ADR 0016), and `Action::VolumeUp` / `VolumeDown` were
+   implemented so those bindings do something.
 6. Phase 7 test reports should record the stock-app and MCU versions, since a
    report without them cannot be compared against anything.
