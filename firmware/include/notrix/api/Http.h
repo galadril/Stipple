@@ -47,6 +47,12 @@ struct Request {
     /// separate from the body so no handler has to know how it arrived.
     std::string authToken;
 
+    /// If-None-Match, for conditional requests. Named rather than reached for
+    /// through a header map: the set of headers this device understands is small
+    /// and fixed, and spelling it out keeps it auditable — the same reasoning
+    /// that keeps matchRoute() a list of paths instead of a pattern engine.
+    std::string ifNoneMatch;
+
     /// Value of a query parameter, or `fallback` when absent.
     std::string queryValue(std::string_view name, std::string_view fallback = {}) const;
     bool hasQuery(std::string_view name) const;
@@ -56,6 +62,12 @@ struct Response {
     int status = 200;
     std::string contentType = "application/json";
     std::string body;
+
+    /// Emitted as ETag and Cache-Control when non-empty. Only the static file
+    /// handler sets these; API responses describe live state and are deliberately
+    /// not cacheable.
+    std::string etag;
+    std::string cacheControl;
 };
 
 // --- response helpers --------------------------------------------------------
@@ -89,6 +101,7 @@ enum class Resource : std::uint8_t {
     Health,
     Version,
     Diagnostics,
+    Logs,
     AppCollection,
     AppItem,
     AppActivate,

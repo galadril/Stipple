@@ -5,6 +5,7 @@
 #include <string_view>
 
 #include "notrix/api/ApiServer.h"
+#include "notrix/web/StaticFiles.h"
 #include "notrix/app/Carousel.h"
 #include "notrix/asset/IconStore.h"
 #include "notrix/apps/ClockApp.h"
@@ -219,6 +220,7 @@ private:
     // Declared last: its context holds pointers to the members above, which must
     // already be constructed when it is built.
     api::ApiServer apiServer_;
+    web::StaticFiles staticFiles_;
 };
 
 }  // namespace host

@@ -22,6 +22,10 @@ namespace asset {
 class IconStore;
 }
 
+namespace log {
+class RingLog;
+}
+
 namespace config {
 struct Config;
 class ConfigStore;
@@ -46,6 +50,7 @@ struct ApiContext {
     config::Config* config = nullptr;
     config::ConfigStore* configStore = nullptr;
     platform::IPlatformServices* platform = nullptr;
+    log::RingLog* logger = nullptr;
 };
 
 struct ApiOptions {
@@ -88,6 +93,7 @@ private:
     Response handleHealth(const Request& request, std::uint64_t nowMillis);
     Response handleVersion(const Request& request);
     Response handleDiagnostics(const Request& request, std::uint64_t nowMillis);
+    Response handleLogs(const Request& request);
 
     Response handleAppCollection(const Request& request, std::uint64_t nowMillis);
     Response handleAppItem(const Request& request, const std::string& id,

@@ -35,6 +35,7 @@ api::ApiContext ApplicationHost::makeContext() noexcept {
     context.config = &settings_;
     context.configStore = &configStore_;
     context.platform = &platform_;
+    context.logger = &logger_;
     return context;
 }
 
@@ -552,6 +553,17 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
 // --- API ---------------------------------------------------------------------
 
 api::Response ApplicationHost::handle(const api::Request& request) {
+    // The configuration UI is tried first, but only for paths the API does not
+    // own. Ordering it this way means a future asset called "api" could never
+    // shadow an endpoint, and an unknown /api/v1 path still gets the API's own
+    // 404 rather than a confusing "no such page".
+    if (request.path.rfind("/api/", 0) != 0) {
+        api::Response staticResponse;
+        if (staticFiles_.tryHandle(request, staticResponse)) {
+            return staticResponse;
+        }
+    }
+
     const api::Response response = apiServer_.handle(request, lastTickMillis_);
 
     // Log what changed the device and what failed, but not routine reads. A

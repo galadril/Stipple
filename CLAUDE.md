@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Phase 1 of 7. What exists: `notrix_core` (framebuffer, Canvas, test pattern), `notrix_imageio` (dependency-free PNG encoder), a host test suite with golden-image comparison, and a WebAssembly browser emulator. Directories for `sdk/`, `installer/`, `web/`, `integrations/` and `tooling/` do not exist yet — they appear as their phases begin.
+Phases 0–6b are done; 6c (MQTT) and 7 (bring-up) remain.
+
+What exists: `notrix_core` (framebuffer, Canvas, font/text, scenes, icon store, app carousel, notifications, config, frame scheduler, ring log, `ApplicationHost`, the `/api/v1/*` server and the embedded device web UI), `notrix_imageio` (dependency-free PNG encoder), the simulator platform adapter, a host test suite with golden-image comparison, and a WebAssembly browser emulator that serves the real config page through the real router.
+
+Directories for `sdk/`, `installer/`, `integrations/` and `tooling/` do not exist yet — they appear as their phases begin. The device UI lives in `firmware/web/` and is compiled into the binary by `cmake/EmbedWebAssets.cmake`; there is no top-level `web/`.
 
 **No code has ever run on a TC002.** There is no hardware available, and none is needed until Phase 7.
 
@@ -86,6 +90,7 @@ MQTT namespace is `notrix/{deviceId}/...`. MQTT is optional — HTTP-only and MQ
 .\dev.ps1 ci           # what CI runs: warnings as errors + strict goldens
 .\dev.ps1 golden       # rewrite golden fixtures after an intentional change
 .\dev.ps1 emulator     # build the WASM emulator (needs EMSDK)
+.\dev.ps1 verify       # drive the built WASM module under node
 .\dev.ps1 serve        # build it and serve on http://localhost:8080/
 ```
 
@@ -98,6 +103,8 @@ The blueprint's device verbs (`deploy`, `logs`, `restore`) arrive in Phase 7.
 ## Build and test architecture
 
 **Targets.** `notrix_core` is portable C++17 above the §53 boundary — it must compile unchanged for host, WASM and ARM, and may not include a platform header. `notrix_imageio` (PNG) is deliberately a separate target so it can never be linked into the memory-constrained device build.
+
+**The device UI is compiled in.** `firmware/web/*.html|css|js` become a C++ asset table via `cmake/EmbedWebAssets.cmake`, served by `web::StaticFiles` for any path outside `/api/`. A device whose storage has failed is exactly when its config page is needed, so the page must not live on that storage. Assets must be text — the generator emits raw string literals, deliberately using no tool beyond CMake so the Phase 7 cross-toolchain stays dependency-free. Editing a file under `firmware/web/` triggers a reconfigure.
 
 **No external dependencies**, by decision — see `docs/adr/0012-dependency-free-core.md`. The test harness (`firmware/tests/support/`) and PNG encoder are in-tree for this reason. Do not add a dependency to the core without an ADR. JSON in Phase 4 is the one open case where a library may be the right answer, since it parses untrusted network input.
 

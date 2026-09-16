@@ -184,6 +184,7 @@ RouteMatch matchRoute(std::string_view path) {
         else if (head == "health") match.resource = Resource::Health;
         else if (head == "version") match.resource = Resource::Version;
         else if (head == "diagnostics") match.resource = Resource::Diagnostics;
+        else if (head == "logs") match.resource = Resource::Logs;
         else if (head == "apps") match.resource = Resource::AppCollection;
         else if (head == "notifications") match.resource = Resource::NotificationCollection;
         else if (head == "assets") match.resource = Resource::AssetCollection;

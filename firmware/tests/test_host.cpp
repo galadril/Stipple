@@ -688,6 +688,74 @@ NOTRIX_TEST(Host, ServesTheApi) {
     NOTRIX_CHECK(response.body.find("clock") != std::string::npos);
 }
 
+NOTRIX_TEST(Host, ServesTheConfigurationUi) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    notrix::api::Request request;
+    request.method = notrix::api::Method::Get;
+    request.path = "/";
+
+    const notrix::api::Response response = host.handle(request);
+    NOTRIX_CHECK_EQ(response.status, 200);
+    NOTRIX_CHECK(response.contentType.find("text/html") != std::string::npos);
+    NOTRIX_CHECK(response.body.find("NOTRIX") != std::string::npos);
+}
+
+NOTRIX_TEST(Host, TheUiNeverShadowsTheApi) {
+    // Static files are tried first, so an asset named like an endpoint could
+    // otherwise hide it. Paths under /api/ must always reach the API — including
+    // unknown ones, which should get the API's explanatory 404 rather than a
+    // bare "no such page".
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    notrix::api::Request request;
+    request.method = notrix::api::Method::Get;
+    request.path = "/api/v2/device";
+
+    const notrix::api::Response response = host.handle(request);
+    NOTRIX_CHECK_EQ(response.status, 404);
+    NOTRIX_CHECK(response.body.find("/api/v1") != std::string::npos);
+}
+
+NOTRIX_TEST(Host, ServesItsOwnLog) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    notrix::api::Request request;
+    request.method = notrix::api::Method::Get;
+    request.path = "/api/v1/logs";
+
+    const notrix::api::Response response = host.handle(request);
+    NOTRIX_CHECK_EQ(response.status, 200);
+    // Boot writes several lines, so this is never legitimately empty.
+    NOTRIX_CHECK(response.body.find("NOTRIX starting") != std::string::npos);
+    NOTRIX_CHECK(response.body.find("totalWritten") != std::string::npos);
+}
+
+NOTRIX_TEST(Host, ReadingTheUiIsNotLogged) {
+    // The log is 24 entries. A browser fetching three files per page load would
+    // push out everything worth seeing.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    const int before = host.logger().count();
+
+    const char* paths[] = {"/", "/app.css", "/app.js"};
+    for (const char* path : paths) {
+        notrix::api::Request request;
+        request.method = notrix::api::Method::Get;
+        request.path = path;
+        NOTRIX_CHECK_EQ(host.handle(request).status, 200);
+    }
+
+    NOTRIX_CHECK_EQ(host.logger().count(), before);
+}
+
 NOTRIX_TEST(Host, MutatingApiCallsTriggerARedraw) {
     SimulatorPlatform platform;
     ApplicationHost host(platform, quietConfig());

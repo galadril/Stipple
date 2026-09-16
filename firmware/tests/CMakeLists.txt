@@ -22,6 +22,7 @@ add_executable(notrix_tests
     test_host.cpp
     test_clock.cpp
     test_icons.cpp
+    test_web.cpp
 )
 
 target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -9,6 +9,7 @@
 #include "notrix/app/Carousel.h"
 #include "notrix/apps/ClockApp.h"
 #include "notrix/config/Config.h"
+#include "notrix/core/Log.h"
 #include "notrix/core/Version.h"
 #include "notrix/json/Json.h"
 #include "notrix/notify/Notifications.h"
@@ -159,6 +160,7 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
         case Resource::Health: return handleHealth(request, nowMillis);
         case Resource::Version: return handleVersion(request);
         case Resource::Diagnostics: return handleDiagnostics(request, nowMillis);
+        case Resource::Logs: return handleLogs(request);
         case Resource::AppCollection: return handleAppCollection(request, nowMillis);
         case Resource::AppItem: return handleAppItem(request, route.id, nowMillis);
         case Resource::AppActivate: return handleAppActivate(request, route.id, nowMillis);
@@ -216,6 +218,18 @@ Response ApiServer::handleDevice(const Request& request) {
         // down (ADR 0013).
         writer.nullValue();
     }
+
+    // What this build can actually do. A UI that knows the device has no
+    // speaker can grey out the volume control instead of offering one that
+    // silently does nothing — the same reasoning as ADR 0013, surfaced over
+    // HTTP so clients get it too.
+    writer.key("capabilities").beginObject();
+    if (context_.platform != nullptr) {
+        writer.member("audio", context_.platform->audio() != nullptr)
+            .member("network", context_.platform->network() != nullptr)
+            .member("reboot", context_.platform->rebooter() != nullptr);
+    }
+    writer.endObject();
 
     writer.endObject();
     return ok(writer.take());
@@ -295,6 +309,40 @@ Response ApiServer::handleDiagnostics(const Request& request, std::uint64_t nowM
 
     // Never expose secrets through diagnostics (§22): no tokens, no Wi-Fi
     // credentials, not even a redacted placeholder that confirms one exists.
+    writer.endObject();
+    return ok(writer.take());
+}
+
+Response ApiServer::handleLogs(const Request& request) {
+    if (context_.logger == nullptr) {
+        return serverError("log unavailable");
+    }
+    if (request.method != Method::Get) {
+        return methodNotAllowed();
+    }
+
+    const log::RingLog& logger = *context_.logger;
+
+    JsonWriter writer;
+    writer.beginObject().key("entries").beginArray();
+    for (int i = 0; i < logger.count(); ++i) {
+        const log::RingLog::Entry& entry = logger.at(i);
+        writer.beginObject()
+            .member("at", static_cast<std::int64_t>(entry.timestampMillis))
+            .member("level", log::levelName(entry.level))
+            .member("message", entry.message)
+            .endObject();
+    }
+    writer.endArray();
+
+    writer.member("count", logger.count());
+    writer.member("capacity", log::RingLog::kCapacity);
+
+    // The ring overwrites, so a reader that only sees `entries` has no way to
+    // know history was lost. Reporting the total lets a UI say "24 of 812"
+    // instead of implying the device has only ever logged 24 things.
+    writer.member("totalWritten", static_cast<std::int64_t>(logger.totalWritten()));
+    writer.member("minimumLevel", log::levelName(logger.minimumLevel()));
     writer.endObject();
     return ok(writer.take());
 }

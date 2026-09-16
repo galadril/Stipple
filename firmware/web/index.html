@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NOTRIX</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<header class="topbar">
+    <h1>NOTRIX</h1>
+    <div class="identity">
+        <span id="device-name">&hellip;</span>
+        <span class="muted" id="device-version"></span>
+    </div>
+    <span class="pill" id="connection">connecting</span>
+</header>
+
+<nav class="tabs" role="tablist">
+    <button class="tab" data-panel="panel-display" role="tab" type="button">Display</button>
+    <button class="tab" data-panel="panel-clock" role="tab" type="button">Clock</button>
+    <button class="tab" data-panel="panel-apps" role="tab" type="button">Apps</button>
+    <button class="tab" data-panel="panel-notify" role="tab" type="button">Notify</button>
+    <button class="tab" data-panel="panel-system" role="tab" type="button">System</button>
+    <button class="tab" data-panel="panel-logs" role="tab" type="button">Logs</button>
+</nav>
+
+<main>
+
+<section class="panel" id="panel-display">
+    <h2>Display</h2>
+    <div class="field">
+        <label for="power">Panel</label>
+        <label class="switch">
+            <input type="checkbox" id="power" data-setting="display.power">
+            <span>On</span>
+        </label>
+        <p class="help">Off blanks the panel without cutting power to the device.</p>
+    </div>
+    <div class="field">
+        <label for="brightness">Brightness</label>
+        <input type="range" id="brightness" min="0" max="255" data-setting="display.brightness">
+        <output for="brightness" id="brightness-out">128</output>
+        <p class="help">
+            This device has no ambient light sensor, so there is no automatic mode.
+        </p>
+    </div>
+    <div class="field">
+        <label for="volume">Volume</label>
+        <input type="range" id="volume" min="0" max="100" data-setting="audio.volumePercent">
+        <output for="volume" id="volume-out">50</output>
+        <p class="help" id="volume-help">Tap &minus; / + on the device for the same control.</p>
+    </div>
+</section>
+
+<section class="panel" id="panel-clock">
+    <h2>Clock</h2>
+    <div class="field">
+        <label for="theme">Face</label>
+        <select id="theme" data-setting="clock.theme">
+            <option value="minimal">Minimal &mdash; HH:MM</option>
+            <option value="seconds">Seconds &mdash; HH:MM:SS</option>
+            <option value="dateBelow">Date below</option>
+            <option value="weekday">Weekday below</option>
+            <option value="secondsBar">Seconds bar</option>
+            <option value="calendar">Calendar</option>
+        </select>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="twentyFourHour">24-hour</label>
+            <label class="switch">
+                <input type="checkbox" id="twentyFourHour" data-setting="clock.twentyFourHour">
+                <span>24h</span>
+            </label>
+        </div>
+        <div class="field">
+            <label for="leadingZero">Leading zero</label>
+            <label class="switch">
+                <input type="checkbox" id="leadingZero" data-setting="clock.leadingZero">
+                <span>07:05</span>
+            </label>
+        </div>
+        <div class="field">
+            <label for="showAmPm">AM/PM</label>
+            <label class="switch">
+                <input type="checkbox" id="showAmPm" data-setting="clock.showAmPm">
+                <span>Show</span>
+            </label>
+            <p class="help">12-hour faces only, where there is room.</p>
+        </div>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="color">Digits</label>
+            <input type="color" id="color" data-setting="clock.color">
+        </div>
+        <div class="field">
+            <label for="accentColor">Accent</label>
+            <input type="color" id="accentColor" data-setting="clock.accentColor">
+            <p class="help">Colon, seconds bar, calendar header.</p>
+        </div>
+        <div class="field">
+            <label for="dateColor">Date</label>
+            <input type="color" id="dateColor" data-setting="clock.dateColor">
+        </div>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="dateOrder">Date order</label>
+            <select id="dateOrder" data-setting="clock.dateOrder">
+                <option value="dayMonthYear">31.12</option>
+                <option value="monthDayYear">12.31</option>
+                <option value="yearMonthDay">Year first</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="dateSeparator">Separator</label>
+            <select id="dateSeparator" data-setting="clock.dateSeparator">
+                <option value="dot">31.12</option>
+                <option value="slash">31/12</option>
+                <option value="dash">31-12</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="dateYear">Year</label>
+            <select id="dateYear" data-setting="clock.dateYear">
+                <option value="none">Hidden</option>
+                <option value="twoDigit">26</option>
+                <option value="fourDigit">2026</option>
+            </select>
+        </div>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="blinkPeriodMillis">Colon blink</label>
+            <select id="blinkPeriodMillis" data-setting="clock.blinkPeriodMillis" data-numeric="1">
+                <option value="0">Always lit</option>
+                <option value="500">Fast</option>
+                <option value="1000">One second</option>
+                <option value="2000">Slow</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="utcOffsetSeconds">UTC offset</label>
+            <select id="utcOffsetSeconds" data-setting="clock.utcOffsetSeconds"></select>
+        </div>
+    </div>
+</section>
+
+<section class="panel" id="panel-apps">
+    <h2>Apps</h2>
+    <div class="row">
+        <div class="field">
+            <label for="defaultDurationSeconds">Seconds per app</label>
+            <input type="number" id="defaultDurationSeconds" min="1" max="3600"
+                   data-setting="apps.defaultDurationSeconds">
+        </div>
+        <div class="field">
+            <label for="transitions">Transitions</label>
+            <label class="switch">
+                <input type="checkbox" id="transitions" data-setting="apps.transitions">
+                <span>Animate</span>
+            </label>
+        </div>
+    </div>
+    <ul class="list" id="app-list"></ul>
+</section>
+
+<section class="panel" id="panel-notify">
+    <h2>Send a notification</h2>
+    <div class="field">
+        <label for="notify-text">Text</label>
+        <input type="text" id="notify-text" maxlength="200" placeholder="Dinner is ready">
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="notify-priority">Priority</label>
+            <select id="notify-priority">
+                <option value="normal">Normal</option>
+                <option value="high">Urgent</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="notify-duration">Seconds</label>
+            <input type="number" id="notify-duration" min="1" max="3600" value="8">
+        </div>
+    </div>
+    <button class="btn primary" id="notify-send" type="button">Send</button>
+    <h2>Queued</h2>
+    <ul class="list" id="notify-list"></ul>
+</section>
+
+<section class="panel" id="panel-system">
+    <h2>System</h2>
+    <div class="field">
+        <label for="deviceName">Device name</label>
+        <input type="text" id="deviceName" maxlength="64" data-setting="deviceName">
+    </div>
+    <dl class="facts" id="device-facts"></dl>
+    <h2>Restart</h2>
+    <p class="help">
+        Settings are saved as you change them, so a restart loses nothing.
+    </p>
+    <button class="btn danger" id="reboot" type="button">Restart device</button>
+</section>
+
+<section class="panel" id="panel-logs">
+    <h2>Log</h2>
+    <div class="toolbar">
+        <label class="switch">
+            <input type="checkbox" id="log-follow" checked>
+            <span>Follow</span>
+        </label>
+        <span class="muted" id="log-meta"></span>
+    </div>
+    <ol class="logview" id="logview"></ol>
+</section>
+
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

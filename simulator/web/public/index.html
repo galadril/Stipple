@@ -131,6 +131,19 @@
         <ol class="logview" id="logview"></ol>
     </section>
 
+    <section class="deviceui">
+        <div class="icon-head">
+            <span class="cluster-label">Device web UI</span>
+            <button class="btn btn-hw" id="ui-reload" type="button">Reload</button>
+        </div>
+        <p class="hint">
+            The real configuration page, served from the firmware's embedded assets and
+            driven through <code>ApplicationHost::handle</code> &mdash; the same entry point
+            the device's HTTP transport will call. Changes made here affect the panel above.
+        </p>
+        <iframe class="uiframe" id="uiframe" title="Device web UI"></iframe>
+    </section>
+
     <footer class="colophon">
         <p>
             Everything above comes from <code>notrix_core</code> compiled to WebAssembly &mdash;
