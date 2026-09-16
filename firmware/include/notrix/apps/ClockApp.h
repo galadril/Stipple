@@ -44,12 +44,50 @@ const char* clockThemeName(ClockTheme theme) noexcept;
 inline constexpr int kClockThemeCount = 6;
 ClockTheme clockThemeAt(int index) noexcept;
 
+/// Field order in a rendered date. Not a preference — 31/12 and 12/31 are the
+/// same date read two ways, and getting it wrong is a correctness problem for
+/// whoever is looking at the panel.
+enum class DateOrder : std::uint8_t {
+    DayMonthYear,
+    MonthDayYear,
+    YearMonthDay,
+};
+
+enum class DateSeparator : std::uint8_t { Dot, Slash, Dash };
+
+/// Hiding the year leaves room on a 52-pixel panel, which is why it is a
+/// three-way choice rather than a toggle.
+enum class DateYear : std::uint8_t { Hidden, TwoDigit, FourDigit };
+
+DateOrder dateOrderFromName(std::string_view name) noexcept;
+const char* dateOrderName(DateOrder order) noexcept;
+DateSeparator dateSeparatorFromName(std::string_view name) noexcept;
+const char* dateSeparatorName(DateSeparator separator) noexcept;
+DateYear dateYearFromName(std::string_view name) noexcept;
+const char* dateYearName(DateYear year) noexcept;
+
 struct ClockStyle {
     ClockTheme theme = ClockTheme::Minimal;
     bool twentyFourHour = true;
+
+    /// Show 07:05 rather than 7:05. The blanked slot is still reserved either
+    /// way, so the digits do not move at ten o'clock.
+    bool leadingZero = true;
+
+    /// 12-hour clock only. Suppressed by themes that show seconds, which have no
+    /// room left for it.
+    bool showAmPm = false;
+
     Rgb color = colors::kWhite;
     /// Used for the colon, the calendar header and the seconds bar.
     Rgb accentColor = rgb(0, 190, 255);
+    /// Date text in the themes that show one.
+    Rgb dateColor = rgb(0, 190, 255);
+
+    DateOrder dateOrder = DateOrder::DayMonthYear;
+    DateSeparator dateSeparator = DateSeparator::Dot;
+    DateYear dateYear = DateYear::Hidden;
+
     /// Colon blink period. Zero holds it lit — the blink is the only moving part
     /// on an otherwise static face, and some people find it distracting.
     std::uint32_t blinkPeriodMillis = 1000;

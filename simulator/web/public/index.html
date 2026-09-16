@@ -48,20 +48,21 @@
     </section>
 
     <section class="device-inputs">
+        <!-- data-source values are RawInput enum ordinals. Keep them in step
+             with firmware/include/notrix/platform/Input.h. -->
         <div class="input-cluster">
             <span class="cluster-label">Buttons</span>
             <div class="cluster-row">
-                <button class="btn btn-hw" data-source="0" type="button">Left</button>
-                <button class="btn btn-hw" data-source="1" type="button">Middle</button>
-                <button class="btn btn-hw" data-source="2" type="button">Right</button>
+                <button class="btn btn-hw" data-source="0" type="button" title="Tap: volume down. Hold: brightness down.">&minus;</button>
+                <button class="btn btn-hw" data-source="1" type="button" title="Tap: volume up. Hold: brightness up.">+</button>
             </div>
         </div>
         <div class="input-cluster">
-            <span class="cluster-label">Rotary</span>
+            <span class="cluster-label">Knob</span>
             <div class="cluster-row">
-                <button class="btn btn-hw" data-source="4" data-tick="1" type="button">&#8630;</button>
-                <button class="btn btn-hw" data-source="3" type="button">Press</button>
-                <button class="btn btn-hw" data-source="5" data-tick="1" type="button">&#8631;</button>
+                <button class="btn btn-hw" data-source="3" data-tick="1" type="button" title="Previous app">&#8630;</button>
+                <button class="btn btn-hw" data-source="2" type="button" title="Tap: pause. Hold: dismiss notification.">Press</button>
+                <button class="btn btn-hw" data-source="4" data-tick="1" type="button" title="Next app">&#8631;</button>
             </div>
         </div>
         <div class="input-cluster">
@@ -72,8 +73,9 @@
             </div>
         </div>
         <p class="hint">
-            Buttons send raw hardware events; <code>InputMapper</code> decides what they mean, so
-            Middle toggles pause on a short press and dismisses a notification on a long one.
+            Controls send raw hardware events; <code>InputMapper</code> decides what they mean.
+            The knob navigates and its press toggles pause &mdash; held, it dismisses a
+            notification. Tap &minus;/+ for volume, hold for brightness.
             An urgent notification preempts whatever is showing; a normal one waits its turn.
         </p>
     </section>

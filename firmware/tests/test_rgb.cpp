@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/core/Rgb.h"
 
+#include <string>
+
 #include "support/TestFramework.h"
 
 using notrix::fromPacked;
@@ -51,4 +53,45 @@ NOTRIX_TEST(Rgb, ScaleIsMonotonicAndNeverOverflows) {
 
 NOTRIX_TEST(Rgb, DefaultConstructedIsBlack) {
     NOTRIX_CHECK_EQ(Rgb(), colors::kBlack);
+}
+
+// --- hex text ----------------------------------------------------------------
+
+NOTRIX_TEST(Rgb, ParsesHexWithAndWithoutHash) {
+    Rgb color;
+    NOTRIX_CHECK(notrix::parseHexColor("#FF8800", color));
+    NOTRIX_CHECK_EQ(color, Rgb({255, 136, 0}));
+    NOTRIX_CHECK(notrix::parseHexColor("ff8800", color));
+    NOTRIX_CHECK_EQ(color, Rgb({255, 136, 0}));
+}
+
+NOTRIX_TEST(Rgb, RejectsAnythingThatIsNotSixHexDigits) {
+    const char* bad[] = {"", "#", "#FFF", "#FFFFFFF", "FFFFFG", "#12345", "blue", "# FFFFF"};
+    for (const char* text : bad) {
+        Rgb color = colors::kOrange;
+        NOTRIX_CHECK_FALSE(notrix::parseHexColor(text, color));
+        // A rejected parse must not leave the caller holding a half-parsed value.
+        NOTRIX_CHECK_EQ(color, colors::kOrange);
+    }
+}
+
+NOTRIX_TEST(Rgb, HexRoundTripsForEveryChannelValue) {
+    // Config and the API both round-trip colours through text; a formatter that
+    // dropped a leading zero would corrupt a colour on every save.
+    for (int value = 0; value <= 255; ++value) {
+        const Rgb original = rgb(value, 255 - value, value / 2);
+        char text[8];
+        notrix::formatHexColor(original, text);
+
+        Rgb parsed;
+        NOTRIX_CHECK(notrix::parseHexColor(text, parsed));
+        NOTRIX_CHECK_EQ(parsed, original);
+    }
+}
+
+NOTRIX_TEST(Rgb, FormatsUppercaseWithHashAndTerminator) {
+    char text[8];
+    notrix::formatHexColor(Rgb({0, 190, 255}), text);
+    NOTRIX_CHECK_EQ(std::string(text), std::string("#00BEFF"));
+    NOTRIX_CHECK_EQ(text[7], '\0');
 }

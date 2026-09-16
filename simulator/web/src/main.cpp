@@ -341,7 +341,7 @@ EMSCRIPTEN_KEEPALIVE int notrix_icon_commit(int width, int height, int frames,
     Emulator& state = emulator();
 
     notrix::asset::Icon icon;
-    g_iconId[sizeof(g_iconId) - 1] = ' ';
+    g_iconId[sizeof(g_iconId) - 1] = '\0';
     icon.id = g_iconId;
     icon.width = width;
     icon.height = height;

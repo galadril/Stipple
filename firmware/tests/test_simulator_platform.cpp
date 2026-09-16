@@ -62,7 +62,7 @@ NOTRIX_TEST(SimulatorPlatform, ReportsTheDeviceFrameIntervalLimit) {
 
 NOTRIX_TEST(SimulatorPlatform, InputIsDeliveredInOrder) {
     SimulatorPlatform platform;
-    platform.simulatedInput().pressAndRelease(RawInput::KeyLeft, 100, 50);
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 100, 50);
 
     InputEvent event;
     NOTRIX_CHECK(platform.input().poll(event));
@@ -90,7 +90,7 @@ NOTRIX_TEST(SimulatorPlatform, QueueOverflowDropsTheOldestEvent) {
 
     const std::size_t capacity = notrix::platform::simulator::SimulatorInput::kCapacity;
     for (std::size_t i = 0; i < capacity + 3; ++i) {
-        input.push(InputEvent({RawInput::KeyMiddle, ButtonPhase::Tick, static_cast<std::uint64_t>(i)}));
+        input.push(InputEvent({RawInput::RotaryPress, ButtonPhase::Tick, static_cast<std::uint64_t>(i)}));
     }
 
     NOTRIX_CHECK_EQ(input.pending(), capacity);

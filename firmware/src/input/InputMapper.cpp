@@ -24,14 +24,12 @@ void InputMapper::reset() noexcept {
 
 int InputMapper::buttonIndex(RawInput source) noexcept {
     switch (source) {
-        case RawInput::KeyLeft:
+        case RawInput::KeyMinus:
             return 0;
-        case RawInput::KeyMiddle:
+        case RawInput::KeyPlus:
             return 1;
-        case RawInput::KeyRight:
-            return 2;
         case RawInput::RotaryPress:
-            return 3;
+            return 2;
         case RawInput::RotaryLeft:
         case RawInput::RotaryRight:
             break;
@@ -41,12 +39,10 @@ int InputMapper::buttonIndex(RawInput source) noexcept {
 
 const ButtonBinding& InputMapper::bindingFor(RawInput source) const noexcept {
     switch (source) {
-        case RawInput::KeyLeft:
-            return config_.keyLeft;
-        case RawInput::KeyMiddle:
-            return config_.keyMiddle;
-        case RawInput::KeyRight:
-            return config_.keyRight;
+        case RawInput::KeyMinus:
+            return config_.keyMinus;
+        case RawInput::KeyPlus:
+            return config_.keyPlus;
         case RawInput::RotaryPress:
         default:
             return config_.rotaryPress;

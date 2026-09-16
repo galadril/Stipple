@@ -6,13 +6,21 @@
 namespace notrix {
 namespace platform {
 
-/// Physical controls on the TC002: three buttons plus a rotary encoder
-/// (blueprint §4, §15). This enum describes hardware, not meaning — what a
-/// press *does* is decided by InputMapper, so users can remap freely.
+/// Physical controls on the TC002: a rotary encoder that also presses, plus two
+/// buttons labelled − and + (blueprint §4, §15).
+///
+/// This enum describes hardware, not meaning — what a press *does* is decided by
+/// InputMapper, so users can remap freely. The names are the labels on the case
+/// rather than positions, because a control named `KeyLeft` invites bindings
+/// that make no sense on a button marked −.
+///
+/// Earlier revisions of this file modelled three unlabelled buttons plus a knob,
+/// which described hardware the TC002 does not appear to have. See
+/// docs/adr/0016-tc002-input-layout.md — including what to check first if a real
+/// device disagrees.
 enum class RawInput {
-    KeyLeft,
-    KeyMiddle,
-    KeyRight,
+    KeyMinus,
+    KeyPlus,
     RotaryPress,
     RotaryLeft,   ///< one detent counter-clockwise
     RotaryRight,  ///< one detent clockwise
@@ -27,7 +35,7 @@ enum class ButtonPhase {
 };
 
 struct InputEvent {
-    RawInput source = RawInput::KeyLeft;
+    RawInput source = RawInput::KeyMinus;
     ButtonPhase phase = ButtonPhase::Tick;
     /// Monotonic milliseconds, from the same clock as ISystemClock. Press
     /// duration and rotary acceleration are both derived from this, so it must

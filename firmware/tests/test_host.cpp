@@ -116,6 +116,275 @@ NOTRIX_TEST(Host, AppliesStoredBrightnessAtBoot) {
     NOTRIX_CHECK_EQ(static_cast<int>(platform.display().brightness()), 42);
 }
 
+// --- display power -----------------------------------------------------------
+
+NOTRIX_TEST(Host, DisplayPowerOffBlanksThePanel) {
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    notrix::config::ConfigStore store(platform.storage());
+    notrix::config::Config saved;
+    saved.display.power = false;
+    store.save(saved);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 1000);
+
+    // Presented, not merely skipped: the panel has to actually go dark rather
+    // than hold whatever happened to be on it.
+    NOTRIX_CHECK(platform.simulatedDisplay().presentCount() > 0);
+    NOTRIX_CHECK_EQ(countLit(host.frame()), 0);
+}
+
+NOTRIX_TEST(Host, SwitchingTheDisplayOffTakesEffectImmediately) {
+    // The bug this guards: with dirty rendering, a panel switched off mid-minute
+    // would otherwise stay lit until the clock next changed.
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 1000);
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
+
+    host.settings().display.power = false;
+    run(host, platform, 1200);
+
+    NOTRIX_CHECK_EQ(countLit(host.frame()), 0);
+}
+
+NOTRIX_TEST(Host, SwitchingTheDisplayBackOnRestoresIt) {
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.power = false;
+    run(host, platform, 1000);
+    NOTRIX_CHECK_EQ(countLit(host.frame()), 0);
+
+    host.settings().display.power = true;
+    run(host, platform, 2000);
+
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
+}
+
+NOTRIX_TEST(Host, ADarkPanelOnlyRedrawsForThePeriodicRefresh) {
+    // An off switch that still rendered black at 30 FPS would defeat its own
+    // purpose. What should remain is the self-healing refresh and nothing else,
+    // so this is asserted against the refresh cadence rather than against zero.
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    HostConfig config = quietConfig();
+    config.frame.periodicRefreshMillis = 5000;
+    ApplicationHost host(platform, config);
+    host.initialize();
+
+    host.settings().display.power = false;
+    run(host, platform, 1000);
+    const int settled = static_cast<int>(host.frameStats().rendered);
+
+    const std::uint64_t spanMillis = 20000;
+    run(host, platform, 1000 + spanMillis);
+
+    const int drawn = static_cast<int>(host.frameStats().rendered) - settled;
+    const int refreshes = static_cast<int>(spanMillis / config.frame.periodicRefreshMillis);
+    NOTRIX_CHECK(drawn <= refreshes + 1);
+
+    // And the comparison that gives the number meaning: a lit clock over the
+    // same span redraws many times more often.
+    SimulatorPlatform lit;
+    lit.simulatedClock().setWallClock(1'700'000'000);
+    ApplicationHost litHost(lit, config);
+    litHost.initialize();
+    run(litHost, lit, 1000);
+    const int litSettled = static_cast<int>(litHost.frameStats().rendered);
+    run(litHost, lit, 1000 + spanMillis);
+
+    NOTRIX_CHECK(static_cast<int>(litHost.frameStats().rendered) - litSettled > drawn);
+}
+
+NOTRIX_TEST(Host, TimeKeepsRunningWhileTheDisplayIsOff) {
+    // Switching the panel back on should show the current moment, not resume
+    // where it left off.
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().display.power = false;
+    run(host, platform, 500);
+
+    platform.simulatedClock().setWallClock(1'700'003'600);  // an hour later
+    run(host, platform, 1500);
+    host.settings().display.power = true;
+    run(host, platform, 3000);
+
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
+}
+
+// --- volume and brightness from the buttons ----------------------------------
+
+NOTRIX_TEST(Host, TappingPlusAndMinusChangesVolume) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    const int start = static_cast<int>(host.settings().audio.volumePercent);
+    const int step = host.inputMapper().config().volumeStepPercent;
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
+    host.tick(200);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), start + step);
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 300, 50);
+    host.tick(400);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), start);
+}
+
+NOTRIX_TEST(Host, VolumeReachesTheSpeaker) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.settings().audio.volumePercent = 100;
+    host.initialize();  // re-reads config, so set it again below
+
+    host.settings().audio.volumePercent = 40;
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
+    host.tick(200);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedAudio().volume()),
+                    static_cast<int>(notrix::config::volumeToByte(45)));
+}
+
+NOTRIX_TEST(Host, VolumeStopsAtTheEnds) {
+    // Holding a button against the end of the range must not wrap around.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    for (int i = 0; i < 40; ++i) {
+        platform.simulatedInput().pressAndRelease(
+            RawInput::KeyMinus, static_cast<std::uint64_t>(i) * 100u + 100u, 50);
+        host.tick(static_cast<std::uint64_t>(i) * 100u + 180u);
+    }
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 0);
+
+    for (int i = 0; i < 40; ++i) {
+        platform.simulatedInput().pressAndRelease(
+            RawInput::KeyPlus, 10000u + static_cast<std::uint64_t>(i) * 100u, 50);
+        host.tick(10000u + static_cast<std::uint64_t>(i) * 100u + 80u);
+    }
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 100);
+}
+
+NOTRIX_TEST(Host, HoldingPlusAndMinusChangesBrightness) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    const int start = static_cast<int>(host.settings().display.brightness);
+    const int step = host.inputMapper().config().brightnessStep;
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 900);
+    host.tick(1100);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), start + step);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.display().brightness()), start + step);
+}
+
+NOTRIX_TEST(Host, TurningBrightnessUpWakesADarkPanel) {
+    // Otherwise the button appears to do nothing on a panel that is switched
+    // off, which reads as broken hardware.
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.power = false;
+    run(host, platform, 1000);
+    NOTRIX_CHECK_EQ(countLit(host.frame()), 0);
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 1100, 900);
+    run(host, platform, 4000);
+
+    NOTRIX_CHECK(host.settings().display.power);
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
+}
+
+NOTRIX_TEST(Host, VolumeIsIgnoredWithoutASpeaker) {
+    // An absent capability is reported, not faked.
+    notrix::platform::simulator::SimulatorCapabilities none;
+    none.audio = false;
+    SimulatorPlatform platform(none);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    const int start = static_cast<int>(host.settings().audio.volumePercent);
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
+    host.tick(200);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), start);
+    NOTRIX_CHECK(logContains(host, "no audio output"));
+}
+
+// --- clock settings reach the renderer ---------------------------------------
+
+NOTRIX_TEST(Host, StoredClockSettingsBecomeTheRenderedStyle) {
+    SimulatorPlatform platform;
+    notrix::config::ConfigStore store(platform.storage());
+    notrix::config::Config saved;
+    saved.clock.theme = "weekday";
+    saved.clock.twentyFourHour = false;
+    saved.clock.leadingZero = false;
+    saved.clock.showAmPm = true;
+    saved.clock.color = 0xFF8800u;
+    saved.clock.accentColor = 0x00FF00u;
+    saved.clock.dateColor = 0xFF00FFu;
+    saved.clock.dateOrder = "monthDayYear";
+    saved.clock.dateSeparator = "slash";
+    saved.clock.dateYear = "fourDigit";
+    saved.clock.blinkPeriodMillis = 0;
+    store.save(saved);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    const notrix::apps::ClockStyle style = host.clockStyle();
+    NOTRIX_CHECK(style.theme == notrix::apps::ClockTheme::Weekday);
+    NOTRIX_CHECK_FALSE(style.twentyFourHour);
+    NOTRIX_CHECK_FALSE(style.leadingZero);
+    NOTRIX_CHECK(style.showAmPm);
+    NOTRIX_CHECK(style.color == notrix::rgb(255, 136, 0));
+    NOTRIX_CHECK(style.accentColor == notrix::rgb(0, 255, 0));
+    NOTRIX_CHECK(style.dateColor == notrix::rgb(255, 0, 255));
+    NOTRIX_CHECK(style.dateOrder == notrix::apps::DateOrder::MonthDayYear);
+    NOTRIX_CHECK(style.dateSeparator == notrix::apps::DateSeparator::Slash);
+    NOTRIX_CHECK(style.dateYear == notrix::apps::DateYear::FourDigit);
+    NOTRIX_CHECK_EQ(static_cast<int>(style.blinkPeriodMillis), 0);
+}
+
+NOTRIX_TEST(Host, UnknownClockSettingNamesFallBackInsteadOfFailing) {
+    // A config written by a newer build can name a face this one does not have.
+    // Degrading to the default beats refusing to show a clock at all.
+    SimulatorPlatform platform;
+    notrix::config::ConfigStore store(platform.storage());
+    notrix::config::Config saved;
+    saved.clock.theme = "holographic";
+    saved.clock.dateOrder = "stardate";
+    store.save(saved);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    const notrix::apps::ClockStyle style = host.clockStyle();
+    NOTRIX_CHECK(style.theme == notrix::apps::ClockTheme::Minimal);
+    NOTRIX_CHECK(style.dateOrder == notrix::apps::DateOrder::DayMonthYear);
+}
+
 // --- the loop ----------------------------------------------------------------
 
 NOTRIX_TEST(Host, RendersAndPresentsFrames) {
@@ -236,15 +505,15 @@ NOTRIX_TEST(Host, AnyButtonDismissesTheSplash) {
     host.tick(0);
     NOTRIX_CHECK(host.showingSplash());
 
-    platform.simulatedInput().pressAndRelease(RawInput::KeyMiddle, 100, 50);
+    platform.simulatedInput().pressAndRelease(RawInput::RotaryPress, 100, 50);
     host.tick(200);
 
     NOTRIX_CHECK_FALSE(host.showingSplash());
 }
 
 NOTRIX_TEST(Host, ThePressThatSkipsTheSplashDoesNothingElse) {
-    // Middle is bound to pause. Tapping it to skip the splash must not also
-    // pause the carousel — the user asked to move on, not to stop.
+    // The knob press is bound to pause. Tapping it to skip the splash must not
+    // also pause the carousel — the user asked to move on, not to stop.
     SimulatorPlatform platform;
     HostConfig config;
     config.splashMillis = 60000;
@@ -252,14 +521,14 @@ NOTRIX_TEST(Host, ThePressThatSkipsTheSplashDoesNothingElse) {
     host.initialize();
     host.tick(0);
 
-    platform.simulatedInput().pressAndRelease(RawInput::KeyMiddle, 100, 50);
+    platform.simulatedInput().pressAndRelease(RawInput::RotaryPress, 100, 50);
     host.tick(200);
 
     NOTRIX_CHECK_FALSE(host.showingSplash());
     NOTRIX_CHECK_FALSE(host.carousel().paused());
 
     // The next press behaves normally.
-    platform.simulatedInput().pressAndRelease(RawInput::KeyMiddle, 300, 50);
+    platform.simulatedInput().pressAndRelease(RawInput::RotaryPress, 300, 50);
     host.tick(400);
     NOTRIX_CHECK(host.carousel().paused());
 }

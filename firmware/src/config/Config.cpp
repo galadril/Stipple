@@ -2,6 +2,7 @@
 #include "notrix/config/Config.h"
 
 #include "notrix/core/Checksum.h"
+#include "notrix/core/Rgb.h"
 #include "notrix/json/Json.h"
 
 namespace notrix {
@@ -26,6 +27,32 @@ int clampDuration(std::int64_t value) noexcept {
         return 3600;
     }
     return static_cast<int>(value);
+}
+
+std::uint8_t clampPercent(std::int64_t value) noexcept {
+    if (value < 0) {
+        return 0;
+    }
+    if (value > 100) {
+        return 100;
+    }
+    return static_cast<std::uint8_t>(value);
+}
+
+/// 0 means "hold the colon lit", so it has to survive clamping. Anything faster
+/// than 100 ms is a strobe rather than a blink, and the ceiling keeps the
+/// scheduler's next-due arithmetic in comfortable range.
+std::uint32_t clampBlinkPeriod(std::int64_t value) noexcept {
+    if (value <= 0) {
+        return 0;
+    }
+    if (value < 100) {
+        return 100;
+    }
+    if (value > 60000) {
+        return 60000;
+    }
+    return static_cast<std::uint32_t>(value);
 }
 
 int clampUtcOffset(std::int64_t value) noexcept {
@@ -72,8 +99,12 @@ std::string buildBody(const Config& config) {
 
     body += ",\"display\":{\"brightness\":";
     body += std::to_string(static_cast<int>(config.display.brightness));
-    body += ",\"autoBrightness\":";
-    body += config.display.autoBrightness ? "true" : "false";
+    body += ",\"power\":";
+    body += config.display.power ? "true" : "false";
+    body += '}';
+
+    body += ",\"audio\":{\"volumePercent\":";
+    body += std::to_string(static_cast<int>(config.audio.volumePercent));
     body += '}';
 
     body += ",\"apps\":{\"defaultDurationSeconds\":";
@@ -88,6 +119,32 @@ std::string buildBody(const Config& config) {
     body += std::to_string(config.clock.utcOffsetSeconds);
     body += ",\"theme\":";
     appendEscaped(body, config.clock.theme);
+    body += ",\"leadingZero\":";
+    body += config.clock.leadingZero ? "true" : "false";
+    body += ",\"showAmPm\":";
+    body += config.clock.showAmPm ? "true" : "false";
+
+    // Colours go out as #RRGGBB so a stored document stays readable by whoever
+    // has to debug one over ADB.
+    char hex[8];
+    formatHexColor(fromPacked(config.clock.color), hex);
+    body += ",\"color\":";
+    appendEscaped(body, hex);
+    formatHexColor(fromPacked(config.clock.accentColor), hex);
+    body += ",\"accentColor\":";
+    appendEscaped(body, hex);
+    formatHexColor(fromPacked(config.clock.dateColor), hex);
+    body += ",\"dateColor\":";
+    appendEscaped(body, hex);
+
+    body += ",\"dateOrder\":";
+    appendEscaped(body, config.clock.dateOrder);
+    body += ",\"dateSeparator\":";
+    appendEscaped(body, config.clock.dateSeparator);
+    body += ",\"dateYear\":";
+    appendEscaped(body, config.clock.dateYear);
+    body += ",\"blinkPeriodMillis\":";
+    body += std::to_string(config.clock.blinkPeriodMillis);
     body += '}';
 
     body += '}';
@@ -179,8 +236,11 @@ bool ConfigStore::deserialize(std::string_view payload,
     parsed.display.brightness = fromSchemaVersion < 2
                                     ? clampToByte((rawBrightness * 255 + 50) / 100)
                                     : clampToByte(rawBrightness);
-    parsed.display.autoBrightness =
-        display["autoBrightness"].toBool(parsed.display.autoBrightness);
+    parsed.display.power = display["power"].toBool(parsed.display.power);
+
+    const json::Value audio = body["audio"];
+    parsed.audio.volumePercent =
+        clampPercent(audio["volumePercent"].toInt(parsed.audio.volumePercent));
 
     const json::Value apps = body["apps"];
     parsed.apps.defaultDurationSeconds = clampDuration(
@@ -192,6 +252,29 @@ bool ConfigStore::deserialize(std::string_view payload,
     parsed.clock.utcOffsetSeconds =
         clampUtcOffset(clock["utcOffsetSeconds"].toInt(parsed.clock.utcOffsetSeconds));
     parsed.clock.theme = clock["theme"].toString(parsed.clock.theme);
+    parsed.clock.leadingZero = clock["leadingZero"].toBool(parsed.clock.leadingZero);
+    parsed.clock.showAmPm = clock["showAmPm"].toBool(parsed.clock.showAmPm);
+
+    // A colour that will not parse keeps the default rather than failing the
+    // load. Configuration recovery exists so one bad field cannot cost the user
+    // every other setting they have.
+    const auto colorOr = [&clock](const char* key, std::uint32_t fallback) {
+        Rgb parsedColor;
+        const json::Value value = clock[key];
+        if (value.isString() && parseHexColor(value.raw(), parsedColor)) {
+            return toPacked(parsedColor);
+        }
+        return fallback;
+    };
+    parsed.clock.color = colorOr("color", parsed.clock.color);
+    parsed.clock.accentColor = colorOr("accentColor", parsed.clock.accentColor);
+    parsed.clock.dateColor = colorOr("dateColor", parsed.clock.dateColor);
+
+    parsed.clock.dateOrder = clock["dateOrder"].toString(parsed.clock.dateOrder);
+    parsed.clock.dateSeparator = clock["dateSeparator"].toString(parsed.clock.dateSeparator);
+    parsed.clock.dateYear = clock["dateYear"].toString(parsed.clock.dateYear);
+    parsed.clock.blinkPeriodMillis =
+        clampBlinkPeriod(clock["blinkPeriodMillis"].toInt(parsed.clock.blinkPeriodMillis));
 
     out = std::move(parsed);
     return true;

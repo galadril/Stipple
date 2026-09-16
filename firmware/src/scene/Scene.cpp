@@ -11,19 +11,6 @@ namespace {
 
 constexpr int kMaxDurationSeconds = 3600;
 
-int hexValue(char c) noexcept {
-    if (c >= '0' && c <= '9') {
-        return c - '0';
-    }
-    if (c >= 'a' && c <= 'f') {
-        return c - 'a' + 10;
-    }
-    if (c >= 'A' && c <= 'F') {
-        return c - 'A' + 10;
-    }
-    return -1;
-}
-
 int clampToPanel(std::int64_t value) noexcept {
     // Coordinates arrive from the network. Clamping to a generous range keeps
     // arithmetic well away from overflow; Canvas clips the result anyway.
@@ -72,24 +59,9 @@ bool parseColor(const json::Value& value, Rgb& out) noexcept {
     }
 
     if (value.isString()) {
-        std::string_view text = value.raw();
-        if (!text.empty() && text.front() == '#') {
-            text.remove_prefix(1);
-        }
-        if (text.size() != 6) {
-            return false;
-        }
-        int channels[3] = {0, 0, 0};
-        for (int i = 0; i < 3; ++i) {
-            const int high = hexValue(text[static_cast<std::size_t>(i) * 2u]);
-            const int low = hexValue(text[static_cast<std::size_t>(i) * 2u + 1u]);
-            if (high < 0 || low < 0) {
-                return false;
-            }
-            channels[i] = high * 16 + low;
-        }
-        out = rgb(channels[0], channels[1], channels[2]);
-        return true;
+        // Shared with configuration and the settings API, so `#RRGGBB` means the
+        // same thing wherever a colour is written.
+        return parseHexColor(value.raw(), out);
     }
 
     if (value.isArray()) {
