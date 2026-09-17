@@ -51,7 +51,9 @@
         statRender: document.getElementById('stat-render'),
         statFps: document.getElementById('stat-fps'),
         statCore: document.getElementById('stat-core'),
-        geometry: document.getElementById('chip-geometry')
+        geometry: document.getElementById('chip-geometry'),
+        uiframe: document.getElementById('uiframe'),
+        uiReload: document.getElementById('ui-reload')
     };
 
     var ctx = el.panel.getContext('2d');
@@ -657,6 +659,57 @@
         drawUnlitPanel();
     }
 
+
+    // --- device web UI ------------------------------------------------------
+    //
+    // The configuration page is embedded in the firmware, so the emulator does
+    // not have its own copy to drift out of step. It is fetched through the
+    // WASM module exactly as a browser would fetch it from the device, then
+    // inlined into an iframe because the page's absolute paths (/app.css) would
+    // otherwise resolve against this page instead of the simulated device.
+
+    function coreRequest(method, path, body) {
+        var status = core.ccall('notrix_http_request', 'number',
+            ['string', 'string', 'string'], [method, path, body || '']);
+        return { status: status, body: core.UTF8ToString(core._notrix_http_body()) };
+    }
+
+    // The iframe calls this through `parent`. Same-origin srcdoc, so it can.
+    window.NOTRIX_EMULATOR_REQUEST = function (method, path, body) {
+        try {
+            return Promise.resolve(coreRequest(method, path, body));
+        } catch (error) {
+            return Promise.reject(error);
+        }
+    };
+
+    function mountDeviceUi() {
+        var page = coreRequest('GET', '/index.html');
+        if (page.status !== 200) {
+            el.uiframe.srcdoc = '<p style="font:14px system-ui;color:#f2545b;padding:20px">'
+                + 'The firmware did not serve /index.html (status ' + page.status + ').</p>';
+            return;
+        }
+
+        var css = coreRequest('GET', '/app.css').body;
+        var js = coreRequest('GET', '/app.js').body;
+
+        // Defined before the page's own script runs, so app.js sees it on load
+        // and never tries a fetch that would hit this page's origin.
+        var shim = '<script>window.NOTRIX_BRIDGE=function(m,p,b){'
+            + 'return parent.NOTRIX_EMULATOR_REQUEST(m,p,b);};<\/script>';
+
+        var html = page.body
+            .replace('<link rel="stylesheet" href="/app.css">', '<style>' + css + '</style>')
+            .replace('<script src="/app.js"><\/script>', shim + '<script>' + js + '<\/script>');
+
+        el.uiframe.srcdoc = html;
+    }
+
+    function wireDeviceUi() {
+        el.uiReload.addEventListener('click', mountDeviceUi);
+    }
+
     function start(module) {
         core = module;
 
@@ -683,6 +736,8 @@
         refreshIconStatus();
         refreshLog();
         syncPauseLabel();
+        wireDeviceUi();
+        mountDeviceUi();
 
         startedAt = performance.now();
         lastTimestamp = performance.now();

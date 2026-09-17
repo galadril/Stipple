@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Phase 1 of 7. What exists: `notrix_core` (framebuffer, Canvas, test pattern), `notrix_imageio` (dependency-free PNG encoder), a host test suite with golden-image comparison, and a WebAssembly browser emulator. Directories for `sdk/`, `installer/`, `web/`, `integrations/` and `tooling/` do not exist yet — they appear as their phases begin.
+Phases 0–6 are done; only Phase 7 (TC002 bring-up) remains, and it is blocked on hardware.
+
+What exists: `notrix_core` (framebuffer, Canvas, font/text, scenes, icon store, app carousel, notifications, config, frame scheduler, ring log, `ApplicationHost`, the `/api/v1/*` server, the embedded device web UI and the MQTT bridge), `notrix_imageio` (dependency-free PNG encoder), the simulator platform adapter, a host test suite with golden-image comparison, and a WebAssembly browser emulator that serves the real config page through the real router.
+
+Directories for `sdk/`, `installer/`, `integrations/` and `tooling/` do not exist yet — they appear as their phases begin. The device UI lives in `firmware/web/` and is compiled into the binary by `cmake/EmbedWebAssets.cmake`; there is no top-level `web/`.
 
 **No code has ever run on a TC002.** There is no hardware available, and none is needed until Phase 7.
 
@@ -36,7 +40,12 @@ It is not an ESP32 firmware, not a port of AWTRIX 3 or AWTRIX NG, and must not i
 - All hardware behind interfaces (`IFrameBufferDisplay`, `IInputDevice`, `IAudioOutput`, `IMicrophone`, `INetworkManager`, `IStorage`, `ISystemClock`, `IRebooter`, `IUpgradeManager`). Core code must not know whether it runs on hardware or in the simulator.
 - The simulator must remain supported and must run the *same* scene parser, layout engine, font engine, animation engine and app scheduler as the device. Only the platform adapter differs.
 - No unbounded allocations or queues. Treat RAM as a hard constraint — bounded queues, bounded HTTP payloads, bounded notification count, bounded asset size, no duplicated framebuffers, no heap allocation during render.
-- No persistent flashing logic without an explicit task saying so.
+- No persistent flashing logic without an explicit task saying so. One now
+  exists and its design is [ADR 0008](docs/adr/0008-installer-helper.md): three
+  tiers (emulator → volatile `/tmp` trial → gated flash), a restore image
+  captured from the user's own device as a hard precondition, and no
+  vendor-derived blob in any release. The code is Phase 7; the gates are not
+  negotiable in it.
 - Tests required for core behavior.
 - Do not hand-edit generated FlyThings files.
 - Document reversed/reverse-engineered platform behavior in `docs/`.
@@ -64,7 +73,7 @@ The public/native API is declarative **scenes** (JSON elements: pixel, line, rec
 
 **One API surface: `/api/v1/*`.** There is no AWTRIX compatibility layer and none is planned — blueprint §19.2 and the compatibility half of §3.5 are withdrawn, and blueprint Stage 7 is dropped. See `docs/adr/0015-no-awtrix-compatibility-layer.md`. Any `/api/*` path outside `/api/v1/*` answers 404 saying so explicitly. If compatibility is ever wanted it belongs outside the firmware as a translating proxy, never as device routes.
 
-MQTT namespace is `notrix/{deviceId}/...`. MQTT is optional — HTTP-only and MQTT-only operation must both work.
+MQTT namespace is `notrix/{deviceId}/...`, off by default. Commands are translated into `api::Request` objects and answered by the same `ApiServer` as HTTP, so the two surfaces cannot drift — see `docs/mqtt.md`. No adapter implements `IMqttClient` yet; the transport arrives in Phase 7.
 
 ## Non-obvious constraints
 
@@ -86,6 +95,7 @@ MQTT namespace is `notrix/{deviceId}/...`. MQTT is optional — HTTP-only and MQ
 .\dev.ps1 ci           # what CI runs: warnings as errors + strict goldens
 .\dev.ps1 golden       # rewrite golden fixtures after an intentional change
 .\dev.ps1 emulator     # build the WASM emulator (needs EMSDK)
+.\dev.ps1 verify       # drive the built WASM module under node
 .\dev.ps1 serve        # build it and serve on http://localhost:8080/
 ```
 
@@ -93,11 +103,25 @@ Or directly: `cmake --preset host-debug`, `cmake --build --preset host-debug`, `
 
 CMake from a Visual Studio install is **not on PATH**; `dev.ps1` locates it via `vswhere`.
 
-The blueprint's device verbs (`deploy`, `logs`, `restore`) arrive in Phase 7.
+The device verbs arrive in Phase 7. ADR 0008 fixes the set as `doctor`,
+`deploy`, `capture`, `flash`, `restore`, `logs` — `capture` and `flash` are
+additions to blueprint §27.3, and `dev.ps1` wraps the CLI rather than
+reimplementing it.
+
+CI is `.github/workflows/ci.yml`; `release.yml` calls it via `workflow_call` on
+a `v*` tag so a release cannot pass weaker gates than main. A release packages
+the emulator only, states in its notes that no installable firmware exists, and
+is always a prerelease while on 0.x. The tag, `project(VERSION)` in
+`CMakeLists.txt` and `kVersion` in `firmware/include/notrix/core/Version.h` must
+agree or the workflow fails before building — bump all three together. The Pages
+job is opt-in behind the `NOTRIX_PAGES` repository variable and stays skipped
+until someone sets it.
 
 ## Build and test architecture
 
 **Targets.** `notrix_core` is portable C++17 above the §53 boundary — it must compile unchanged for host, WASM and ARM, and may not include a platform header. `notrix_imageio` (PNG) is deliberately a separate target so it can never be linked into the memory-constrained device build.
+
+**The device UI is compiled in.** `firmware/web/*.html|css|js` become a C++ asset table via `cmake/EmbedWebAssets.cmake`, served by `web::StaticFiles` for any path outside `/api/`. A device whose storage has failed is exactly when its config page is needed, so the page must not live on that storage. Assets must be text — the generator emits raw string literals, deliberately using no tool beyond CMake so the Phase 7 cross-toolchain stays dependency-free. Editing a file under `firmware/web/` triggers a reconfigure.
 
 **No external dependencies**, by decision — see `docs/adr/0012-dependency-free-core.md`. The test harness (`firmware/tests/support/`) and PNG encoder are in-tree for this reason. Do not add a dependency to the core without an ADR. JSON in Phase 4 is the one open case where a library may be the right answer, since it parses untrusted network input.
 

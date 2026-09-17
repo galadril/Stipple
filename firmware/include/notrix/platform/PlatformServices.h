@@ -56,6 +56,7 @@ public:
 };
 
 class IHttpServer;
+class IMqttClient;
 
 /// The whole of the platform, as core code sees it (blueprint §53).
 ///
@@ -95,6 +96,10 @@ public:
     /// Phase 7, and the browser has no sockets, so the emulator binds ApiServer
     /// straight into JavaScript instead. See platform/HttpServer.h.
     virtual IHttpServer* httpServer() { return nullptr; }
+
+    /// MQTT transport. Absent is the normal case, not a failure: §20 requires
+    /// the device to be fully usable without a broker.
+    virtual IMqttClient* mqtt() { return nullptr; }
 };
 
 }  // namespace platform

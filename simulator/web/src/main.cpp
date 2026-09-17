@@ -103,6 +103,11 @@ struct Emulator {
     int notifySequence = 0;
     std::string logLine;
 
+    /// Last HTTP response, kept alive so JS can read it after the call returns.
+    /// One slot rather than a queue: requests are synchronous here, so a second
+    /// one cannot be in flight while the first is still being read.
+    notrix::api::Response httpResponse;
+
     notrix::host::ApplicationHost& device() { return *host; }
 };
 
@@ -472,6 +477,53 @@ EMSCRIPTEN_KEEPALIVE void notrix_set_clock_theme(int index, int nowMillis) {
         notrix::apps::clockThemeName(notrix::apps::clockThemeAt(index));
     state.device().carousel().activate("clock", now);
     state.device().scheduler().invalidate();
+}
+
+// --- HTTP bridge -------------------------------------------------------------
+//
+// The browser has no socket to the WASM module, so the emulator dispatches
+// requests straight into ApplicationHost::handle - the same entry point the
+// device's HTTP transport will call in Phase 7. That means the configuration UI
+// running in the emulator exercises the real router, the real handlers and the
+// real embedded assets, rather than a mock that could drift from them.
+
+/// Performs a request and returns its status. The body and content type are
+/// read afterwards, which avoids having to JSON-escape a page of HTML just to
+/// hand it across the boundary.
+EMSCRIPTEN_KEEPALIVE int notrix_http_request(const char* method, const char* path,
+                                             const char* body) {
+    Emulator& state = emulator();
+
+    notrix::api::Request request;
+    request.method = notrix::api::methodFromName(method != nullptr ? method : "GET");
+    request.path = path != nullptr ? path : "/";
+    if (body != nullptr) {
+        request.body = body;
+    }
+
+    // Query strings are split here rather than in the handler, because on a real
+    // device that is the transport's job and this is the transport.
+    const std::size_t question = request.path.find('?');
+    if (question != std::string::npos) {
+        request.query = request.path.substr(question + 1);
+        request.path.erase(question);
+    }
+
+    state.httpResponse = state.device().handle(request);
+    return state.httpResponse.status;
+}
+
+/// Valid until the next notrix_http_request.
+EMSCRIPTEN_KEEPALIVE const char* notrix_http_body() {
+    return emulator().httpResponse.body.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int notrix_http_body_length() {
+    return static_cast<int>(emulator().httpResponse.body.size());
+}
+
+EMSCRIPTEN_KEEPALIVE const char* notrix_http_content_type() {
+    return emulator().httpResponse.contentType.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE int notrix_log_count() {

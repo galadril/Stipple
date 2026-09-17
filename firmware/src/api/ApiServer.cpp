@@ -9,6 +9,7 @@
 #include "notrix/app/Carousel.h"
 #include "notrix/apps/ClockApp.h"
 #include "notrix/config/Config.h"
+#include "notrix/core/Log.h"
 #include "notrix/core/Version.h"
 #include "notrix/json/Json.h"
 #include "notrix/notify/Notifications.h"
@@ -81,6 +82,22 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .key("audio")
         .beginObject()
         .member("volumePercent", static_cast<int>(settings.audio.volumePercent))
+        .endObject()
+        .key("mqtt")
+        .beginObject()
+        .member("enabled", settings.mqtt.enabled)
+        .member("host", settings.mqtt.host)
+        .member("port", settings.mqtt.port)
+        .member("clientId", settings.mqtt.clientId)
+        .member("baseTopic", settings.mqtt.baseTopic)
+        .member("username", settings.mqtt.username)
+        // The password is never returned (§22). A boolean says whether one is
+        // set, so a settings page can show "configured" without the value, and
+        // without a masked placeholder that a client might helpfully save back.
+        .member("passwordSet", !settings.mqtt.password.empty())
+        .member("tls", settings.mqtt.tls)
+        .member("keepAliveSeconds", settings.mqtt.keepAliveSeconds)
+        .member("discovery", settings.mqtt.discovery)
         .endObject()
         .key("apps")
         .beginObject()
@@ -159,6 +176,7 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
         case Resource::Health: return handleHealth(request, nowMillis);
         case Resource::Version: return handleVersion(request);
         case Resource::Diagnostics: return handleDiagnostics(request, nowMillis);
+        case Resource::Logs: return handleLogs(request);
         case Resource::AppCollection: return handleAppCollection(request, nowMillis);
         case Resource::AppItem: return handleAppItem(request, route.id, nowMillis);
         case Resource::AppActivate: return handleAppActivate(request, route.id, nowMillis);
@@ -216,6 +234,18 @@ Response ApiServer::handleDevice(const Request& request) {
         // down (ADR 0013).
         writer.nullValue();
     }
+
+    // What this build can actually do. A UI that knows the device has no
+    // speaker can grey out the volume control instead of offering one that
+    // silently does nothing — the same reasoning as ADR 0013, surfaced over
+    // HTTP so clients get it too.
+    writer.key("capabilities").beginObject();
+    if (context_.platform != nullptr) {
+        writer.member("audio", context_.platform->audio() != nullptr)
+            .member("network", context_.platform->network() != nullptr)
+            .member("reboot", context_.platform->rebooter() != nullptr);
+    }
+    writer.endObject();
 
     writer.endObject();
     return ok(writer.take());
@@ -295,6 +325,40 @@ Response ApiServer::handleDiagnostics(const Request& request, std::uint64_t nowM
 
     // Never expose secrets through diagnostics (§22): no tokens, no Wi-Fi
     // credentials, not even a redacted placeholder that confirms one exists.
+    writer.endObject();
+    return ok(writer.take());
+}
+
+Response ApiServer::handleLogs(const Request& request) {
+    if (context_.logger == nullptr) {
+        return serverError("log unavailable");
+    }
+    if (request.method != Method::Get) {
+        return methodNotAllowed();
+    }
+
+    const log::RingLog& logger = *context_.logger;
+
+    JsonWriter writer;
+    writer.beginObject().key("entries").beginArray();
+    for (int i = 0; i < logger.count(); ++i) {
+        const log::RingLog::Entry& entry = logger.at(i);
+        writer.beginObject()
+            .member("at", static_cast<std::int64_t>(entry.timestampMillis))
+            .member("level", log::levelName(entry.level))
+            .member("message", entry.message)
+            .endObject();
+    }
+    writer.endArray();
+
+    writer.member("count", logger.count());
+    writer.member("capacity", log::RingLog::kCapacity);
+
+    // The ring overwrites, so a reader that only sees `entries` has no way to
+    // know history was lost. Reporting the total lets a UI say "24 of 812"
+    // instead of implying the device has only ever logged 24 things.
+    writer.member("totalWritten", static_cast<std::int64_t>(logger.totalWritten()));
+    writer.member("minimumLevel", log::levelName(logger.minimumLevel()));
     writer.endObject();
     return ok(writer.take());
 }
@@ -812,6 +876,61 @@ Response ApiServer::handleSettings(const Request& request) {
                 return unprocessable("'audio.volumePercent' must be 0-100");
             }
             updated.audio.volumePercent = static_cast<std::uint8_t>(value);
+        }
+    }
+
+    if (const json::Value mqtt = root["mqtt"]; mqtt.isObject()) {
+        if (const json::Value value = mqtt["enabled"]; value.isBoolean()) {
+            updated.mqtt.enabled = value.toBool(false);
+        }
+        if (const json::Value value = mqtt["host"]; value.isString()) {
+            const std::string host = value.toString();
+            if (host.size() > 255) {
+                return unprocessable("'mqtt.host' is too long");
+            }
+            updated.mqtt.host = host;
+        }
+        if (const json::Value value = mqtt["port"]; value.isNumber()) {
+            const std::int64_t port = value.toInt(-1);
+            if (port < 1 || port > 65535) {
+                return unprocessable("'mqtt.port' must be 1-65535");
+            }
+            updated.mqtt.port = static_cast<int>(port);
+        }
+        if (const json::Value value = mqtt["clientId"]; value.isString()) {
+            updated.mqtt.clientId = value.toString();
+        }
+        if (const json::Value value = mqtt["baseTopic"]; value.isString()) {
+            const std::string topic = value.toString();
+            // Wildcards in a base topic would make this device publish to a
+            // filter, which no broker will accept and which is confusing to
+            // diagnose from the other end.
+            if (topic.empty() || topic.find('#') != std::string::npos ||
+                topic.find('+') != std::string::npos) {
+                return unprocessable("'mqtt.baseTopic' must be non-empty and contain no wildcards");
+            }
+            updated.mqtt.baseTopic = topic;
+        }
+        if (const json::Value value = mqtt["username"]; value.isString()) {
+            updated.mqtt.username = value.toString();
+        }
+        // Write-only: accepted, never returned. An empty string clears it, which
+        // is the only way to remove a stored credential through the API.
+        if (const json::Value value = mqtt["password"]; value.isString()) {
+            updated.mqtt.password = value.toString();
+        }
+        if (const json::Value value = mqtt["tls"]; value.isBoolean()) {
+            updated.mqtt.tls = value.toBool(false);
+        }
+        if (const json::Value value = mqtt["keepAliveSeconds"]; value.isNumber()) {
+            const std::int64_t seconds = value.toInt(-1);
+            if (seconds < 5 || seconds > 65535) {
+                return unprocessable("'mqtt.keepAliveSeconds' must be 5-65535");
+            }
+            updated.mqtt.keepAliveSeconds = static_cast<int>(seconds);
+        }
+        if (const json::Value value = mqtt["discovery"]; value.isBoolean()) {
+            updated.mqtt.discovery = value.toBool(false);
         }
     }
 

@@ -393,3 +393,25 @@ select.btn option {
 .logview .msg { color: var(--text); }
 
 .logview .empty { color: var(--muted); }
+
+/* --- device web UI ------------------------------------------------------- */
+
+.deviceui {
+    margin-top: 18px;
+    padding: 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+/* Tall enough to use without scrolling the outer page, since the point is to
+   exercise the real page rather than to preview a thumbnail of it. */
+.uiframe {
+    display: block;
+    width: 100%;
+    height: 620px;
+    margin-top: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: #0d1117;
+}

@@ -74,6 +74,23 @@ struct Registrar {
         }                                                                                          \
     } while (false)
 
+/// Like NOTRIX_CHECK, but abandons the rest of the test when it fails.
+///
+/// NOTRIX_CHECK deliberately records and carries on, so one test can report
+/// several problems at once. That is the right default — until the thing being
+/// checked is a pointer the following lines dereference, at which point carrying
+/// on turns a readable failure into a segfault with no output at all.
+///
+/// Use this for preconditions: "the message exists", "the app was found".
+#define NOTRIX_REQUIRE(expr)                                                                       \
+    do {                                                                                           \
+        if (!(expr)) {                                                                             \
+            ::notrix::test::Registry::instance().fail(__FILE__, __LINE__,                          \
+                                                      std::string("required: ") + #expr);          \
+            return;                                                                                \
+        }                                                                                          \
+    } while (false)
+
 #define NOTRIX_CHECK_FALSE(expr)                                                                   \
     do {                                                                                           \
         if ((expr)) {                                                                              \

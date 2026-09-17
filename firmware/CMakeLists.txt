@@ -4,7 +4,25 @@
 # unchanged for host tests, the WASM emulator and the ARM device. Nothing here
 # may include a platform header or assume an OS facility.
 
+# The configuration UI is compiled into the binary rather than read from disk.
+# A device whose storage has gone wrong is exactly when someone needs its config
+# page, so the page must not depend on that storage.
+include("${CMAKE_SOURCE_DIR}/cmake/EmbedWebAssets.cmake")
+
+set(NOTRIX_WEB_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/generated/WebAssets.generated.cpp")
+notrix_embed_web_assets(
+    "${CMAKE_CURRENT_SOURCE_DIR}/web"
+    "${NOTRIX_WEB_GENERATED}"
+    NOTRIX_WEB_SOURCES)
+
+# Re-run configure when a UI source changes, so editing a page is enough to
+# rebuild it — without this the generated file would silently go stale.
+set_property(DIRECTORY APPEND
+    PROPERTY CMAKE_CONFIGURE_DEPENDS ${NOTRIX_WEB_SOURCES})
+
 add_library(notrix_core
+    ${NOTRIX_WEB_GENERATED}
+    src/web/StaticFiles.cpp
     src/graphics/Canvas.cpp
     src/demo/TestPattern.cpp
     src/text/Font5x7.cpp
@@ -28,6 +46,8 @@ add_library(notrix_core
     src/api/Http.cpp
     src/api/JsonWriter.cpp
     src/api/ApiServer.cpp
+    src/mqtt/MqttBridge.cpp
+    src/mqtt/MqttService.cpp
 )
 
 target_include_directories(notrix_core

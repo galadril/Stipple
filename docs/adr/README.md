@@ -22,7 +22,7 @@ as the decisions are actually made.
 | 0005 | Headless build | Pending — needs hardware |
 | 0006 | Temporary ADB development | Pending — needs hardware |
 | 0007 | Native API plus compatibility layer | Withdrawn — see 0015 |
-| 0008 | Installer helper | Pending |
+| 0008 | Installer helper | Accepted (design) — implementation pending hardware |
 | 0009 | Update security | Pending |
 | 0010 | Font strategy | Not written — recorded in `firmware/src/text/Font5x7.cpp` |
 | 0011 | Simulator-first development order | Accepted |

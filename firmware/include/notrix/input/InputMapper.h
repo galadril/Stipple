@@ -21,6 +21,11 @@ enum class Action {
     VolumeDown,
 };
 
+/// Stable name for an action, for logs and MQTT button events. Stable is the
+/// point: these appear in topics and payloads that automations match on, so they
+/// are API surface and must not be renamed casually.
+const char* actionName(Action action) noexcept;
+
 struct ActionEvent {
     Action action = Action::None;
 

@@ -35,6 +35,7 @@ api::ApiContext ApplicationHost::makeContext() noexcept {
     context.config = &settings_;
     context.configStore = &configStore_;
     context.platform = &platform_;
+    context.logger = &logger_;
     return context;
 }
 
@@ -155,6 +156,21 @@ bool ApplicationHost::initialize() {
     if (platform_.httpServer() == nullptr) {
         logger_.info(0, "no HTTP transport; API is reachable in-process only");
     }
+    mqtt::ServiceContext mqttContext;
+    mqttContext.client = platform_.mqtt();
+    mqttContext.api = &apiServer_;
+    mqttContext.settings = &settings_;
+    mqttContext.logger = &logger_;
+    mqtt_.setContext(mqttContext);
+    if (bootMode_ == BootMode::Normal) {
+        mqtt_.configure();
+    } else {
+        // Safe mode stays off the network entirely. Whatever put the device here
+        // might be reachable from a broker, and a boot loop that republishes
+        // retained state each time is worse than a quiet one.
+        logger_.warn(0, "safe mode: MQTT not started");
+    }
+
     if (platform_.audio() == nullptr) {
         // Said out loud because the default button mapping puts volume on the
         // − / + taps: without a speaker those presses do nothing, and a silent
@@ -220,6 +236,9 @@ void ApplicationHost::shutdown() {
         return;
     }
     shutdownRequested_ = true;
+
+    // Before the boot record, so availability flips even if writing that fails.
+    mqtt_.shutdown();
 
     // Only record a clean shutdown if the boot actually succeeded; otherwise the
     // failure counter must survive to trigger safe mode next time.
@@ -297,7 +316,22 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
         case input::Action::VolumeDown: {
             // Silently ignored when the platform has no speaker: an absent
             // capability is reported at boot rather than faked here (ADR 0013).
-            if (platform_.audio() == nullptr) {
+            mqtt::ServiceContext mqttContext;
+    mqttContext.client = platform_.mqtt();
+    mqttContext.api = &apiServer_;
+    mqttContext.settings = &settings_;
+    mqttContext.logger = &logger_;
+    mqtt_.setContext(mqttContext);
+    if (bootMode_ == BootMode::Normal) {
+        mqtt_.configure();
+    } else {
+        // Safe mode stays off the network entirely. Whatever put the device here
+        // might be reachable from a broker, and a boot loop that republishes
+        // retained state each time is worse than a quiet one.
+        logger_.warn(0, "safe mode: MQTT not started");
+    }
+
+    if (platform_.audio() == nullptr) {
                 break;
             }
             // Percent, because that is how a volume control reads to a person,
@@ -313,6 +347,11 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
         case input::Action::None:
             break;
     }
+
+    // Automations can react to the hardware even when the action itself is
+    // local (§20). Published after handling, so a subscriber never sees an
+    // event the device has not already acted on.
+    mqtt_.publishButton(input::actionName(action.action), action.repeat, action.longPress);
 
     scheduler_.invalidate();
 }
@@ -403,6 +442,23 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
                 }
             }
         }
+    }
+
+    // MQTT runs off the same loop as everything else, so nothing arrives on a
+    // thread the rest of the firmware does not know about.
+    if (bootMode_ == BootMode::Normal) {
+        mqtt::MqttService::DeviceState state;
+        if (const app::App* active = carousel_.active()) {
+            state.activeAppId = active->id;
+        }
+        state.healthy = healthy_;
+        if (platform_.network() != nullptr) {
+            const platform::NetworkStatus status = platform_.network()->status();
+            state.rssiDbm = status.rssiDbm;
+            state.hasRssi = status.connected;
+        }
+        mqtt_.setDeviceState(std::move(state));
+        mqtt_.tick(nowMillis);
     }
 
     if (scheduler_.beginFrame(nowMillis)) {
@@ -552,7 +608,27 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
 // --- API ---------------------------------------------------------------------
 
 api::Response ApplicationHost::handle(const api::Request& request) {
+    // The configuration UI is tried first, but only for paths the API does not
+    // own. Ordering it this way means a future asset called "api" could never
+    // shadow an endpoint, and an unknown /api/v1 path still gets the API's own
+    // 404 rather than a confusing "no such page".
+    if (request.path.rfind("/api/", 0) != 0) {
+        api::Response staticResponse;
+        if (staticFiles_.tryHandle(request, staticResponse)) {
+            return staticResponse;
+        }
+    }
+
     const api::Response response = apiServer_.handle(request, lastTickMillis_);
+
+    // Settings are shared by pointer with the API, so a PATCH may have pointed
+    // MQTT at a different broker. Re-reading is cheap and does nothing when
+    // nothing relevant changed.
+    if (request.method != api::Method::Get && response.status < 400 &&
+        bootMode_ == BootMode::Normal) {
+        mqtt_.configure();
+        mqtt_.invalidateStatus();
+    }
 
     // Log what changed the device and what failed, but not routine reads. A
     // dashboard polling /health every second would otherwise push everything

@@ -7,7 +7,9 @@
 #   .\dev.ps1 test Canvas    run only tests whose name contains "Canvas"
 #   .\dev.ps1 golden         rebuild golden-image fixtures (review the PNGs!)
 #   .\dev.ps1 preview        render frames to PNG and open them (no EMSDK needed)
+#   .\dev.ps1 ci             what CI runs: warnings as errors, strict goldens
 #   .\dev.ps1 emulator       build the browser emulator (needs EMSDK)
+#   .\dev.ps1 verify         drive the built WASM module headlessly (needs node)
 #   .\dev.ps1 serve          build the emulator and serve it on localhost
 #   .\dev.ps1 clean          remove build output
 #   .\dev.ps1 doctor         report toolchain status
@@ -18,7 +20,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'serve', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'serve', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -146,6 +148,17 @@ switch ($Command) {
         try { & $binary } finally { Remove-Item env:NOTRIX_STRICT_GOLDEN -ErrorAction SilentlyContinue }
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Write-Host "`nCI checks passed." -ForegroundColor Green
+    }
+
+    'verify' {
+        # Drives the built WASM module headlessly. The C++ suite cannot catch a
+        # missing Emscripten export or a stale EXPORTED_FUNCTIONS list; this can.
+        $node = Get-Command node -ErrorAction SilentlyContinue
+        if (-not $node) { throw "node not found on PATH; needed to verify the emulator build" }
+
+        $harness = Join-Path $repoRoot 'simulator/web/tools/verify.mjs'
+        & $node.Source $harness
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 
     'golden' {
