@@ -1,0 +1,262 @@
+name: Release
+
+# Tagging cuts a release of what actually exists. Today that is the browser
+# emulator and nothing else: there is no ARM preset, no TC002 adapter and no
+# device binary, so this workflow deliberately publishes no installable
+# firmware and says so in the release notes. Device artifacts
+# (notrix-X.Y.Z-sideload.zip, notrix-X.Y.Z-update.img — blueprint §33) join the
+# `package` job in Phase 7; the shape here is meant to absorb them without a
+# rewrite.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and package, but publish nothing'
+        type: boolean
+        default: true
+
+# Distinct from ci.yml's group on purpose: a release must not cancel the CI run
+# it depends on, and a half-published release is worse than a slow one.
+concurrency:
+  group: notrix-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The version lives in three places that can drift silently: the git tag,
+  # project(VERSION) in CMakeLists.txt, and kVersion in Version.h, which is what
+  # the device reports over /api/v1/version and paints on the splash. A release
+  # whose binary reports a different version than its tag is unsupportable, so
+  # disagreement fails here rather than being discovered in a bug report.
+  guard:
+    name: Version agreement
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: check
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#v}"
+          else
+            # A dispatch run has no tag; take the source of truth as given and
+            # verify the other two against it.
+            version="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -1)"
+            tag="v${version}"
+          fi
+
+          cmake_version="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -1)"
+          header_version="$(sed -nE 's/.*kVersion[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' firmware/include/notrix/core/Version.h | head -1)"
+
+          echo "tag              ${tag}"
+          echo "CMakeLists.txt   ${cmake_version}"
+          echo "Version.h        ${header_version}"
+
+          if [ -z "$cmake_version" ] || [ -z "$header_version" ]; then
+            echo "::error::could not parse a version out of CMakeLists.txt or Version.h"
+            exit 1
+          fi
+
+          fail=0
+          [ "$version" = "$cmake_version" ] || { echo "::error::tag ${tag} disagrees with CMakeLists.txt ${cmake_version}"; fail=1; }
+          [ "$version" = "$header_version" ] || { echo "::error::tag ${tag} disagrees with Version.h ${header_version}"; fail=1; }
+          [ "$fail" -eq 0 ] || exit 1
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+  # The full gate set, not a copy of it. If CI is weakened or strengthened, the
+  # release path moves with it.
+  verify:
+    name: Verify
+    needs: guard
+    uses: ./.github/workflows/ci.yml
+
+  package:
+    name: Package
+    needs: [guard, verify]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          # Same pin as ci.yml, per blueprint §32. A release built on a
+          # different toolchain than CI tested is not the artifact CI verified.
+          version: 3.1.64
+
+      # kBuildCommit ships as the literal "unknown" so an unstamped build is
+      # obvious rather than plausible. Release builds are the one place it gets
+      # a real value.
+      - name: Stamp build commit
+        run: |
+          set -euo pipefail
+          header=firmware/include/notrix/core/Version.h
+          sed -i -E "s/(kBuildCommit[[:space:]]*=[[:space:]]*\")unknown(\")/\1${GITHUB_SHA}\2/" "$header"
+          grep -q "${GITHUB_SHA}" "$header" || { echo "::error::failed to stamp kBuildCommit"; exit 1; }
+
+      - name: Build emulator
+        run: |
+          emcmake cmake -S . -B build/emulator \
+            -DNOTRIX_BUILD_EMULATOR=ON -DNOTRIX_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/emulator
+
+      # The WASM module is loaded through Emscripten glue whose export list is
+      # generated at link time; a missing export is invisible to the C++ suite
+      # and fatal in the browser. dev.ps1 has this verb locally, so a release
+      # should not skip it.
+      - name: Verify emulator module
+        run: node simulator/web/tools/verify.mjs
+
+      - name: Assemble artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p dist/emulator
+
+          for f in index.html styles.css app.js notrix-core.js notrix-core.wasm; do
+            cp "simulator/web/public/$f" dist/emulator/
+          done
+
+          zip -j -q "dist/notrix-emulator-${VERSION}.zip" dist/emulator/*
+
+          api_version="$(sed -nE 's/.*kApiVersion[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' firmware/include/notrix/core/Version.h | head -1)"
+
+          # Blueprint §28's manifest shape, with the honesty fields this stage
+          # needs: nothing here installs onto hardware, and a manifest that
+          # omitted that would read as though it did.
+          cat > dist/manifest.json <<EOF
+          {
+            "channel": "dev",
+            "version": "${VERSION}",
+            "commit": "${GITHUB_SHA}",
+            "buildDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "apiVersion": ${api_version},
+            "hardware": [],
+            "installable": false,
+            "note": "Emulator build only. No device firmware exists at this version; TC002 support is Phase 7.",
+            "artifacts": [
+              {
+                "name": "notrix-emulator-${VERSION}.zip",
+                "sha256": "$(sha256sum "dist/notrix-emulator-${VERSION}.zip" | cut -d' ' -f1)",
+                "bytes": $(stat -c%s "dist/notrix-emulator-${VERSION}.zip")
+              }
+            ]
+          }
+          EOF
+
+          python3 -c "import json,sys; json.load(open('dist/manifest.json'))" \
+            || { echo "::error::generated manifest.json is not valid JSON"; exit 1; }
+
+          ( cd dist && sha256sum "notrix-emulator-${VERSION}.zip" manifest.json > SHA256SUMS )
+          cat dist/SHA256SUMS
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: notrix-release-${{ env.VERSION }}
+          path: dist/
+
+      - name: Upload Pages bundle
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/emulator
+
+  publish:
+    name: Publish release
+    needs: [guard, package]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: notrix-release-${{ needs.guard.outputs.version }}
+          path: dist
+
+      - name: Write release notes
+        run: |
+          set -euo pipefail
+          cat > notes.md <<EOF
+          ## NOTRIX ${VERSION}
+
+          **This release does not contain installable firmware.** There is no
+          TC002 build yet — device bring-up is Phase 7 and is blocked on
+          hardware. Nothing in NOTRIX has run on a real device.
+
+          What this release *is*: the browser emulator, running the same
+          framebuffer, font engine, scene renderer, app scheduler and
+          \`/api/v1\` router that the device will run. Only the platform
+          adapter differs ([ADR 0011](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/adr/0011-simulator-first-development-order.md)).
+
+          ### Try it
+
+          No hardware and no time limit. Unpack
+          \`notrix-emulator-${VERSION}.zip\` and serve the directory over HTTP:
+
+          \`\`\`
+          python -m http.server 8080
+          \`\`\`
+
+          Then open <http://localhost:8080/>. \`file://\` will not work — the
+          WASM module needs a real MIME type and a same-origin fetch.
+
+          ### Verify
+
+          \`\`\`
+          sha256sum -c SHA256SUMS
+          \`\`\`
+
+          \`manifest.json\` carries the version, commit, API version and
+          artifact digests.
+          EOF
+
+      - name: Create release
+        run: |
+          set -euo pipefail
+          # 0.x is development, per blueprint §34 — and this one installs
+          # nothing, so "latest stable" would be an outright lie.
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "NOTRIX ${VERSION}" \
+            --notes-file notes.md \
+            --prerelease \
+            dist/notrix-emulator-${VERSION}.zip \
+            dist/manifest.json \
+            dist/SHA256SUMS
+
+  # Opt-in, and deliberately so: this is the step that makes the emulator
+  # public. Enable Pages for the repository (Settings -> Pages -> Source:
+  # GitHub Actions), then set the repository variable NOTRIX_PAGES to "true".
+  # Until both are done the job is skipped rather than failed, so a release
+  # does not go red over a publishing channel nobody asked for yet.
+  pages:
+    name: Deploy emulator to Pages
+    needs: package
+    if: github.event_name == 'push' && vars.NOTRIX_PAGES == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

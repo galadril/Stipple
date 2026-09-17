@@ -40,7 +40,12 @@ It is not an ESP32 firmware, not a port of AWTRIX 3 or AWTRIX NG, and must not i
 - All hardware behind interfaces (`IFrameBufferDisplay`, `IInputDevice`, `IAudioOutput`, `IMicrophone`, `INetworkManager`, `IStorage`, `ISystemClock`, `IRebooter`, `IUpgradeManager`). Core code must not know whether it runs on hardware or in the simulator.
 - The simulator must remain supported and must run the *same* scene parser, layout engine, font engine, animation engine and app scheduler as the device. Only the platform adapter differs.
 - No unbounded allocations or queues. Treat RAM as a hard constraint — bounded queues, bounded HTTP payloads, bounded notification count, bounded asset size, no duplicated framebuffers, no heap allocation during render.
-- No persistent flashing logic without an explicit task saying so.
+- No persistent flashing logic without an explicit task saying so. One now
+  exists and its design is [ADR 0008](docs/adr/0008-installer-helper.md): three
+  tiers (emulator → volatile `/tmp` trial → gated flash), a restore image
+  captured from the user's own device as a hard precondition, and no
+  vendor-derived blob in any release. The code is Phase 7; the gates are not
+  negotiable in it.
 - Tests required for core behavior.
 - Do not hand-edit generated FlyThings files.
 - Document reversed/reverse-engineered platform behavior in `docs/`.
@@ -98,7 +103,19 @@ Or directly: `cmake --preset host-debug`, `cmake --build --preset host-debug`, `
 
 CMake from a Visual Studio install is **not on PATH**; `dev.ps1` locates it via `vswhere`.
 
-The blueprint's device verbs (`deploy`, `logs`, `restore`) arrive in Phase 7.
+The device verbs arrive in Phase 7. ADR 0008 fixes the set as `doctor`,
+`deploy`, `capture`, `flash`, `restore`, `logs` — `capture` and `flash` are
+additions to blueprint §27.3, and `dev.ps1` wraps the CLI rather than
+reimplementing it.
+
+CI is `.github/workflows/ci.yml`; `release.yml` calls it via `workflow_call` on
+a `v*` tag so a release cannot pass weaker gates than main. A release packages
+the emulator only, states in its notes that no installable firmware exists, and
+is always a prerelease while on 0.x. The tag, `project(VERSION)` in
+`CMakeLists.txt` and `kVersion` in `firmware/include/notrix/core/Version.h` must
+agree or the workflow fails before building — bump all three together. The Pages
+job is opt-in behind the `NOTRIX_PAGES` repository variable and stays skipped
+until someone sets it.
 
 ## Build and test architecture
 

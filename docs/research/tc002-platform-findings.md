@@ -195,6 +195,88 @@ first thing to check rather than the last.
 - **Which hardware revisions this applies to** (§46 Q1, Q2). One device, one
   stock-app version, one MCU version.
 
+## Update: their installer tooling (2026-09-17)
+
+The same project has since published an end-to-end install path — a one-line
+`curl | sh` installer, a RAM-only trial runner, and a documented recovery
+procedure. Same provenance rule as above: **their README was read, their scripts
+were not.** What follows is the workflow they describe, because the *sequence* is
+the reusable insight; their implementation of it is theirs.
+
+Worth saying plainly, because it is easy to assume otherwise: this tooling is
+not AWTRIX NG's. It is TC002-specific work by that project's author, so ADR 0001
+does not speak to it. What does speak to it is licensing — GitHub reports the
+repository's licence as `NOASSERTION`, meaning no recognised licence could be
+identified. Compatibility with our GPL-3.0-or-later cannot be established from
+that, so their code stays out regardless of ADR 0001, and §42's dependency
+register would have nothing valid to record. Reimplementing a documented
+workflow is unaffected.
+
+### The shape of their install path
+
+Three tiers, escalating in permanence:
+
+1. **Trial** — ADB-push a binary, stop the launcher, run from an isolated `/tmp`
+   data directory, web UI on port **18081**, killed after ~180 s. Confirms the
+   180-second figure already recorded above, and that the trial deliberately
+   uses a *different* port from the installed app's 80.
+2. **Install** — read the device's application partition, verify it against
+   supported stock versions, build the image locally, run a preflight **on the
+   clock**, require the operator to type `flash`, then write in place (~3 min).
+3. **Restore** — the same helper run against a `restore-stock.img`.
+
+Their preflight checks, which is the part worth copying as a *list*: platform
+header, CRC, payload MD5, filesystem bounds, the 8 MiB res limit, vendor files
+against recorded fingerprints, and partition geometry. Unrecognised stock
+firmware is refused unless explicitly forced.
+
+### Three facts that change our plans
+
+**There is no A/B partition.** Quoted: installing "writes the `res` flash
+partition in place. There is no A/B copy on the clock." A power cut mid-write
+leaves a partition needing recovery. Blueprint §27.4 already demands rollback be
+verified before persistent flashing ships — this says rollback cannot be an
+A/B swap, so it has to be the restore image plus the recovery path below.
+
+**Recovery is a hardware gesture, and it has a floor.** Holding the knob while
+powering on launches the vendor application, which brings back the stock UI,
+updater and ADB. Independently, three crashes in a row at start-up triggers a
+launcher fallback on the fourth boot. Both matter to us directly: the second one
+means *our* application must not crash-loop silently, because the platform will
+quietly stop running it — and a NOTRIX that has been fallen back from looks
+identical to one that was never installed. Phase 7 should expect to surface that
+state rather than let the user guess.
+
+They are explicit that below this there is nothing validated: if neither the
+vendor application nor ADB returns, recovery needs the stock bootloader's update
+path or a serial connection, untested. So the recovery story has a documented
+floor, not a guaranteed one.
+
+**The images are built from the user's own device, not downloaded.** Their
+generator takes a stock image and a live res dump from a `device-private/`
+directory that is kept out of the repository, and the install path reads the
+clock's own partition. Nothing vendor-derived is redistributed.
+
+That is the answer to §46 Q5's redistribution half, and it is a constraint on our
+release process rather than an implementation detail: **NOTRIX must never publish
+a `restore-stock.img` or any vendor-derived blob as a release asset.** The
+restore image is something the installer *produces locally* from the device in
+front of it. A release can ship our payload and the tool; it cannot ship
+Ulanzi's filesystem.
+
+### What this does not give us
+
+A payload. Their installer's hard part is validating and writing the `res`
+partition; the binary it writes is their application. We have no ARM preset, no
+TC002 platform adapter and no device build, so there is nothing for an
+equivalent installer to carry yet. The ordering stands: Phase 7 produces a
+binary, and only then is an installer meaningful.
+
+It also still does not settle first-time Wi-Fi provisioning — the gap recorded
+above is untouched by any of this. Their install path assumes a device already
+on the network, and a flashed device moved to a new network remains without a
+documented way back.
+
 ## Consequences taken
 
 1. `display.autoBrightness` removed from configuration and the API.
@@ -209,3 +291,12 @@ first thing to check rather than the last.
    implemented so those bindings do something.
 6. Phase 7 test reports should record the stock-app and MCU versions, since a
    report without them cannot be compared against anything.
+7. Releases publish only what exists. `.github/workflows/release.yml` packages
+   the emulator, states in the release notes that no installable firmware
+   exists, and marks every 0.x tag a prerelease. Device artifacts join that
+   workflow in Phase 7.
+8. No vendor-derived blob ever becomes a release asset. The restore image is
+   generated locally from the device being installed onto.
+9. Crash-loop visibility is now a Phase 7 requirement, not a nicety: the
+   platform falls back to the vendor launcher after three failed start-ups, and
+   that state must be reported rather than left looking like a failed install.
