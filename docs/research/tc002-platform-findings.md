@@ -6,6 +6,74 @@
 - **Status:** second-hand. Every item here is someone else's observation of their
   hardware and must be confirmed on our own device before anything depends on it.
 
+## A second source
+
+- **Date:** 2026-09-18
+- **Source:** a TC002 owner's write-up of using the **stock** firmware with Home
+  Assistant ([r/homeassistant](https://www.reddit.com/r/homeassistant/comments/1w54oi0/ulanzi_tc002/))
+- **Status:** second-hand, and an owner's summary rather than a teardown — but
+  independent of the port below, which makes the points where they agree much
+  stronger and the points where they disagree worth taking seriously.
+
+Their hardware list: 52×16 RGB matrix, "Linux-based Z21 platform", Wi-Fi **and
+BLE**, **one knob with press and rotate**, **three separate buttons**, a speaker
+with MP3 playback, **microphone volume reporting**, USB-C, and a
+**recovery/reset option**.
+
+### This contradicts ADR 0016, and ADR 0016 is the one that loses
+
+The port's documentation describes a knob and two buttons marked − and +. This
+owner counts a knob **and three buttons**. Both cannot be right about the count.
+
+The likeliest reconciliation is that both are accurate about different things:
+the port's README describes what *their firmware does with the controls*, not an
+inventory of them, and a firmware that uses two of three buttons would read
+exactly like that.
+
+Where the two sources disagree, the safer assumption wins, and here that is
+clearly the higher count:
+
+- Model three buttons, hardware has two → one enum value never fires. Invisible.
+- Model two, hardware has three → a physical button on a shipped device does
+  nothing, and the owner reasonably concludes the firmware is broken.
+
+So the input model carries three buttons plus the knob again. See the amendment
+in [ADR 0016](../adr/0016-tc002-input-layout.md).
+
+### What else it adds
+
+- **BLE exists.** Nothing in the blueprint or the port's docs mentioned it. Not
+  useful yet, but it is another provisioning route worth remembering given that
+  first-time Wi-Fi setup is still unsolved.
+- **A recovery/reset option exists**, alongside USB-C. This is the first
+  independent support for ADR 0008's assumption that a hardware recovery path
+  exists at all. What it actually restores is still unverified, and the installer
+  gates do not relax until it is.
+- **A microphone reports volume**, matching the blueprint's `IMicrophone`.
+- **"Z21 platform"** — we have recorded the SoC as SigmaStar SSD21x. Whether Z21
+  is a different name for the same thing, the vendor's board name, or a
+  transcription of SSD21x is unresolved. The probe should settle it from
+  `/proc/cpuinfo` rather than anyone guessing.
+
+### And it explains why this project exists
+
+On stock firmware they got MQTT and Home Assistant discovery working, but only
+"very basic entities": a connect-state binary sensor and a device-topic sensor.
+Drawing primitives and base64 PNG/GIF images work. **Notifications, text
+payloads, drawing text and any sound over MQTT do not.** Their conclusion was
+that the stock TC002 needs "a local bridge or custom app to become really
+useful", and that a TC001 running AWTRIX is still the better Home Assistant
+device today.
+
+That is a fair description of the gap NOTRIX is aimed at, and it is worth
+keeping in view: text, notifications and a predictable MQTT surface are the
+things an owner actually misses. All three already work in the emulator.
+
+One practical detail: the stock firmware's own MQTT namespace looks like
+`ulanzi2_a435/custom/{app}` — `{prefix}_{last4}/custom/{app}`. Ours is
+`notrix/{deviceId}/...`, so the two cannot collide, and a device that has been
+flashed will simply stop answering on the old topics.
+
 ## Why this document exists
 
 Blueprint §46 lists hardware questions we deliberately refused to guess at, and

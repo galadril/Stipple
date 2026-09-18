@@ -21,6 +21,10 @@ namespace platform {
 enum class RawInput {
     KeyMinus,
     KeyPlus,
+    /// A third button that one source reports and another does not. Named for
+    /// what is known about it - that it exists - rather than for a position or
+    /// purpose no evidence supports. See the 2026-09-18 amendment in ADR 0016.
+    KeyExtra,
     RotaryPress,
     RotaryLeft,   ///< one detent counter-clockwise
     RotaryRight,  ///< one detent clockwise

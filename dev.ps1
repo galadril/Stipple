@@ -10,6 +10,7 @@
 #   .\dev.ps1 ci             what CI runs: warnings as errors, strict goldens
 #   .\dev.ps1 emulator       build the browser emulator (needs EMSDK)
 #   .\dev.ps1 verify         drive the built WASM module headlessly (needs node)
+#   .\dev.ps1 device         cross-build for the TC002 and run it under ARM emulation
 #   .\dev.ps1 serve          build the emulator and serve it on localhost
 #   .\dev.ps1 clean          remove build output
 #   .\dev.ps1 doctor         report toolchain status
@@ -20,7 +21,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'serve', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'serve', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -159,6 +160,46 @@ switch ($Command) {
         $harness = Join-Path $repoRoot 'simulator/web/tools/verify.mjs'
         & $node.Source $harness
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+
+    'device' {
+        # Cross-compiles for the TC002 and runs the result under ARM emulation.
+        # Needs no hardware, and answers the questions that are expensive to get
+        # wrong on a device: does the core build for ARMv7, does it link, does it
+        # execute, and what does the binary depend on.
+        $engine = (Get-Command podman -ErrorAction SilentlyContinue) ??
+                  (Get-Command docker -ErrorAction SilentlyContinue)
+        if (-not $engine) {
+            throw "podman or docker is needed to run the pinned cross-toolchain. See tooling/cross/."
+        }
+
+        $image = 'notrix-cross:bookworm'
+        & $engine.Source build -t $image -f tooling/cross/Containerfile tooling/cross
+        if ($LASTEXITCODE -ne 0) { throw "could not build the cross-toolchain image" }
+
+        $script = @'
+set -e
+cmake --preset device-arm
+cmake --build --preset device-arm
+cd /src/build/device-arm/firmware
+echo
+echo "--- artifact ---"
+file notrix_device_smoke
+arm-linux-gnueabihf-strip -o /tmp/stripped notrix_device_smoke
+echo "stripped: $(stat -c %s /tmp/stripped) bytes"
+readelf -d notrix_device_smoke | grep NEEDED || echo "shared libraries: none (static)"
+echo
+echo "--- running on ARM ---"
+qemu-arm-static notrix_device_smoke
+'@
+        # PowerShell here-strings carry CRLF line endings, and bash reads the
+        # carriage return as part of each command, so every path ends in an
+        # invisible character and nothing resolves.
+        $script = $script -replace "`r", ""
+
+        & $engine.Source run --rm -v "${repoRoot}:/src" $image bash -c $script
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Write-Host "`nDevice build runs on ARM." -ForegroundColor Green
     }
 
     'golden' {

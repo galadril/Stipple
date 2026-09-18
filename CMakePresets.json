@@ -1,6 +1,10 @@
 {
   "version": 3,
-  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
   "configurePresets": [
     {
       "name": "host-debug",
@@ -54,27 +58,69 @@
         "NOTRIX_BUILD_EMULATOR": "ON",
         "NOTRIX_BUILD_TESTS": "OFF"
       }
+    },
+    {
+      "name": "device-arm",
+      "displayName": "TC002 (armv7-a, release)",
+      "description": "Cross-compiles notrix_core for the device. Run inside the pinned toolchain container - see tooling/cross/. Tests are off: they need a host to run on.",
+      "binaryDir": "${sourceDir}/build/device-arm",
+      "generator": "Ninja",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/arm-linux-gnueabihf.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "NOTRIX_BUILD_TESTS": "OFF",
+        "NOTRIX_WARNINGS_AS_ERRORS": "ON",
+        "NOTRIX_DEVICE_BUILD": "ON"
+      }
     }
   ],
   "buildPresets": [
-    { "name": "host-debug", "configurePreset": "host-debug", "configuration": "Debug" },
-    { "name": "host-release", "configurePreset": "host-release", "configuration": "Release" },
-    { "name": "ci", "configurePreset": "ci", "configuration": "Debug" },
-    { "name": "sanitize", "configurePreset": "sanitize", "configuration": "Debug" },
-    { "name": "emulator", "configurePreset": "emulator", "configuration": "Release" }
+    {
+      "name": "host-debug",
+      "configurePreset": "host-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "host-release",
+      "configurePreset": "host-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "ci",
+      "configurePreset": "ci",
+      "configuration": "Debug"
+    },
+    {
+      "name": "sanitize",
+      "configurePreset": "sanitize",
+      "configuration": "Debug"
+    },
+    {
+      "name": "emulator",
+      "configurePreset": "emulator",
+      "configuration": "Release"
+    },
+    {
+      "name": "device-arm",
+      "configurePreset": "device-arm"
+    }
   ],
   "testPresets": [
     {
       "name": "host-debug",
       "configurePreset": "host-debug",
       "configuration": "Debug",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "ci",
       "configurePreset": "ci",
       "configuration": "Debug",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }

@@ -45,3 +45,7 @@ Thumbs.db
 
 # Node
 node_modules/
+
+# Python bytecode from tooling/
+__pycache__/
+*.pyc

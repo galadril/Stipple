@@ -96,6 +96,7 @@ MQTT namespace is `notrix/{deviceId}/...`, off by default. Commands are translat
 .\dev.ps1 golden       # rewrite golden fixtures after an intentional change
 .\dev.ps1 emulator     # build the WASM emulator (needs EMSDK)
 .\dev.ps1 verify       # drive the built WASM module under node
+.\dev.ps1 device       # cross-build for ARMv7 and run it under emulation
 .\dev.ps1 serve        # build it and serve on http://localhost:8080/
 ```
 
@@ -103,7 +104,9 @@ Or directly: `cmake --preset host-debug`, `cmake --build --preset host-debug`, `
 
 CMake from a Visual Studio install is **not on PATH**; `dev.ps1` locates it via `vswhere`.
 
-The device verbs arrive in Phase 7. ADR 0008 fixes the set as `doctor`,
+`docs/bring-up.md` is the day-one runbook for a new device: probe read-only first, capture a restore image before anything else, never flash what has not run from `/tmp` on that exact unit. `tooling/probe/probe.py` refuses to start if a mutating command is ever added to it.
+
+The remaining device verbs arrive in Phase 7. ADR 0008 fixes the set as `doctor`,
 `deploy`, `capture`, `flash`, `restore`, `logs` — `capture` and `flash` are
 additions to blueprint §27.3, and `dev.ps1` wraps the CLI rather than
 reimplementing it.

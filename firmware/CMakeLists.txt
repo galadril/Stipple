@@ -59,7 +59,10 @@ add_library(notrix::core ALIAS notrix_core)
 
 # PNG encoding is a host/emulator convenience (golden-image failure snapshots,
 # emulator screenshots). It is deliberately NOT part of notrix_core so it can
-# never be linked into the memory-constrained device build by accident.
+# never be linked into the memory-constrained device build by accident - and on
+# a device build it is not compiled at all, so "by accident" needs a deliberate
+# edit here first.
+if(NOT NOTRIX_DEVICE_BUILD)
 add_library(notrix_imageio
     imageio/src/Png.cpp
 )
@@ -70,6 +73,7 @@ target_include_directories(notrix_imageio
 target_link_libraries(notrix_imageio PUBLIC notrix_core)
 
 add_library(notrix::imageio ALIAS notrix_imageio)
+endif()
 
 # The simulator adapter — the non-device half of the §53 boundary.
 #
@@ -84,9 +88,40 @@ target_link_libraries(notrix_platform_simulator PUBLIC notrix_core)
 
 add_library(notrix::platform_simulator ALIAS notrix_platform_simulator)
 
+# Smoke test for the target architecture. Small enough to push over ADB, and it
+# answers the questions that must be settled before anything is flashed: does the
+# core run on this CPU at all, and what does the binary actually depend on.
+if(NOTRIX_DEVICE_BUILD)
+    add_executable(notrix_device_smoke tools/device_smoke/main.cpp)
+    target_link_libraries(notrix_device_smoke PRIVATE
+        notrix_core
+        notrix_platform_simulator
+        notrix_warnings)
+
+    # Statically linked, deliberately.
+    #
+    # A dynamically linked Debian 12 binary requires GLIBC_2.34 purely for
+    # __libc_start_main, because that symbol was re-versioned when glibc merged
+    # libpthread into libc. The TC002 is an embedded SigmaStar device whose glibc
+    # is a §46 unknown and is very unlikely to be that new, so a dynamic binary
+    # would fail to start with an error naming a symbol rather than the real
+    # cause.
+    #
+    # Static linking removes the entire question: no interpreter, no versioned
+    # symbols, nothing to be too old. It costs binary size, which the 8 MiB res
+    # partition can afford far more easily than it can afford a bring-up spent
+    # bisecting toolchains.
+    #
+    # The one thing this gives up is NSS - getaddrinfo cannot dlopen its modules
+    # in a static binary. Nothing in core resolves a hostname; when the MQTT
+    # transport arrives in Phase 7 and does, that is the moment to revisit this,
+    # and the probe will have reported the real glibc version by then.
+    target_link_options(notrix_device_smoke PRIVATE -static)
+endif()
+
 # Host-only frame previewer. Renders through the simulator adapter and writes
 # PNGs, so output can be inspected without an Emscripten toolchain.
-if(NOT EMSCRIPTEN)
+if(NOT EMSCRIPTEN AND NOT NOTRIX_DEVICE_BUILD)
     add_executable(notrix_preview tools/preview/main.cpp)
     target_link_libraries(notrix_preview PRIVATE
         notrix_core

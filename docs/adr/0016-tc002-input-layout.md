@@ -1,6 +1,6 @@
 # 0016 — TC002 input layout: a knob and two buttons
 
-- **Status:** Accepted, pending hardware confirmation
+- **Status:** Accepted, **amended 2026-09-18** — see the amendment at the end
 - **Date:** 2026-09-16
 
 ## Context
@@ -106,3 +106,62 @@ belongs with the Phase 6 settings UI, and this ADR does not decide it.
   settles
 - [0013](0013-platform-capability-model.md) — why a missing speaker reports
   absence rather than silently swallowing volume changes
+
+---
+
+## Amendment, 2026-09-18: the third button is back
+
+A second and independent source — a TC002 owner describing the stock firmware —
+lists "1 knob with press/rotate" **and** "3 separate buttons". The port's
+documentation this ADR was built on describes a knob and two buttons marked
+− and +.
+
+Both cannot be right about the count, and the most likely explanation is that
+neither is wrong about what it was describing: a README explaining what a
+firmware *does with* the controls is not an inventory of them, and a firmware
+that binds two of three buttons reads exactly like the one quoted above.
+
+### What changes
+
+`RawInput` regains a third button:
+
+```
+KeyMinus, KeyPlus, KeyExtra, RotaryPress, RotaryLeft, RotaryRight
+```
+
+`KeyExtra` is named for what is actually known about it, which is nothing beyond
+its existence. Calling it `KeyMiddle` or `KeyBack` would assert a position or a
+purpose that no source supports, and a wrong name outlives the uncertainty that
+produced it.
+
+Its default binding is `AppNext` on a short press and `NotificationDismiss` on a
+long one — useful if the button is there, harmless if it is not.
+
+### Why this way round
+
+The asymmetry decides it:
+
+- Model three, hardware has two → one enum value never fires. Invisible.
+- Model two, hardware has three → a physical button on a shipped device does
+  nothing, and its owner reasonably concludes the firmware is broken.
+
+The first costs a few bytes of unreachable table. The second is the kind of
+defect that gets reported as "NOTRIX doesn't work on my clock".
+
+### What has not changed
+
+The naming argument in the original decision stands: controls are named for
+their labels, not their positions, and `KeyLeft` still invites bindings that
+make no sense on a button marked −. Navigation stays on the knob; − and + keep
+volume on a tap and brightness on a hold.
+
+`InputMapper.EveryPhysicalControlIsReachable` still asserts that every `RawInput`
+value produces some action, so a control added here without a binding fails the
+build rather than shipping dead.
+
+### How this actually gets settled
+
+Not by a third document. `docs/bring-up.md` has the probe read the device's input
+event codes directly, which reports what the hardware has rather than what
+someone wrote about it. Until then this ADR is the best available guess, and it
+is guessing in the direction that fails quietly.

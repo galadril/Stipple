@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Pinned ARMv7 cross-toolchain for the TC002 build.
+#
+# Pinned by digest, not by tag: blueprint §30 requires that CI never pull a
+# "latest" anything, and a tag can be repointed under you. `bookworm-slim` today
+# is not `bookworm-slim` next month, and a toolchain that changes without anyone
+# choosing to change it is exactly how a device build stops matching the binary
+# that was tested.
+#
+# Works with podman or docker; nothing here depends on which.
+FROM docker.io/library/debian@sha256:5ae3c39ebd15e229dcedd5cee596b2497182493d41ff162e824ba13fc1b2b867 AS toolchain
+
+# Debian's armhf cross toolchain targets ARMv7-A hard-float, which is what the
+# SSD21x Cortex-A7 is. Versions are left to the pinned base image rather than
+# floating: `apt-get install` without a version is only reproducible because the
+# digest above freezes the package index.
+RUN apt-get update && apt-get install --no-install-recommends --yes \
+        crossbuild-essential-armhf \
+        cmake \
+        ninja-build \
+        file \
+        ca-certificates \
+        qemu-user-static \
+    && rm -rf /var/lib/apt/lists/*
+
+# The glibc this toolchain links against must not be newer than the device's, or
+# the binary will load on the bench and fail on hardware with a version error
+# that names a symbol rather than the real cause. What the TC002 actually ships
+# is a §46 unknown until the probe answers it — see docs/bring-up.md. If it turns
+# out to be older than Debian 12's 2.36, this image is the thing to change, and
+# the toolchain file needs no edit.
+# qemu-user-static lets an ARM binary actually execute in here. Compiling and
+# linking prove less than they look like they do: a core that builds for ARM can
+# still fault on it. Running it turns "it should work" into "it ran", months
+# before there is hardware to be wrong about.
+RUN arm-linux-gnueabihf-gcc --version && \
+    arm-linux-gnueabihf-gcc -print-file-name=libc.so.6 && \
+    qemu-arm-static --version | head -1
+
+WORKDIR /src
