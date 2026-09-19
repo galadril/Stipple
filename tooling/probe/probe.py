@@ -167,13 +167,18 @@ SECTIONS: list[Section] = [
     ),
     Section(
         "Display",
-        "How the panel is actually reached. The blueprint names "
-        "PageBase::sendLedData; this is where we find out what that sits on.",
+        "How the panel is actually reached. /dev/fb0 is a decoy - it is the "
+        "SoC's generic 640x480 output, not the 52x16 matrix. What the vendor's "
+        "own process holds open is the reliable answer.",
         [
-            ("Framebuffers", "ls -la /dev/fb* 2>/dev/null || echo 'none'"),
-            ("LED class", "ls -la /sys/class/leds/ 2>/dev/null || echo 'none'"),
+            ("Framebuffer geometry", "cat /sys/class/graphics/fb0/virtual_size "
+                                     "/sys/class/graphics/fb0/bits_per_pixel 2>/dev/null"),
+            ("Framebuffer config", "cat /misc/fbdev.ini 2>/dev/null || echo 'none'"),
             ("SPI devices", "ls -la /dev/spidev* 2>/dev/null || echo 'none'"),
-            ("Serial ports", "ls -la /dev/ttyS* /dev/ttyUSB* 2>/dev/null || echo 'none'"),
+            ("SPI masters", "ls -la /sys/bus/spi/devices/ 2>/dev/null || echo 'none'"),
+            ("Serial ports", "ls -la /dev/ttyS* 2>/dev/null || echo 'none'"),
+            ("SigmaStar nodes", "ls -la /dev/mi_ao /dev/mi_disp /dev/mi_panel "
+                                "/dev/mi_sys /dev/mi_gfx 2>/dev/null"),
         ],
     ),
     Section(

@@ -139,6 +139,42 @@ So the count is **three buttons and a knob that presses and turns** — five
 controls, six event sources. The ADR 0016 amendment that restored the third
 button was correct, and `RawInput` already has the right shape.
 
+### The platform map
+
+Established by reading which device nodes the vendor's own processes hold open
+(`/proc/<pid>/fd`), which is both exact and completely passive — the kernel is
+simply asked what is already true.
+
+| `IPlatformServices` | Device | Evidence |
+|---|---|---|
+| `IFrameBufferDisplay` | `/dev/spidev0.0` | Held by `zkgui`; `sstar,mspi` master at `1f222000.spi0` |
+| `IInputDevice` | `/dev/input/event67`, `event68` | Held by `zkgui`; confirmed by `getevent` |
+| `IAudioOutput` | `/dev/mi_ao` | Held by `zkgui`; SigmaStar audio-out, **not ALSA** |
+| MCU link | `/dev/ttyS1` | Held by `zkgui`; `ms_uart` driver |
+| `IStorage` | `/data` | jffs2, read-write, 7.6 MB free |
+| `INetworkManager` | `wlan0` | `wpa_supplicant -Dnl80211`; `hostapd` + `dnsmasq` present |
+| `IHttpServer` | port 80 | Currently the vendor's; free once `zkswe` stops |
+
+Two corrections to earlier guesses fall out of this.
+
+**`/dev/fb0` is not the panel.** It is a 640×480 32bpp SStar framebuffer — the
+SoC's generic display output, configured by `/misc/fbdev.ini` for a screen this
+device does not physically have. `zkgui` holds it open, but the 52×16 matrix is
+reached over **SPI**. An adapter written against `/dev/fb0` would render
+perfectly into a buffer nobody can see, which is a much more confusing failure
+than not compiling.
+
+**`zkdisplay` is a different pipeline.** It holds `/dev/mi_disp`, `/dev/mi_panel`
+and `/dev/mi_sys` — the SigmaStar display stack driving that 640×480 layer. It
+is not the LED path, and stopping it is not what frees the matrix.
+
+So the display work is: open `/dev/spidev0.0`, and work out the wire format the
+LED driver chips expect. The MCU on `/dev/ttyS1` is the other half — the
+blueprint's warning that the MCU must be initialised before normal LED operation
+now has a concrete place to happen.
+
+`/dev/ttyS3` is Bluetooth (`hciattach -n ttyS3 aic`), not ours.
+
 ### Things that need design work
 
 - **The knob is an absolute axis, not detents.** `/proc/bus/input/devices` shows
