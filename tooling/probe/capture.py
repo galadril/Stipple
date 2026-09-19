@@ -34,9 +34,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Anything that could write. `dd` is absent on purpose: `cat` on a read-only
-# node cannot be pointed at the wrong output by a typo, and `dd` can.
-ADB_READ_ONLY = ("shell", "exec-out", "connect", "devices")
+# Anything that could write. `push` is absent on purpose, and so is `dd`: a
+# read-only node read by `pull` cannot be pointed at the wrong destination by a
+# typo, and `dd` can.
+ADB_READ_ONLY = ("shell", "pull", "connect", "devices")
 
 CHUNK = 1024 * 1024
 
@@ -66,29 +67,47 @@ def partitions(serial: str) -> list[dict]:
 
 
 def capture_one(serial: str, part: dict, target: Path) -> dict:
-    """Stream one partition to a local file, hashing as it goes."""
-    node = f"/dev/mtd{part['index']}ro"
+    """Pull one partition to a local file and hash it.
 
-    # exec-out rather than shell: shell mangles binary data through the pty on
-    # some adb versions, and a silently corrupted restore image is worse than no
-    # restore image, because it is trusted.
-    process = subprocess.Popen(
-        ["adb", "-s", serial, "exec-out", f"cat {node}"],
-        stdout=subprocess.PIPE)
+    `adb pull` is the only transport on this device that moves bytes intact, and
+    establishing that was most of the work:
+
+    - `adb exec-out` is not supported by this adbd at all. It answers
+      "error: closed" and produces nothing, which at least fails loudly.
+    - `adb shell cat` *appears* to work and silently corrupts. Reading the
+      262144-byte MISC partition returned 262402 bytes, because line feeds in
+      the binary were translated to CRLF on the way out. An image damaged this
+      way looks fine until the day it is needed, which is the worst possible
+      time to discover it.
+    - `adb pull` reads the character device directly, byte for byte.
+
+    The size check below is not belt-and-braces. It is what caught that.
+    """
+    # /dev/mtd is a directory and the nodes live inside it. Reading the `ro`
+    # node means the kernel refuses writes, rather than this script promising
+    # not to make any.
+    node = f"/dev/mtd/mtd{part['index']}ro"
+
+    print(f"    {part['name']:<10} {part['bytes'] / 1024:>8.0f} KB ", end="", flush=True)
+    result = adb(["pull", node, str(target)], serial)
+
+    if not target.exists():
+        print("FAILED")
+        print(f"      {(result.stderr or '').strip()}")
+        return {
+            "name": part["name"], "node": node,
+            "expectedBytes": part["bytes"], "actualBytes": 0,
+            "sha256": "", "complete": False,
+        }
 
     digest = hashlib.sha256()
     written = 0
-    with target.open("wb") as handle:
-        while True:
-            block = process.stdout.read(CHUNK)
-            if not block:
-                break
-            handle.write(block)
+    with target.open("rb") as handle:
+        for block in iter(lambda: handle.read(CHUNK), b""):
             digest.update(block)
             written += len(block)
-            print(f"\r    {part['name']:<10} {written / 1024:>8.0f} KB", end="", flush=True)
-    process.wait()
-    print()
+
+    print("ok" if written == part["bytes"] else f"SHORT ({written})")
 
     return {
         "name": part["name"],

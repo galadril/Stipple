@@ -97,10 +97,26 @@ file.
 **This is the gate.** Nothing past here happens until there is a verified image
 stored off this machine.
 
-The mechanism is the one ADR 0008 describes and it is not implemented yet —
-`dev.ps1 capture` arrives with the rest of the device verbs. Until it does, the
-probe report tells you the partition layout, and the capture has to be done by
-hand and checksummed.
+```powershell
+python.exe tooling\probe\capture.py 192.168.1.238 --out $env:USERPROFILE
+otrix-backups
+python.exe tooling\probe\capture.py --verify $env:USERPROFILE
+otrix-backups	c002-restore-<date>
+```
+
+Reads only. Every partition is pulled through its `/dev/mtd/mtdNro` node, which
+the kernel exposes as a read-only view of the same flash, and the tool refuses
+to call an image good unless every partition's size matches `/proc/mtd`
+exactly.
+
+**That check is not a formality.** On this device `adb exec-out` is unsupported
+and returns nothing, while `adb shell cat` silently corrupts binary data — a
+262144-byte partition came back as 262402 bytes with its line feeds translated.
+`adb pull` is the only transport that moves the bytes intact. An image captured
+the wrong way looks perfectly fine until the day you need it.
+
+Verify writes nothing and can be re-run any time. Do it after copying the
+folder somewhere else, because that copy is the one that will matter.
 
 Store it somewhere that is not this repository and not only this laptop. It is
 vendor filesystem: do not publish it.
