@@ -237,3 +237,50 @@ become something to point at `res`.
 Nothing below tier 3. `/tmp` is tmpfs — RAM, not flash — so the trial path
 remains free of any risk this amendment is about, and it is where all near-term
 work belongs.
+
+
+### How the third-party port does it (from their documentation)
+
+Read from their README, not their source — ADR 0001's line holds, and their
+tooling is still their code.
+
+- They **built their own helper** (`tc002-update`), pushed it to `/tmp` and ran
+  it on the device. There was no existing tool to reuse, which matches what the
+  probe found here.
+- It **writes only the `res` partition**: "Neither tool writes other flash
+  partitions." The blast radius of the whole exercise is one partition.
+- The ordering is careful and worth copying as a *shape*: stop the GUI and its
+  Bluetooth helper, unmount `/res`, and **if the unmount fails, abort before
+  erasing** and restart the GUI. Destroy nothing until every precondition has
+  actually held.
+- Their restore is applying a **stock `update.img`** with the same helper.
+
+### Where that leaves us, concretely
+
+The last point is the real difference. Their restore unit is a packaged
+`update.img` — a vendor artifact they keep a copy of. Ours is **raw partition
+dumps of all eight partitions**, which is both more complete and lower-level: we
+do not need their packaging format to put `res` back, because we have the bytes
+that were in it.
+
+So the missing piece is only the writer, and its requirements are now clear:
+
+1. **Only ever write `res`.** Never BOOT0, KERNEL or rootfs. Nothing NOTRIX does
+   needs them, and refusing to write them is a property of the tool rather than
+   a promise in a runbook.
+2. **Abort before erasing** if anything is not as expected — unmount failure,
+   size mismatch, hash mismatch on the source image.
+3. **Verify by reading back** and comparing against the captured hash. A write
+   that is not verified has not happened.
+4. **Prove it on UDISK first**, per the gate above.
+
+### One caveat the recovery story does not cover
+
+Both documented recovery routes — knob held at power-on, and the fourth-boot
+fallback after three crashes — are described as *starting the vendor
+application*. The vendor application is `/res/lib/libzkgui.so`. If `res` itself
+is the thing that is broken, there is nothing for either route to fall back to.
+
+That is an argument for requirement 3 above rather than a reason to despair, but
+it should be said plainly: the recovery gestures choose which launcher runs.
+They do not repair files.
