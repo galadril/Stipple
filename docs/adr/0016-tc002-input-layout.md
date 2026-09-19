@@ -1,6 +1,6 @@
-# 0016 — TC002 input layout: a knob and two buttons
+# 0016 — TC002 input layout: a knob and three buttons
 
-- **Status:** Accepted, **amended 2026-09-18** — see the amendment at the end
+- **Status:** Accepted. Amended 2026-09-18, **confirmed against hardware 2026-09-19**
 - **Date:** 2026-09-16
 
 ## Context
@@ -165,3 +165,55 @@ Not by a third document. `docs/bring-up.md` has the probe read the device's inpu
 event codes directly, which reports what the hardware has rather than what
 someone wrote about it. Until then this ADR is the best available guess, and it
 is guessing in the direction that fails quietly.
+
+---
+
+## Confirmed on hardware, 2026-09-19
+
+A TC002 was probed and each control pressed in a known order while `getevent`
+watched. No more guessing.
+
+**Three buttons plus a knob that presses and turns.** The amendment was right
+and the original decision was wrong, which is the outcome the amendment's
+asymmetry argument was designed to make cheap.
+
+`soc:gpio_keys_1` (`/dev/input/event67`) carries four keys:
+
+| Control | Linux code |
+|---|---|
+| Button 1 | `KEY_DOWN` (108) |
+| Button 2 | `KEY_RIGHT` (106) |
+| Button 3 | `KEY_LEFT` (105) |
+| Knob press | `KEY_UP` (103) |
+
+Rotation is a **separate input device**, `knob_key` (`/dev/input/event68`),
+reporting `EV_ABS` on `ABS_X` as small discrete codes rather than a continuous
+position.
+
+### The naming decision paid off
+
+The vendor's codes are directional names used as arbitrary identifiers. Nothing
+about `KEY_LEFT` says the button is on the left, and nothing about `KEY_UP` says
+the knob press means "up" — it is simply the constant they had spare.
+
+Had `RawInput` kept positional names, the obvious thing would have been to wire
+`KEY_LEFT` to `AppPrevious` and call it done. That would have been reasoning
+from a vendor's arbitrary choice of enum value, and it would have felt correct
+while being unrelated to where anyone's fingers are.
+
+`KeyMinus` / `KeyPlus` / `KeyExtra` do not have that failure mode: they cannot
+be mapped to these codes without someone first checking which physical button
+does what. That check is still owed — which of the three buttons is marked − and
+which +, if either, needs a look at the case.
+
+### What is still open
+
+- **Which physical button is which.** Press order established the codes, not the
+  labels. `KeyMinus` and `KeyPlus` should be assigned by reading the case, not
+  by assuming the capture order matched left-to-right.
+- **What the knob's `ABS_X` values mean.** It declares an 8-bit 0-255 range,
+  but observed values do not step like a detent position: two captures gave
+  `11 8 1 8 1 ...` and `13 11 13 11 ...`. Position, quadrature state and
+  gesture code all remain possible. A slow single-direction capture settles it.
+  This is local to the device adapter — `InputMapper` consumes `RotaryLeft` and
+  `RotaryRight` and does not care how they were derived.

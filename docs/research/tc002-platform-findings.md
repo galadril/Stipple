@@ -85,6 +85,60 @@ moved house had no documented way back. It is now an engineering task rather
 than an unknown. It is not *done* — nothing has been tried — but "can the
 hardware even do this" is answered, and the answer is yes.
 
+### The input layout, settled
+
+Read from `getevent` with the controls actually pressed, in a known order. This
+is the answer ADR 0016 was guessing at, and the guess was right.
+
+**Four keys on `soc:gpio_keys_1`** (`/dev/input/event67`), which is three
+buttons plus the knob's press:
+
+| Pressed | Reports |
+|---|---|
+| Button 1 | `KEY_DOWN` (108) |
+| Button 2 | `KEY_RIGHT` (106) |
+| Button 3 | `KEY_LEFT` (105) |
+| Knob press | `KEY_UP` (103) |
+
+The codes are directional names doing duty as arbitrary identifiers — the
+vendor picked them, and they carry no meaning about where the buttons sit or
+what they should do. This is precisely why ADR 0016 refused to name our enum
+positionally: binding `KEY_LEFT` to "previous app" would be reasoning from the
+vendor's choice of constant rather than from the hardware.
+
+**The knob is a separate device**, `knob_key` (`/dev/input/event68`):
+
+```
+ABS_X: value 1, min 0, max 255, fuzz 0, flat 0, resolution 0
+```
+
+An 8-bit absolute axis — but **what the values mean is not yet established**, and
+this is worth being precise about rather than assuming.
+
+Two captures, one mixed and one of deliberate rotation:
+
+```
+11  8  1  8  1  8  1  8  1  8  1  8  1
+13 11 13 11 13 11 13 11 13 11 13 11
+```
+
+If `ABS_X` were a detent position it should step by ±1 and track the direction
+turned. It does neither: the steps are 3 and 7 in the first capture and a strict
+alternation between two values in the second. The declared 0–255 range may
+simply be an uninitialised default rather than a real span.
+
+So the plausible readings are still open — a position that is being sampled
+coarsely, a quadrature state, or a set of gesture codes — and choosing between
+them wants a slow single-direction capture with one detent per step. That is an
+adapter question for Phase 7, not a blocker: `InputMapper` consumes
+`RotaryLeft` / `RotaryRight` and does not care how they were derived, so the
+translation is local to the device adapter and its acceleration logic is
+unaffected either way.
+
+So the count is **three buttons and a knob that presses and turns** — five
+controls, six event sources. The ADR 0016 amendment that restored the third
+button was correct, and `RawInput` already has the right shape.
+
 ### Things that need design work
 
 - **The knob is an absolute axis, not detents.** `/proc/bus/input/devices` shows

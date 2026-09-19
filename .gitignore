@@ -53,3 +53,5 @@ __pycache__/
 # Probe reports carry a device serial, Wi-Fi SSID and MAC address.
 # Share the versions from them, never the file.
 device-probe*.md
+input-capture.txt
+knob-capture.txt
