@@ -255,6 +255,40 @@ fine" is an inference and this is a lookup.
 needed, and the note above about Arm GNU 9.2-2019.12 describes what the
 third-party port chose, not a constraint we share.
 
+### The HAL, confirmed at runtime
+
+`notrix_hal_probe` ran on the device and resolved every symbol:
+
+```
+libzkhw.so loaded
+  register_ledcdev  unregister_ledcdev
+  ledc_set_led      ledc_set_group     ledc_set_args    ledc_get_errcode
+  register_spidev   unregister_spidev
+  spi_halfduplex_transfer              spi_get_errcode
+```
+
+It **calls none of them** on purpose. `register_ledcdev` would claim the LED
+controller while the vendor application is still driving it, and a probe that is
+only safe on a broken device is not much of a probe. Resolving a symbol and
+invoking it are separate questions, and only the first one can be answered
+without taking the panel away from whoever currently owns it.
+
+So the adapter has a confirmed API to build against, and the remaining display
+question is narrow: what `ledc_set_group` expects in its arguments.
+
+Two notes on getting there, both of which cost time:
+
+- **Executables need a different toolchain from libraries.** The bookworm image
+  builds the `.so` fine, but its *executables* demand `GLIBC_2.34` for
+  `__libc_start_main`, and a static binary cannot `dlopen`. A second image
+  (`tooling/cross/Containerfile.bullseye`, glibc 2.31) builds dynamic
+  executables that ask only for `GLIBC_2.4`. Libraries come from bookworm,
+  probes from bullseye.
+- **`readlink` does not exist on the device either.** `abi-check.py` used it to
+  resolve library symlinks and silently fetched nothing, which made every
+  `dl*` symbol look unsatisfiable — an artifact that appeared broken when the
+  fetch was. `adb pull` follows symlinks by itself; the clever step was the bug.
+
 ### Things that need design work
 
 - **The knob is an absolute axis, not detents.** `/proc/bus/input/devices` shows

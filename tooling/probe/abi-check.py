@@ -93,14 +93,25 @@ def main() -> int:
     if args.address:
         target = args.address if ":" in args.address else f"{args.address}:5555"
         subprocess.run(["adb", "connect", target], capture_output=True)
+
+        print(f"fetching runtime libraries from {target}")
         for path in DEVICE_LIBRARIES:
-            # Resolve the symlink device-side; pulling a symlink gets a symlink.
-            real = subprocess.run(
-                ["adb", "-s", target, "shell", f"readlink -f {path}"],
-                capture_output=True, text=True).stdout.strip() or path
-            name = Path(real).name
-            subprocess.run(["adb", "-s", target, "pull", real, str(lib_dir / name)],
-                           capture_output=True)
+            # Pull the path as given. adb's sync protocol follows symlinks, and
+            # the device has no `readlink` to resolve them with - trying to be
+            # clever here is what made this fail silently the first time.
+            name = Path(path).name
+            pull = subprocess.run(["adb", "-s", target, "pull", path, str(lib_dir / name)],
+                                  capture_output=True, text=True)
+            # Reported rather than swallowed. A library that fails to arrive
+            # makes every symbol it exports look unsatisfiable, which reads as a
+            # broken artifact when it is really a broken fetch - and that is a
+            # very expensive hour.
+            if (lib_dir / name).exists():
+                print(f"  ok      {name}")
+            else:
+                print(f"  FAILED  {path}")
+                print(f"          {(pull.stderr or pull.stdout).strip()}")
+        print()
 
     present = sorted(p for p in lib_dir.iterdir()
                      if re.search(r"lib.*\.so", p.name) and p.is_file())

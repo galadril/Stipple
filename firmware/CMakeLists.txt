@@ -119,6 +119,15 @@ if(NOTRIX_DEVICE_BUILD)
     target_link_options(notrix_device_smoke PRIVATE -static)
 endif()
 
+# Asks the vendor HAL what it offers without calling into it. Dynamically
+# linked on purpose - it must dlopen libzkhw.so, which a static binary cannot
+# do - so it needs the bullseye toolchain, whose glibc predates the
+# __libc_start_main re-versioning. See tooling/cross/Containerfile.bullseye.
+if(NOTRIX_DEVICE_BUILD)
+    add_executable(notrix_hal_probe tools/hal_probe/main.cpp)
+    target_link_libraries(notrix_hal_probe PRIVATE ${CMAKE_DL_LIBS} notrix_warnings)
+endif()
+
 # Host-only frame previewer. Renders through the simulator adapter and writes
 # PNGs, so output can be inspected without an Emscripten toolchain.
 if(NOT EMSCRIPTEN AND NOT NOTRIX_DEVICE_BUILD)
