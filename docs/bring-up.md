@@ -121,6 +121,34 @@ folder somewhere else, because that copy is the one that will matter.
 Store it somewhere that is not this repository and not only this laptop. It is
 vendor filesystem: do not publish it.
 
+### 3b. Know that the backup is currently one-way
+
+**Confirmed 2026-09-19: the device cannot write its own flash.**
+
+`/bin/busybox` is a 66 KB stripped build. There is no `dd`, no `flash_erase`,
+no `flashcp`, no `nandwrite`, no `mtd_debug` — not in `/bin`, `/sbin`,
+`/usr/sbin` or `/res/bin`. Reading flash worked because `adb pull` can read a
+character device; nothing available can write one.
+
+So the capture in step 3 is a real backup of the bytes, and there is presently
+**no tested way to put them back**. Three candidate routes, none of them proven:
+
+| Route | State |
+|---|---|
+| A restore tool we cross-compile ourselves | Feasible — `MEMERASE` ioctl plus `write()`, and we own the toolchain. Unwritten, and untested |
+| The vendor's `/update` endpoint | Exists and works today, but wants an official Ulanzi `update.img` we do not have and cannot package |
+| The recovery gesture (knob held at power-on) | Reported by an owner; never verified here |
+
+**This does not block anything below tier 3.** `/tmp` is tmpfs — RAM, not flash
+— so the trial path in step 4 cannot damage the device however badly it goes.
+Everything worth learning in the near term is reachable without ever writing
+flash.
+
+It does mean tier 3 stays shut. ADR 0008 already required a restore image before
+flashing; this adds the obvious corollary that a restore *image* is not a restore
+*capability*, and the gate is not met until the writing half exists and has been
+demonstrated on a partition we can afford to lose.
+
 ### 4. Run NOTRIX from `/tmp`
 
 Tier 2 of ADR 0008. Volatile by construction — a power cycle brings the stock

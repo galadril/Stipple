@@ -189,3 +189,51 @@ first and carries real usage.
 - [0013](0013-platform-capability-model.md) — capabilities report presence
   rather than being assumed, which is how `doctor` answers honestly
 - Blueprint §27 (installer), §27.4 (the gate list), §46 Q5 (image packaging)
+
+
+---
+
+## Amendment, 2026-09-19: a restore image is not a restore capability
+
+Probing a real device turned up something this ADR assumed away: **the TC002
+cannot write its own flash.**
+
+`/bin/busybox` is a 66 KB build with neither `dd` nor `awk`, and there is no
+`flash_erase`, `flashcp`, `nandwrite` or `mtd_debug` anywhere on the
+filesystem. Capturing an image worked only because `adb pull` reads a character
+device; no tool on the device can write one back.
+
+The original tier-3 gate — "tier 2 succeeded **and** a restore image exists" —
+is therefore necessary but not sufficient. An image nobody can write back is a
+souvenir.
+
+**The gate is amended to require all three:**
+
+1. tier 2 has succeeded on that exact device and stock-app version, **and**
+2. a verified restore image exists, **and**
+3. the restore *path* has been demonstrated end to end on that device — written,
+   run, and the result verified against the captured hashes.
+
+Requirement 3 is new and it is the one with teeth, because it cannot be
+satisfied by paperwork.
+
+### Proving a writer without risking the device
+
+A restore tool is small — open `/dev/mtd/mtdN`, `MEMERASE`, `write()`, verify —
+and we control the cross-toolchain, so building one is not the hard part.
+Trusting it is.
+
+The honest way to earn that trust is to exercise it on a partition whose loss
+would not matter, and `UDISK` (mtd7, mounted `/mnt/storage`) is exactly that: it
+is user storage rather than anything the device boots from, it is already
+captured and hashed, and a failed write there costs a re-flash of user files
+rather than a brick.
+
+Only once a write-and-verify round trip has succeeded on UDISK does the tool
+become something to point at `res`.
+
+### What this does not change
+
+Nothing below tier 3. `/tmp` is tmpfs — RAM, not flash — so the trial path
+remains free of any risk this amendment is about, and it is where all near-term
+work belongs.
