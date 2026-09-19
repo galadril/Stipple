@@ -273,8 +273,46 @@ only safe on a broken device is not much of a probe. Resolving a symbol and
 invoking it are separate questions, and only the first one can be answered
 without taking the panel away from whoever currently owns it.
 
-So the adapter has a confirmed API to build against, and the remaining display
-question is narrow: what `ledc_set_group` expects in its arguments.
+### …and then the hardware said no
+
+Disassembling those functions made them look wonderfully simple:
+
+```
+ledc_set_led(handle, index, colour)   ->  write(handle[44], {colour, index}, 8)
+ledc_set_group(handle, uint32*, n)    ->  write(handle[48], array, n * 4)
+ledc_set_args(...)                    ->  return 0;   // a stub
+```
+
+`ledc_set_group` taking a flat array of 32-bit colours is exactly a framebuffer,
+and for about ten minutes the display looked solved.
+
+**It is not, on this device.** The strings in `libzkhw.so` show what those
+handles open:
+
+```
+/sys/class/leds/num  /sys/class/leds/sctrl  /sys/class/leds/gctrl
+```
+
+`/sys/class/leds` **does not exist on the TC002**, and `lsmod` shows no LED
+driver among the loaded modules — only the Wi-Fi driver, `fbdev`, and the
+SigmaStar `mi_*` stack. `register_ledcdev` would open nothing and fail.
+
+That API is real, but it targets a different ZKSWE board: one whose kernel
+provides an LED class driver. The library is shared across the vendor's product
+line, and this variant does not use that path.
+
+What this device actually uses is visible in `zkgui`'s open file descriptors:
+**`/dev/spidev0.0`**, with `spi0.0` bound to the generic `spidev` driver and no
+LED class anywhere. The panel is driven by writing frames over raw SPI to the
+LED driver chips.
+
+So the display question is *not* narrow after all. It is: **what bytes does the
+matrix expect over SPI?** — which is genuine protocol reverse-engineering, and
+is the one piece of this bring-up that cannot be answered by reading
+configuration.
+
+Writing guessed bytes to unknown driver chips is not a reasonable way to find
+out, so nothing was written.
 
 Two notes on getting there, both of which cost time:
 
