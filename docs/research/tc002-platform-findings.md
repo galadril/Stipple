@@ -6,6 +6,60 @@
 - **Status:** second-hand. Every item here is someone else's observation of their
   hardware and must be confirmed on our own device before anything depends on it.
 
+## First contact with a real device
+
+- **Date:** 2026-09-19
+- **Source:** a TC002 on the maintainer's own network, read over HTTP. First
+  hand.
+- **Status:** confirmed, but only for this unit at this version.
+
+```
+mcuVer : V1.0.17
+appVer : 1.1.1
+```
+
+Read from the stock firmware's own `GET /getBase`, which also returns the serial,
+Wi-Fi SSID, IP and MAC. **Those four are deliberately not recorded here** — they
+identify a person's device and home network, and this repository is public. Any
+report shared publicly should carry the two version numbers and nothing else from
+that response.
+
+### Why the versions matter more than they look
+
+They are **exactly** the pair the third-party port states it was validated
+against: "Confirmed on TC002 stock app 1.1.1 / MCU V1.0.17."
+
+That changes how much weight the rest of this document can carry. Everything
+recorded below was second-hand observation of *some* TC002; it is now
+second-hand observation of a device at the same stock-app and MCU version as the
+one in front of us. The packaging format, the 8 MiB res ceiling, the `zkswe`
+launcher and the `/tmp` trial path are still unverified here — but they are no
+longer being read across an unknown version gap, which was the largest reason to
+distrust them.
+
+It does not make them true. It makes them worth testing first.
+
+### What else the stock firmware already tells us
+
+- **ADB is open on 5555 out of the box.** No unlocking, no developer mode, no
+  gesture. The deployment path ADR 0008 assumes is simply available.
+- **A web server runs on port 80**, serving `/settings/*` and a small API:
+  `/getBase`, `/checkUpdate`, `/update`, `/resetConfig`. Only `/getBase` was
+  called; the other three mutate or phone home.
+- **Stock settings are**: `brightnessLevel`, `brightnessLow/Mid/High`, `volume`,
+  `carouselSpeed`, `scrollSpeed`, `timezone`, `dateFormat`, `showWeek`,
+  `weekStart`, `lowBatteryAutoSleep`. Brightness is three presets plus a level,
+  not one slider, and `lowBatteryAutoSleep` confirms a battery worth reading.
+- **Wi-Fi can be reconfigured over HTTP.** The info page carries the note 如需修改
+  WiFi，请进入配置页提交新的 SSID 和密码 — "to change Wi-Fi, go to the config page
+  and submit a new SSID and password."
+
+  That last one matters for the provisioning gap. It does not close it — this is
+  the *stock* web server, which NOTRIX replaces — but it proves the platform
+  exposes Wi-Fi reconfiguration to a userspace HTTP handler. Whatever mechanism
+  that page uses is one NOTRIX can use too, and it is a far better answer than
+  hoping for AP mode. Finding out what it calls is now a probe question.
+
 ## A second source
 
 - **Date:** 2026-09-18
