@@ -327,6 +327,56 @@ Two notes on getting there, both of which cost time:
   `dl*` symbol look unsatisfiable — an artifact that appeared broken when the
   fetch was. `adb pull` follows symlinks by itself; the clever step was the bug.
 
+### The display protocol, decoded
+
+Captured by `LD_PRELOAD`-ing a shim over `zkgui` that logs `open`, `write` and
+`ioctl` on the spidev descriptor and forwards every call unchanged. The vendor
+app drew its ordinary boot screen while being recorded; nothing was driven by
+us. Source: `firmware/tools/spi_spy/spi_spy.c`.
+
+**SPI configuration**, printed by zkgui itself and confirmed by the ioctl
+sequence (`magic='k'`, nr 1/2/3/4 — mode, LSB-first, bits-per-word, max-speed):
+
+```
+mode 0, 8 bits per word, MSB first, 10 MHz
+```
+
+**Frame format**: a single `write()` of **3072 bytes** per frame. No header, no
+addressing, no chunking.
+
+```
+3072 = 1024 pixels x 3 bytes        64 columns x 16 rows, one byte per channel
+offset(col, row) = (row * 64 + col) * 3
+```
+
+The panel is **52 columns wide but addressed as 64**. Columns 52–63 are padding
+and were never lit in any captured frame — the rightmost pixel the vendor app
+ever touched was column 50.
+
+The proof is that the frames render as legible text when laid out that way. The
+boot sequence reads `U CLOCK` and then `CONNECT`:
+
+```
+.....##..##......####..##.......................
+.....##..##.....##..##.##..####...####..##..##..
+.....######.....######.##.######.######.##..##..
+......####.......####..##..####...####..##..##..
+```
+
+That is about as unambiguous as a layout hypothesis gets.
+
+**`IFrameBufferDisplay::present()` is therefore**: expand the 52x16 framebuffer
+into a 64x16x3 buffer, leaving the last twelve columns zero, and `write()` it.
+No vendor library is needed — `libzkhw.so` turned out to be a detour, and the
+real interface is plain spidev. The adapter can stay statically linked after
+all.
+
+**Channel order is still unknown.** Every lit pixel in the capture was
+`255,255,255`, because the boot screen is white — white is identical under RGB,
+GRB or BGR. Determining it needs either a capture while the panel shows
+something coloured, or one test frame of our own with the channels deliberately
+unequal.
+
 ### Things that need design work
 
 - **The knob is an absolute axis, not detents.** `/proc/bus/input/devices` shows
