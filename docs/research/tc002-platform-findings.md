@@ -229,13 +229,31 @@ The real device build cannot be static. Calling `ledc_set_group` means linking
 `libzkhw.so`, and being loaded as `libzkgui.so` means being a shared object
 inside someone else's process. Both are dynamic by nature.
 
-That reopens the glibc question with a firm answer: the device has **2.30**, so
-the real artifact must be built against a toolchain no newer than that. Debian
-12's GCC 12 emits `GLIBC_2.34` references and is therefore unusable for the
-final build, however well it served for the standalone test. Finding a
-toolchain that targets 2.30 or older is now a concrete Phase 7 task rather than
-an open question — and it is worth noting that the third-party port pins Arm GNU
-**9.2-2019.12**, which is from exactly that era.
+That reopened the glibc question — and then closed it, in the opposite
+direction to the obvious guess.
+
+`GLIBC_2.34` came from `__libc_start_main`, which lives in the startup files
+linked into an **executable**. A shared library has no such thing. Built as a
+`.so` with the same Debian 12 toolchain, the requirement drops to:
+
+```
+GLIBC_2.4       CXXABI_1.3   CXXABI_1.3.9
+GLIBCXX_3.4     GLIBCXX_3.4.21
+```
+
+`GLIBC_2.4` is from 2006. The device carries glibc 2.30 and
+`libstdc++.so.6.0.26`, which is comfortably ahead of all of it.
+
+That was checked properly rather than by comparing version numbers. The device's
+own `libc`, `libstdc++` and `libgcc_s` were pulled, every symbol they export
+collected, and every versioned symbol the `.so` imports looked up in that set:
+**18 needed, 8396 available, nothing missing.** `tooling/probe/abi-check.py`
+does this on demand, because "their version is higher than ours so it will be
+fine" is an inference and this is a lookup.
+
+**So the existing toolchain builds the real artifact.** No old-toolchain hunt is
+needed, and the note above about Arm GNU 9.2-2019.12 describes what the
+third-party port chose, not a constraint we share.
 
 ### Things that need design work
 
