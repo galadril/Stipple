@@ -175,6 +175,68 @@ now has a concrete place to happen.
 
 `/dev/ttyS3` is Bluetooth (`hciattach -n ttyS3 aic`), not ours.
 
+### The vendor HAL, and a correction
+
+`/bin/zkgui` is **9.5 KB**. It is not the application — it is the EasyUI host,
+and it links `libdl` plus the vendor's hardware libraries. The application is
+`/res/lib/libzkgui.so` at 7.14 MB, loaded at runtime.
+
+**This means blueprint §7.1 was right and my earlier correction was wrong.**
+Reading the third-party port's documentation, I recorded that the integration
+point is replacing the `zkswe` launcher rather than loading as `libzkgui.so`.
+The binaries say otherwise: `zkswe` is the *service* that starts `zkgui`, which
+is the *host* that loads `libzkgui.so`, which is the *app*. Replacing the app is
+exactly what the blueprint described, and it is far less invasive than replacing
+a launcher.
+
+The LED panel has a documented-by-symbols API. From `libzkhw.so` (13 KB, the
+low-level HAL):
+
+```
+register_ledcdev / unregister_ledcdev
+ledc_set_led          set one LED
+ledc_set_group        set a group
+ledc_set_args         configure
+ledc_get_errcode
+
+register_spidev / unregister_spidev
+spi_halfduplex_transfer
+spi_get_errcode
+```
+
+And from `libzkhardware.so`, C++ helpers over it — `LedcHelper`, `SpiHelper`
+(`setMode`, `setSpeed`, `setBitSeq`, `halfduplexTransfer`) and
+`BrightnessHelper` (`setBrightness`, `screenOn`/`screenOff`,
+`backlightOn`/`backlightOff`, `getMaxBrightness`, and a `getInstance`
+singleton).
+
+So the adapter does **not** need to reverse-engineer an SPI wire format. `ledc_*`
+is the panel interface, with SPI underneath it as transport. `IFrameBufferDisplay`
+maps almost directly:
+
+| NOTRIX | Vendor |
+|---|---|
+| `present(framebuffer)` | `ledc_set_group` / `ledc_set_led` |
+| `setBrightness(0-255)` | `BrightnessHelper::setBrightness` |
+| panel on/off | `BrightnessHelper::screenOn` / `screenOff` |
+
+### This changes how the device binary must be linked
+
+Static linking was the right call for the smoke test and remains so: it proved
+the core runs on ARMv7 with nothing to argue about.
+
+The real device build cannot be static. Calling `ledc_set_group` means linking
+`libzkhw.so`, and being loaded as `libzkgui.so` means being a shared object
+inside someone else's process. Both are dynamic by nature.
+
+That reopens the glibc question with a firm answer: the device has **2.30**, so
+the real artifact must be built against a toolchain no newer than that. Debian
+12's GCC 12 emits `GLIBC_2.34` references and is therefore unusable for the
+final build, however well it served for the standalone test. Finding a
+toolchain that targets 2.30 or older is now a concrete Phase 7 task rather than
+an open question — and it is worth noting that the third-party port pins Arm GNU
+**9.2-2019.12**, which is from exactly that era.
+
 ### Things that need design work
 
 - **The knob is an absolute axis, not detents.** `/proc/bus/input/devices` shows

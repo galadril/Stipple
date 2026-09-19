@@ -55,3 +55,6 @@ __pycache__/
 device-probe*.md
 input-capture.txt
 knob-capture.txt
+
+# Vendor binaries pulled for platform analysis. Ulanzi's, not ours.
+build/vendor-analysis/

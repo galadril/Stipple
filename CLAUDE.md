@@ -29,7 +29,7 @@ Directories for `sdk/`, `installer/`, `integrations/` and `tooling/` do not exis
 
 ## What NOTRIX is
 
-Open-source replacement *user application* for the Ulanzi TC002 pixel clock (52×16 RGB matrix, 832 pixels). The device is a SigmaStar SSD21x / ARMv7 Cortex-A7 running a FlyThings / EasyUI runtime; the NOTRIX application loads as `libzkgui.so` inside that host. Stage 1 replaces the app experience only — **not** the bootloader, kernel or Linux platform services.
+Open-source replacement *user application* for the Ulanzi TC002 pixel clock (52×16 RGB matrix, 832 pixels). The device is a SigmaStar SSD21x / dual-core ARMv7 Cortex-A7 with 36 MB RAM and glibc 2.30, running a FlyThings / EasyUI runtime. **Confirmed on hardware:** `/bin/zkgui` (9.5 KB) is the EasyUI host and loads the application from `/res/lib/libzkgui.so` (7.14 MB) at runtime — so the NOTRIX application really does load as `libzkgui.so` inside that host, exactly as blueprint §7.1 says. The LED panel is reached through the vendor HAL (`ledc_set_led` / `ledc_set_group` in `libzkhw.so`), not by driving SPI directly. See `docs/research/tc002-platform-findings.md`. Stage 1 replaces the app experience only — **not** the bootloader, kernel or Linux platform services.
 
 It is not an ESP32 firmware, not a port of AWTRIX 3 or AWTRIX NG, and must not incorporate AWTRIX source. AWTRIX may be studied as a product/API/UX reference only; concepts (custom apps, notifications, rotation, indicators, MQTT) get reimplemented independently.
 
