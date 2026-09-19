@@ -88,6 +88,10 @@ Read it before doing anything else. Several things we have built are guesses
 this report either confirms or overturns, and overturning them costs nothing at
 this point and a great deal later.
 
+**The report is gitignored on purpose.** It contains the device serial, your
+Wi-Fi SSID and the MAC address. Quote the versions from it; do not paste the
+file.
+
 ### 3. Capture the restore image
 
 **This is the gate.** Nothing past here happens until there is a verified image
@@ -170,8 +174,14 @@ first-boot provisioning and the gap closes. If it cannot, that is a real
 constraint on who should install this, and it belongs in the README rather than
 in a footnote.
 
-Until it is settled, the honest position is: **NOTRIX is for a device on a
-network you control and do not expect to change.**
+**Answered, 2026-09-19: the hardware can do it.** `/bin/hostapd` and
+`/bin/dnsmasq` are both present on a stock device, next to
+`wpa_supplicant -Dnl80211` and a `p2p0` interface. That is the whole stack a
+first-boot access point and captive portal needs.
+
+Nothing has been built on it yet, and "the binaries exist" is not "it works" —
+the driver still has to permit AP mode, and that wants testing. But the risk has
+changed shape: it was "this may be impossible", and it is now "this is work".
 
 ---
 

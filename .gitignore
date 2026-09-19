@@ -49,3 +49,7 @@ node_modules/
 # Python bytecode from tooling/
 __pycache__/
 *.pyc
+
+# Probe reports carry a device serial, Wi-Fi SSID and MAC address.
+# Share the versions from them, never the file.
+device-probe*.md

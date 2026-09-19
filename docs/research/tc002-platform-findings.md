@@ -24,6 +24,88 @@ identify a person's device and home network, and this repository is public. Any
 report shared publicly should carry the two version numbers and nothing else from
 that response.
 
+### The probe, first hand
+
+Everything below is read from the device, not from anyone's write-up. Raw output
+is in `device-probe.md` (not committed — it carries a serial, SSID and MAC).
+
+| | |
+|---|---|
+| Board | `Zkswe_SSD21X_SPINOR` — SigmaStar SSD21x on SPI NOR |
+| OS | ZKOS / FlyThings, build `20260527`, git `b8c8ecf` |
+| CPU | **Dual-core** ARMv7 Cortex-A7 (`0xc07`) rev 5, NEON, VFPv3+VFPv4, idiv |
+| **RAM** | **36 MB total**, ~16 MB available |
+| **libc** | **glibc 2.30** (`/lib/libc-2.30.so`) |
+| Launcher | `init.svc.zkswe`, running `/bin/zkgui` + `zkdaemon` + `zkdisplay` |
+| Vendor app | `/res/lib/libzkgui.so`, **7.14 MB** |
+| Shell | busybox, reduced applets — **no `grep`, `head`, `du`, or `df -h`** |
+
+**Flash layout** (`/proc/mtd`), and this settles the ceiling for good:
+
+| Partition | Size | Mounted | Used |
+|---|---|---|---|
+| BOOT0 | 320 KB | | |
+| KERNEL | 1.94 MB | | |
+| rootfs | 4.31 MB | `/` | 100% |
+| **res** | **8 MiB** | `/res` | squashfs, 2.75 MB of it |
+| config | 704 KB | `/config` | 100% |
+| MISC | 256 KB | | |
+| data | 8 MiB | `/data` | **5% — 7.6 MB free, writable** |
+| UDISK | 8.5 MB | `/mnt/storage` | 34% |
+
+Plus `/tmp` as tmpfs with **16 MB**, which is the tier-2 target and is genuinely
+volatile.
+
+### Three things this changes
+
+**1. Static linking was not a precaution — it was required.**
+
+The device has **glibc 2.30**. Our Debian 12 toolchain emits binaries needing
+`GLIBC_2.34` purely for `__libc_start_main`. A dynamically linked build would
+have refused to start, with an error naming a symbol rather than the cause, and
+the obvious suspicion would have fallen on the adapter rather than the
+toolchain. The 605 KB static binary has no such dependency and fits the
+partition many times over.
+
+**2. RAM is the real constraint, and it is tighter than the flash.**
+
+36 MB total, ~16 MB available with the vendor stack running. Every budget in
+`test_memory_budget.cpp` survives comfortably — the framebuffer is 2.5 KB, the
+icon store 12 KB, the ring log ~2 KB — but this is the number that makes
+blueprint §38's "no unbounded queues" a real rule rather than good manners.
+
+**3. The provisioning gap is closable.**
+
+`/bin/hostapd` **and** `/bin/dnsmasq` are both present, alongside
+`wpa_supplicant -Dnl80211` and a `p2p0` interface. That is the entire stack a
+first-boot access point and captive portal needs, already on the device.
+
+This was the single largest open risk in the project: a flashed device that
+moved house had no documented way back. It is now an engineering task rather
+than an unknown. It is not *done* — nothing has been tried — but "can the
+hardware even do this" is answered, and the answer is yes.
+
+### Things that need design work
+
+- **The knob is an absolute axis, not detents.** `/proc/bus/input/devices` shows
+  two devices: `soc:gpio_keys_1` (a key bitmap) and `knob_key`, which reports
+  `EV=9` / `ABS=1` — that is `EV_ABS` on `ABS_X`. `InputMapper` assumes discrete
+  left/right ticks, so the device adapter has to convert position changes into
+  detents. The mapper's acceleration logic is unaffected; only the source
+  changes.
+- **There is no ALSA.** No `/dev/snd`, no `/proc/asound/cards`. Audio is not
+  reachable through any standard Linux interface, which matches the report that
+  the speaker is driven through the vendor SDK's AudioManager. `IAudioOutput`
+  has no obvious binding, and this is now the least-understood capability.
+- **The display path is not yet obvious.** `/dev/fb0` exists, and so does
+  `/dev/spidev0.0` and a `/bin/test_fb`. Whether the panel is reached through
+  the framebuffer, through SPI directly, or only through `zkdisplay` is the next
+  thing to establish.
+- **`/res` is a read-only squashfs**, 2.75 MB of an 8 MiB partition. Replacing
+  `libzkgui.so` means rebuilding that image, not copying a file into place.
+  Writable persistent storage is `/data` with 7.6 MB free — that is where
+  `IStorage` belongs, not `/res`.
+
 ### Why the versions matter more than they look
 
 They are **exactly** the pair the third-party port states it was validated

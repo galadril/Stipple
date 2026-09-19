@@ -55,7 +55,14 @@ _COMMAND_SEPARATORS = ("|", "&&", "||", ";")
 class Section:
     title: str
     why: str
-    commands: list[tuple[str, str]] = field(default_factory=list)
+    # (label, command) or (label, command, keywords).
+    #
+    # Keywords filter the output *here*, not on the device. The device shell is
+    # busybox with a reduced applet set - it has no grep, head, du or `df -h` -
+    # and a pipeline through a missing applet silently blanks a whole section
+    # rather than failing loudly. Keeping device commands trivial removes that
+    # class of hole entirely.
+    commands: list[tuple] = field(default_factory=list)
 
 
 # Ordered so the most decision-relevant answers come first: a report that gets
@@ -67,7 +74,7 @@ SECTIONS: list[Section] = [
         "name the stock-app and MCU version cannot be compared with anyone "
         "else's, including our own from last week.",
         [
-            ("Stock app version", "getprop | grep -i -E 'version|build|ulanzi|zk' || true"),
+            ("Stock app version", "getprop", "version build ulanzi zk mcu"),
             ("Kernel", "cat /proc/version"),
             ("Model / board", "cat /proc/device-tree/model 2>/dev/null || echo unknown"),
             ("All properties", "getprop"),
@@ -79,7 +86,7 @@ SECTIONS: list[Section] = [
         "runs. The 8 MiB figure we have is flash, not RAM.",
         [
             ("Memory", "cat /proc/meminfo"),
-            ("Running processes by size", "ps -A -o pid,rss,cmd 2>/dev/null || ps"),
+            ("Processes", "ps"),
         ],
     ),
     Section(
@@ -89,7 +96,7 @@ SECTIONS: list[Section] = [
         "tries it.",
         [
             ("Mounts", "cat /proc/mounts"),
-            ("Free space", "df -h"),
+            ("Free space", "df"),
             ("Partitions", "cat /proc/partitions"),
             ("MTD devices", "cat /proc/mtd 2>/dev/null || echo 'no /proc/mtd'"),
             ("By-name mapping", "ls -la /dev/block/by-name/ 2>/dev/null || echo 'none'"),
@@ -117,7 +124,7 @@ SECTIONS: list[Section] = [
         "We intend to replace the launcher. Worth knowing exactly what it is "
         "before planning to stop it.",
         [
-            ("Services", "getprop | grep -i 'init.svc' || true"),
+            ("Services", "getprop", "init.svc"),
             ("Process list", "ps -A 2>/dev/null || ps"),
             ("Init scripts", "ls -la /etc/init.d/ 2>/dev/null || echo 'none'"),
         ],
@@ -128,8 +135,8 @@ SECTIONS: list[Section] = [
         "what a dynamically linked one would need.",
         [
             ("libc", "ls -la /lib/libc* /lib/ld-* 2>/dev/null || echo 'none in /lib'"),
-            ("libc version", "/lib/libc.so.6 2>/dev/null | head -2 || echo 'not executable'"),
-            ("C++ runtime", "find / -name 'libstdc++*' -maxdepth 4 2>/dev/null || echo 'none'"),
+            ("libc version", "ls -la /lib/libc-*.so /lib/ld-*.so 2>/dev/null"),
+            ("C++ runtime", "ls -la /lib/libstdc++* /usr/lib/libstdc++* 2>/dev/null"),
         ],
     ),
     Section(
@@ -141,11 +148,11 @@ SECTIONS: list[Section] = [
         [
             ("Interfaces", "ip addr 2>/dev/null || ifconfig -a"),
             ("Wi-Fi driver", "cat /proc/net/wireless 2>/dev/null || echo 'none'"),
-            ("AP capability", "iw list 2>/dev/null | grep -A 10 'Supported interface modes' "
-                              "|| echo 'iw not present'"),
+            ("AP and DHCP tooling", "ls /bin /sbin /usr/sbin 2>/dev/null",
+             "hostapd dnsmasq wpa_supplicant udhcpd iw"),
             ("wpa_supplicant", "ls -la /etc/wpa_supplicant* /data/misc/wifi 2>/dev/null "
                                "|| echo 'not found'"),
-            ("Listening sockets", "netstat -tlnp 2>/dev/null || cat /proc/net/tcp"),
+            ("Listening sockets", "cat /proc/net/tcp"),
         ],
     ),
     Section(
@@ -175,7 +182,7 @@ SECTIONS: list[Section] = [
         "how much room it has - and that it really is volatile.",
         [
             ("tmp", "ls -ld /tmp /data /mnt 2>/dev/null"),
-            ("tmpfs size", "df -h /tmp 2>/dev/null || echo 'no /tmp'"),
+            ("tmpfs size", "df /tmp 2>/dev/null || echo 'no /tmp'"),
         ],
     ),
 ]
@@ -209,7 +216,7 @@ def check_read_only() -> None:
     future fails on a developer's machine rather than on someone's clock.
     """
     for section in SECTIONS:
-        for label, command in section.commands:
+        for label, command, *_ in section.commands:
             # Redirection writes files even when the binary is harmless.
             # `2>/dev/null` is the exception: it discards stderr so a missing
             # path reports as absent rather than as an error, and it creates
@@ -230,6 +237,21 @@ def check_read_only() -> None:
                         "say why. If it does not, it belongs in the runbook "
                         "behind a gate."
                     )
+
+
+def keep_matching(output: str, keywords: list[str]) -> str:
+    """Lines mentioning any keyword, or a note that none did.
+
+    Says so explicitly when nothing matched: an empty block is ambiguous between
+    "the device has none of these" and "the command failed", and those need very
+    different responses.
+    """
+    lowered = [k.lower() for k in keywords]
+    kept = [line for line in output.splitlines()
+            if any(k in line.lower() for k in lowered)]
+    if not kept:
+        return f"(nothing matching: {' '.join(keywords)})"
+    return "\n".join(kept)
 
 
 def adb(args: list[str], serial: str | None) -> subprocess.CompletedProcess:
@@ -297,8 +319,10 @@ def main() -> int:
     for section in SECTIONS:
         print(f"  {section.title} ...")
         lines += [f"## {section.title}", "", f"_{section.why}_", ""]
-        for label, command in section.commands:
+        for label, command, *rest in section.commands:
             output = run_on_device(command, serial)
+            if rest:
+                output = keep_matching(output, rest[0].split())
             lines += [
                 f"### {label}", "",
                 f"```console", f"$ {command}", output, "```", "",
