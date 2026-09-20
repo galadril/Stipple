@@ -559,6 +559,54 @@
         }
     }
 
+    function tickLive() {
+        // Skipped while a request is still in flight, so a slow device cannot
+        // accumulate a backlog of frame requests it will never catch up on.
+        if (liveBusy || activePanel !== 'panel-display') { return; }
+        liveBusy = true;
+
+        send('GET', '/api/v1/display/frame')
+            .then(function (payload) {
+                drawFrame(payload);
+                $('live-status').textContent =
+                    'live \u2014 ' + payload.width + '\u00d7' + payload.height;
+            })
+            .catch(function () {
+                $('live-status').textContent = 'not available';
+            })
+            .then(function () { liveBusy = false; });
+    }
+
+    // A tap and a hold are different actions on this hardware, so the button has
+    // to measure how long it was held rather than just fire on click.
+    function wireControls() {
+        var pressedAt = 0;
+
+        Array.prototype.forEach.call(document.querySelectorAll('[data-control]'), function (button) {
+            var control = button.getAttribute('data-control');
+
+            button.addEventListener('pointerdown', function () { pressedAt = Date.now(); });
+
+            button.addEventListener('click', function () {
+                var held = pressedAt ? Date.now() - pressedAt : 0;
+                pressedAt = 0;
+
+                var body = { control: control };
+                if (control !== 'left' && control !== 'right') {
+                    body.holdMillis = held;
+                }
+
+                send('POST', '/api/v1/input', body)
+                    .then(function () {
+                        // Redraw immediately rather than waiting for the next
+                        // tick, so the button feels connected to the panel.
+                        tickLive();
+                    })
+                    .catch(fail);
+            });
+        });
+    }
+
     // AM/PM is meaningless on a 24-hour clock, and the faces that already use
     // all 52 columns cannot show it at all. Rather than leave a switch that
     // silently does nothing - the failure this project keeps finding - the

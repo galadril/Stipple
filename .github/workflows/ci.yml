@@ -46,6 +46,13 @@ jobs:
         with:
           arch: x64
 
+      # The device web UI has no build step, so nothing else would notice a
+      # call to a function that an edit removed - and that shipped a page which
+      # died on load. Cheap, and it runs before the long C++ build.
+      - name: Check the web UI
+        if: runner.os == 'Linux'
+        run: node tooling/web/check-app.mjs
+
       - name: Configure
         run: cmake --preset ci
 

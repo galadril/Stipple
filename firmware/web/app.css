@@ -368,3 +368,11 @@ input[type="color"] {
 
 /* The field needs a positioned ancestor to anchor against. */
 .field { position: relative; }
+
+/* An honest warning, styled as one. Not an error - nothing is broken - but it
+   should not read as ordinary help text either. */
+.warn-note {
+    color: #d29922;
+    border-left: 2px solid #d29922;
+    padding-left: 8px;
+}
