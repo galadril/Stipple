@@ -58,7 +58,8 @@ BootRecord ApplicationHost::readBootRecord() {
     if (document.parse(stored) != json::Error::None) {
         // Unreadable boot state is itself suspicious, but it must not be what
         // stops the device starting.
-        logger_.warn(0, "boot record unreadable; treating as first boot");
+        logger_.warn(platform_.clock().monotonicMillis(),
+                     "boot record unreadable; treating as first boot");
         return record;
     }
 
@@ -98,21 +99,26 @@ void ApplicationHost::markHealthy() {
 // --- startup -----------------------------------------------------------------
 
 bool ApplicationHost::initialize() {
+    // Startup used to log with a literal 0, so every boot line rendered as
+    // 00:00:00 and sorted before everything else. The clock is available the
+    // whole time; there was never a reason not to ask it.
+    const std::uint64_t startedAt = platform_.clock().monotonicMillis();
+
     // 1. Logging first, so everything that follows can be recorded.
-    logger_.info(0, "NOTRIX starting");
+    logger_.info(startedAt, "NOTRIX starting");
 
     // 2. Boot state, before anything that could crash.
     BootRecord record = readBootRecord();
     if (!record.lastBootCompleted) {
         ++record.consecutiveFailures;
-        logger_.warn(0, "previous boot did not complete");
+        logger_.warn(startedAt, "previous boot did not complete");
     }
 
     bootMode_ = record.consecutiveFailures >= static_cast<std::uint32_t>(config_.safeModeThreshold)
                     ? BootMode::SafeMode
                     : BootMode::Normal;
     if (bootMode_ == BootMode::SafeMode) {
-        logger_.error(0, "repeated boot failures; starting in safe mode");
+        logger_.error(startedAt, "repeated boot failures; starting in safe mode");
     }
 
     record.lastBootCompleted = false;
@@ -129,10 +135,10 @@ bool ApplicationHost::initialize() {
     //    failures that got us here.
     if (bootMode_ == BootMode::SafeMode) {
         settings_ = config::Config{};
-        logger_.warn(0, "safe mode: using default settings");
+        logger_.warn(startedAt, "safe mode: using default settings");
     } else {
         const config::LoadReport report = configStore_.load(settings_);
-        logger_.info(0, config::describe(report.status));
+        logger_.info(startedAt, config::describe(report.status));
     }
     platform_.display().setBrightness(settings_.display.brightness);
     if (platform_.audio() != nullptr) {
@@ -148,17 +154,17 @@ bool ApplicationHost::initialize() {
         installBuiltins();
         loadIcons();
     } else {
-        logger_.warn(0, "safe mode: no apps or icons loaded");
+        logger_.warn(startedAt, "safe mode: no apps or icons loaded");
     }
     persistedIconRevision_ = icons_.revision();
 
     // 6. Capabilities this build does not have. Logged rather than silently
     //    absent, so a device that cannot be reached says why.
     if (platform_.network() == nullptr) {
-        logger_.info(0, "no network interface on this platform");
+        logger_.info(startedAt, "no network interface on this platform");
     }
     if (platform_.httpServer() == nullptr) {
-        logger_.info(0, "no HTTP transport; API is reachable in-process only");
+        logger_.info(startedAt, "no HTTP transport; API is reachable in-process only");
     }
     mqtt::ServiceContext mqttContext;
     mqttContext.client = platform_.mqtt();
@@ -167,26 +173,26 @@ bool ApplicationHost::initialize() {
     mqttContext.logger = &logger_;
     mqtt_.setContext(mqttContext);
     if (bootMode_ == BootMode::Normal) {
-        mqtt_.configure();
+        mqtt_.configure(startedAt);
     } else {
         // Safe mode stays off the network entirely. Whatever put the device here
         // might be reachable from a broker, and a boot loop that republishes
         // retained state each time is worse than a quiet one.
-        logger_.warn(0, "safe mode: MQTT not started");
+        logger_.warn(startedAt, "safe mode: MQTT not started");
     }
 
     if (platform_.audio() == nullptr) {
         // Said out loud because the default button mapping puts volume on the
         // − / + taps: without a speaker those presses do nothing, and a silent
         // no-op reads as broken hardware.
-        logger_.info(0, "no audio output; volume controls will do nothing");
+        logger_.info(startedAt, "no audio output; volume controls will do nothing");
     }
 
     splashDetail_ = apps::splashDetail(kVersion, platform_.network());
     splashActive_ = config_.splashMillis > 0;
 
     initialized_ = true;
-    logger_.info(0, "startup complete");
+    logger_.info(startedAt, "startup complete");
     return true;
 }
 
@@ -227,11 +233,12 @@ void ApplicationHost::loadIcons() {
         // Corrupt icon data must not stop the device starting; it just means no
         // icons. Dropping the key avoids re-reading the same broken blob every
         // boot and keeps the failure from looking intermittent.
-        logger_.warn(0, "stored icons unreadable; discarding them");
+        logger_.warn(platform_.clock().monotonicMillis(),
+                     "stored icons unreadable; discarding them");
         platform_.storage().remove(kIconStateKey);
         return;
     }
-    logger_.info(0, "icons loaded");
+    logger_.info(platform_.clock().monotonicMillis(), "icons loaded");
 }
 
 void ApplicationHost::persistIconsIfChanged() {
@@ -347,12 +354,12 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
     mqttContext.logger = &logger_;
     mqtt_.setContext(mqttContext);
     if (bootMode_ == BootMode::Normal) {
-        mqtt_.configure();
+        mqtt_.configure(lastTickMillis_);
     } else {
         // Safe mode stays off the network entirely. Whatever put the device here
         // might be reachable from a broker, and a boot loop that republishes
         // retained state each time is worse than a quiet one.
-        logger_.warn(0, "safe mode: MQTT not started");
+        logger_.warn(lastTickMillis_, "safe mode: MQTT not started");
     }
 
     if (platform_.audio() == nullptr) {
@@ -726,7 +733,7 @@ api::Response ApplicationHost::handle(const api::Request& request) {
     // nothing relevant changed.
     if (request.method != api::Method::Get && response.status < 400 &&
         bootMode_ == BootMode::Normal) {
-        mqtt_.configure();
+        mqtt_.configure(lastTickMillis_);
         mqtt_.invalidateStatus();
     }
 

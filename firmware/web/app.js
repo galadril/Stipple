@@ -225,6 +225,7 @@
                     settings = updated;
                     field.value = '';  // never hold a credential in the DOM
                     describePassword();
+                refreshMeridiem();
                     toast(updated.mqtt.passwordSet ? 'Password saved' : 'Password cleared');
                 })
                 .catch(fail);
@@ -500,23 +501,241 @@
     var liveTimer = null;
     var liveBusy = false;
 
+    // One LED per pixel, drawn with a gap. A 52x16 image scaled up is a smear;
+    // what makes this read as a panel is the dark space between the pixels, so
+    // the geometry is explicit rather than left to CSS scaling.
+    var LED_SIZE = 9;
+    var LED_GAP = 1;
+    var LED_PITCH = LED_SIZE + LED_GAP;
+
+    var lastFrame = null;   // the decoded RGB of the most recent frame
+    var recording = null;   // { frames: [], started: number }
+
     function drawFrame(payload) {
         var canvas = $('live');
         if (!canvas || !payload || payload.format !== 'rgb888') { return; }
 
-        var binary = atob(payload.pixels);
         var width = payload.width;
         var height = payload.height;
 
+        // Sized once, when the panel geometry is first known. Doing it every
+        // frame would reset the context and flash.
+        var wanted = width * LED_PITCH - LED_GAP;
+        var wantedHigh = height * LED_PITCH - LED_GAP;
+        if (canvas.width !== wanted || canvas.height !== wantedHigh) {
+            canvas.width = wanted;
+            canvas.height = wantedHigh;
+        }
+
+        var binary = atob(payload.pixels);
+        lastFrame = { pixels: binary, width: width, height: height };
+
         var ctx = canvas.getContext('2d');
-        var image = ctx.createImageData(width, height);
-        for (var i = 0, p = 0; i < width * height; ++i) {
-            image.data[p++] = binary.charCodeAt(i * 3);
-            image.data[p++] = binary.charCodeAt(i * 3 + 1);
-            image.data[p++] = binary.charCodeAt(i * 3 + 2);
-            image.data[p++] = 255;
+        ctx.fillStyle = '#05070a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        for (var y = 0; y < height; ++y) {
+            for (var x = 0; x < width; ++x) {
+                var i = (y * width + x) * 3;
+                var r = binary.charCodeAt(i);
+                var g = binary.charCodeAt(i + 1);
+                var b = binary.charCodeAt(i + 2);
+
+                // An unlit LED is not invisible - it is a dark grey dot. A grid
+                // that vanished where the panel was black would stop reading as
+                // hardware, which is the whole point of this view.
+                if (r === 0 && g === 0 && b === 0) {
+                    ctx.fillStyle = '#12161c';
+                } else {
+                    ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+                }
+                ctx.fillRect(x * LED_PITCH, y * LED_PITCH, LED_SIZE, LED_SIZE);
+            }
+        }
+
+        if (recording) {
+            recording.frames.push(binary);
+            $('live-rec').textContent = 'Stop (' + recording.frames.length + ')';
+        }
+    }
+
+    // AM/PM is meaningless on a 24-hour clock, and the faces that already use
+    // all 52 columns cannot show it at all. Rather than leave a switch that
+    // silently does nothing - the failure this project keeps finding - the
+    // control says so and disables itself.
+    var NO_MERIDIEM_FACES = { seconds: 1, calendar: 1 };
+
+    function refreshMeridiem() {
+        var toggle = $('showAmPm');
+        var help = $('ampm-help');
+        if (!toggle) { return; }
+
+        var twentyFour = $('twentyFourHour') && $('twentyFourHour').checked;
+        var face = $('theme') ? $('theme').value : '';
+        var noRoom = !!NO_MERIDIEM_FACES[face];
+
+        toggle.disabled = twentyFour || noRoom;
+        if (help) {
+            help.textContent = twentyFour
+                ? 'Switch off 24-hour to use AM/PM.'
+                : (noRoom
+                    ? 'This face already fills the panel - no room for AM/PM.'
+                    : 'Shown beside the time.');
+        }
+    }
+
+    // --- colour ---------------------------------------------------------------
+
+    // A swatch grid instead of <input type="color">.
+    //
+    // The OS picker offers sixteen million colours to a device that shows them
+    // on 832 LEDs behind a diffuser, and it opens a modal that hides the live
+    // view - so you cannot see what you picked while picking it. These are
+    // colours chosen to be legible on this panel, and clicking one applies it
+    // immediately with the live view still on screen.
+    var SWATCHES = [
+        '#FFFFFF', '#C9C9C9', '#8A8A8A',
+        '#FF3B30', '#FF8000', '#FFD400',
+        '#4FC96F', '#00C8A0', '#00BEFF',
+        '#5C7FBF', '#9B5CFF', '#FF5CA8'
+    ];
+
+    function buildSwatches(input) {
+        var host = el('div', 'swatches');
+
+        SWATCHES.forEach(function (hex) {
+            var cell = el('button', 'swatch');
+            cell.type = 'button';
+            cell.style.background = hex;
+            cell.title = hex;
+            cell.setAttribute('aria-label', hex);
+            cell.addEventListener('click', function () {
+                input.value = hex;
+                markSelected(host, hex);
+                applySetting(input);
+            });
+            host.appendChild(cell);
+        });
+
+        // The full picker stays available as an escape hatch, just not as the
+        // primary control.
+        var custom = el('button', 'swatch swatch-custom', '+');
+        custom.type = 'button';
+        custom.title = 'Any colour';
+        custom.addEventListener('click', function () { input.click(); });
+        host.appendChild(custom);
+
+        input.addEventListener('input', function () { markSelected(host, input.value); });
+        return host;
+    }
+
+    function markSelected(host, hex) {
+        var want = String(hex).toUpperCase();
+        Array.prototype.forEach.call(host.querySelectorAll('.swatch'), function (cell) {
+            var mine = (cell.title || '').toUpperCase();
+            cell.classList.toggle('on', mine === want);
+        });
+    }
+
+    function wireSwatches() {
+        Array.prototype.forEach.call(
+            document.querySelectorAll('input[type="color"][data-setting]'),
+            function (input) {
+                input.classList.add('color-hidden');
+                input.parentNode.insertBefore(buildSwatches(input), input.nextSibling);
+            });
+    }
+
+    // --- capture ------------------------------------------------------------
+
+    function downloadCanvas(name) {
+        var canvas = $('live');
+        if (!canvas) { return; }
+        canvas.toBlob(function (blob) {
+            var url = URL.createObjectURL(blob);
+            var link = el('a');
+            link.href = url;
+            link.download = name;
+            link.click();
+            // Revoked on the next turn of the loop: revoking immediately can
+            // beat the download starting in some browsers.
+            setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        });
+    }
+
+    function stamp() {
+        var d = new Date();
+        function two(n) { return (n < 10 ? '0' : '') + n; }
+        return d.getFullYear() + two(d.getMonth() + 1) + two(d.getDate()) +
+               '-' + two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds());
+    }
+
+    function wireCapture() {
+        var shot = $('live-shot');
+        if (shot) {
+            shot.addEventListener('click', function () {
+                if (!lastFrame) { return toast('no frame yet', true); }
+                downloadCanvas('notrix-' + stamp() + '.png');
+            });
+        }
+
+        var rec = $('live-rec');
+        if (rec) {
+            rec.addEventListener('click', function () {
+                if (recording) {
+                    var count = recording.frames.length;
+                    // Written as an APNG-free animated strip: every captured
+                    // frame stacked vertically in one PNG. No encoder, no
+                    // dependency, and it opens anywhere.
+                    saveStrip(recording.frames, count);
+                    recording = null;
+                    rec.textContent = 'Record';
+                    rec.classList.remove('btn-live');
+                } else {
+                    recording = { frames: [], started: Date.now() };
+                    rec.textContent = 'Stop (0)';
+                    rec.classList.add('btn-live');
+                    toast('recording - press again to save');
+                }
+            });
+        }
+    }
+
+    // Frames stacked into one tall PNG, at 1:1 rather than LED scale so the
+    // result is exact pixel data rather than a picture of a picture.
+    function saveStrip(frames, count) {
+        if (!count || !lastFrame) { return toast('nothing recorded', true); }
+
+        var w = lastFrame.width;
+        var h = lastFrame.height;
+        var sheet = document.createElement('canvas');
+        sheet.width = w;
+        sheet.height = h * count;
+
+        var ctx = sheet.getContext('2d');
+        var image = ctx.createImageData(w, h * count);
+
+        for (var f = 0; f < count; ++f) {
+            var binary = frames[f];
+            for (var i = 0; i < w * h; ++i) {
+                var src = i * 3;
+                var dst = (f * w * h + i) * 4;
+                image.data[dst] = binary.charCodeAt(src);
+                image.data[dst + 1] = binary.charCodeAt(src + 1);
+                image.data[dst + 2] = binary.charCodeAt(src + 2);
+                image.data[dst + 3] = 255;
+            }
         }
         ctx.putImageData(image, 0, 0);
+
+        sheet.toBlob(function (blob) {
+            var url = URL.createObjectURL(blob);
+            var link = el('a');
+            link.href = url;
+            link.download = 'notrix-' + stamp() + '-' + count + 'frames.png';
+            link.click();
+            setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        });
     }
 
     function tickLive() {
@@ -594,6 +813,13 @@
         wireMqtt();
         wireReboot();
         wireControls();
+        wireCapture();
+        wireSwatches();
+
+        ['twentyFourHour', 'theme'].forEach(function (id) {
+            var input = $(id);
+            if (input) { input.addEventListener('change', refreshMeridiem); }
+        });
         showPanel('panel-display');
 
         Promise.all([loadSettings(), loadDevice()])

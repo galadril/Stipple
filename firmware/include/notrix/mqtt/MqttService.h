@@ -55,7 +55,10 @@ public:
     /// Read settings and decide whether MQTT should run at all. Safe to call
     /// again after a settings change: a broker that has been reconfigured is
     /// disconnected and reconnected rather than left pointing at the old one.
-    void configure();
+    /// `nowMillis` is only used to stamp log lines, so a caller outside the
+    /// tick loop can still produce entries with a real time on them. It
+    /// defaults to leaving the clock where it was.
+    void configure(std::uint64_t nowMillis = 0);
 
     /// Drive the connection. Called every loop iteration; cheap when idle.
     void tick(std::uint64_t nowMillis);
@@ -125,6 +128,11 @@ private:
 
     std::uint64_t nextAttemptMillis_ = 0;
     std::uint64_t lastStatusMillis_ = 0;
+    /// When this service last knew the time. Separate from
+    /// lastStatusMillis_, which only moves when a status is published -
+    /// using that to stamp a log froze every MQTT line at the moment of
+    /// the last status, which is why the log read out of order.
+    std::uint64_t nowMillis_ = 0;
     DeviceState deviceState_;
     bool statusDue_ = true;
     bool announced_ = false;

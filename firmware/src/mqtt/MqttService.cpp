@@ -29,7 +29,7 @@ std::string fingerprint(const config::MqttSettings& mqtt) {
 
 void MqttService::log(log::Level level, std::string_view message) {
     if (context_.logger != nullptr) {
-        context_.logger->write(level, lastStatusMillis_, message);
+        context_.logger->write(level, nowMillis_, message);
     }
 }
 
@@ -42,7 +42,10 @@ platform::MqttState MqttService::state() const noexcept {
 
 // --- lifecycle ---------------------------------------------------------------
 
-void MqttService::configure() {
+void MqttService::configure(std::uint64_t nowMillis) {
+    if (nowMillis != 0) {
+        nowMillis_ = nowMillis;
+    }
     if (context_.settings == nullptr) {
         return;
     }
@@ -139,6 +142,7 @@ void MqttService::shutdown() {
 }
 
 void MqttService::tick(std::uint64_t nowMillis) {
+    nowMillis_ = nowMillis;
     if (!enabled_ || context_.client == nullptr) {
         return;
     }

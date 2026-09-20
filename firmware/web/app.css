@@ -240,3 +240,56 @@ input[type="color"] {
     font-variant-numeric: tabular-nums;
     touch-action: manipulation;  /* no double-tap zoom eating a long press */
 }
+
+/* --- live view capture bar ------------------------------------------------ */
+
+.live-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+
+/* Recording is a mode, and a mode should be visible without reading the label. */
+.btn-live { border-color: var(--danger, #f85149); color: var(--danger, #f85149); }
+
+/* --- colour swatches ------------------------------------------------------ */
+
+/* The native picker stays in the DOM - it is the "any colour" escape hatch and
+   the element the setting is actually bound to - but it is not the control the
+   user reaches for. */
+.color-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.swatches {
+    display: grid;
+    grid-template-columns: repeat(13, 1fr);
+    gap: 4px;
+    max-width: 340px;
+}
+
+.swatch {
+    aspect-ratio: 1;
+    border: 1px solid #00000040;
+    border-radius: 4px;
+    padding: 0;
+    cursor: pointer;
+    min-width: 0;
+}
+
+/* A ring rather than a border change, so selecting a swatch does not move it. */
+.swatch.on {
+    outline: 2px solid var(--accent, #00beff);
+    outline-offset: 1px;
+}
+
+.swatch-custom {
+    background: linear-gradient(135deg, #ff3b30, #ffd400, #4fc96f, #00beff, #9b5cff);
+    color: #fff;
+    font-weight: 700;
+    line-height: 1;
+}
+
+@media (max-width: 480px) {
+    .swatches { grid-template-columns: repeat(7, 1fr); }
+}
