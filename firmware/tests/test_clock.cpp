@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "notrix/apps/BatteryApp.h"
 #include "notrix/apps/ClockApp.h"
 
 #include <string>
@@ -276,6 +277,87 @@ NOTRIX_TEST(Clock, ThemesDifferFromEachOther) {
     }
 }
 
+NOTRIX_TEST(Clock, TheStyleOffsetShiftsTheDisplayedTime) {
+    // Shifting the offset forward by an hour must look exactly like the clock
+    // itself having advanced an hour. Exact rather than "the frames differ",
+    // because a wrong-but-different offset would pass that.
+    const std::int64_t noon = unixTime(2026, 9, 20, 12, 0, 0);
+
+    ClockStyle shifted = styleFor(ClockTheme::Minimal);
+    shifted.utcOffsetSeconds = 3600;
+
+    ClockStyle plain = styleFor(ClockTheme::Minimal);
+    plain.utcOffsetSeconds = 0;
+
+    NOTRIX_CHECK(render(clockAt(noon), shifted) == render(clockAt(noon + 3600), plain));
+}
+
+NOTRIX_TEST(Clock, AWholeDayOfOffsetLooksLikeNone) {
+    // Catches a sign error, which the hour test above cannot: negating the
+    // offset still produces "some other time", but only a correctly applied
+    // one wraps a full day back onto itself.
+    const std::int64_t noon = unixTime(2026, 9, 20, 12, 0, 0);
+
+    ClockStyle wrapped = styleFor(ClockTheme::Seconds);
+    wrapped.utcOffsetSeconds = 24 * 3600;
+
+    ClockStyle plain = styleFor(ClockTheme::Seconds);
+
+    NOTRIX_CHECK(render(clockAt(noon), wrapped) == render(clockAt(noon), plain));
+}
+
+NOTRIX_TEST(Clock, TheSecondsBarFillsAndComesBackAfterTheMinute) {
+    // Reported from hardware: the bar filled, vanished at the minute, and did
+    // not come back. Walk an actual rollover rather than sampling one instant.
+    ClockStyle style = styleFor(ClockTheme::SecondsBar);
+    style.blinkPeriodMillis = 0;  // keep the colon out of the comparison
+
+    const std::int64_t minuteStart = unixTime(2026, 9, 20, 12, 5, 0);
+
+    auto barWidth = [&](int second) {
+        const Framebuffer frame = render(clockAt(minuteStart + second), style);
+        int lit = 0;
+        const int row = Framebuffer::kHeight - 1;
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            if (frame.at(x, row) == style.accentColor) {
+                ++lit;
+            }
+        }
+        return lit;
+    };
+
+    NOTRIX_CHECK_EQ(barWidth(0), 0);                        // empty at the top
+    NOTRIX_CHECK_EQ(barWidth(59), Framebuffer::kWidth);      // full at the end
+
+    // Monotonic across the minute, never going backwards mid-way.
+    int previous = 0;
+    for (int second = 0; second < 60; ++second) {
+        const int width = barWidth(second);
+        NOTRIX_CHECK(width >= previous);
+        previous = width;
+    }
+
+    // And the rollover: full, then empty, then growing again. "Did not come
+    // back" is precisely this last assertion.
+    NOTRIX_CHECK_EQ(barWidth(59), Framebuffer::kWidth);
+    NOTRIX_CHECK_EQ(barWidth(60), 0);
+    NOTRIX_CHECK(barWidth(61) > 0);
+}
+
+NOTRIX_TEST(Clock, TheSecondsBarAsksToBeRedrawnEverySecond) {
+    // The other half of the failure: a bar that renders correctly is still
+    // frozen if dirty tracking never invalidates. On this device a skipped
+    // frame is not a stale frame but a dark one, so a missed invalidate shows
+    // up as the bar simply stopping.
+    const SimulatorClock clock = clockAt(unixTime(2026, 9, 20, 12, 5, 30));
+    ClockStyle style = styleFor(ClockTheme::SecondsBar);
+    style.blinkPeriodMillis = 0;
+
+    NOTRIX_CHECK(clockChanged(clock, style, 0, 1000));
+    NOTRIX_CHECK(clockChanged(clock, style, 59'000, 60'000));  // across the minute
+    NOTRIX_CHECK_FALSE(clockChanged(clock, style, 1000, 1200));  // same second
+}
+
 NOTRIX_TEST(Clock, UnsetWallClockShowsPlaceholderInEveryTheme) {
     SimulatorClock unset;  // never set
     for (int i = 0; i < kClockThemeCount; ++i) {
@@ -317,4 +399,63 @@ NOTRIX_TEST(Clock, ThemesMatchGolden) {
 
         NOTRIX_CHECK_GOLDEN((std::string("clock-") + names[i]).c_str(), render(clock, style));
     }
+}
+
+// --- battery -----------------------------------------------------------------
+
+NOTRIX_TEST(Battery, AnUnknownChargeSaysSoRatherThanShowingZero) {
+    // The failure this guards against is a clock confidently reporting a flat
+    // battery because nothing answered, which is indistinguishable to the user
+    // from a real flat battery.
+    notrix::platform::BatteryStatus unknown;  // known == false
+    Framebuffer frame;
+    Canvas canvas(frame);
+    notrix::apps::renderBattery(canvas, unknown, notrix::apps::BatteryStyle{});
+
+    const Framebuffer empty;
+    NOTRIX_CHECK(frame != empty);  // it drew *something*
+
+    notrix::platform::BatteryStatus flat;
+    flat.known = true;
+    flat.percent = 0;
+    Framebuffer flatFrame;
+    Canvas flatCanvas(flatFrame);
+    notrix::apps::renderBattery(flatCanvas, flat, notrix::apps::BatteryStyle{});
+
+    // And the two must not look the same.
+    NOTRIX_CHECK(frame != flatFrame);
+}
+
+NOTRIX_TEST(Battery, ChargeChangesWhatIsDrawn) {
+    auto render = [](int percent) {
+        notrix::platform::BatteryStatus status;
+        status.known = true;
+        status.percent = percent;
+        Framebuffer frame;
+        Canvas canvas(frame);
+        notrix::apps::renderBattery(canvas, status, notrix::apps::BatteryStyle{});
+        return frame;
+    };
+
+    NOTRIX_CHECK(render(10) != render(90));
+    NOTRIX_CHECK(render(100) != render(50));
+
+    // Any charge at all lights something: a battery at 3% must not be
+    // pixel-identical to one at 0%.
+    NOTRIX_CHECK(render(3) != render(0));
+}
+
+NOTRIX_TEST(Battery, OutOfRangeChargeIsClampedNotWrapped) {
+    auto render = [](int percent) {
+        notrix::platform::BatteryStatus status;
+        status.known = true;
+        status.percent = percent;
+        Framebuffer frame;
+        Canvas canvas(frame);
+        notrix::apps::renderBattery(canvas, status, notrix::apps::BatteryStyle{});
+        return frame;
+    };
+
+    NOTRIX_CHECK(render(250) == render(100));
+    NOTRIX_CHECK(render(-20) == render(0));
 }

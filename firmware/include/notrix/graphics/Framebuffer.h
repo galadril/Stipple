@@ -17,8 +17,8 @@ namespace notrix {
 /// 52 * 16 * 3 = 2496 bytes.
 ///
 /// Nothing above the platform boundary knows how these pixels reach a panel.
-/// The TC002 adapter forwards them to PageBase::sendLedData; the simulator
-/// adapter hands them to a browser canvas.
+/// The TC002 adapter expands them into a 64x16 SPI frame and latches it with a
+/// GPIO strobe; the simulator adapter hands them to a browser canvas.
 class Framebuffer {
 public:
     static constexpr int kWidth = 52;

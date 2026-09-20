@@ -86,10 +86,11 @@ struct HostConfig {
 /// once frames are actually rendering. Repeated failures bring the device up in
 /// safe mode with default settings and no stored apps, so a bad configuration or
 /// a poisonous app cannot leave a clock that has to be opened up to recover.
-class ApplicationHost : public platform::IHttpRequestHandler {
+class ApplicationHost : public platform::IHttpRequestHandler, public platform::IInputSink {
 public:
     static constexpr std::string_view kBootStateKey = "boot";
     static constexpr std::string_view kClockAppId = "clock";
+    static constexpr std::string_view kBatteryAppId = "battery";
     static constexpr std::string_view kIconStateKey = "icons";
     static constexpr int kSceneTokens = 512;
 
@@ -152,6 +153,14 @@ public:
     /// Feed a raw hardware event. Normally the platform's input queue supplies
     /// these; exposed so a host can inject them directly.
     void handleInput(const platform::InputEvent& event);
+
+    // platform::IInputSink
+    //
+    // The web UI's on-screen controls arrive here, through exactly the path the
+    // physical ones take: same mapper, same long-press timing, same splash
+    // dismissal. Anything less and a browser would be exercising behaviour the
+    // panel does not have.
+    void inject(const platform::InputEvent& event) override { handleInput(event); }
 
     /// True while the boot splash is still showing.
     bool showingSplash() const noexcept { return splashActive_; }

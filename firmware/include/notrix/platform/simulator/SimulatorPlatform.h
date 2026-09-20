@@ -147,6 +147,23 @@ private:
     std::uint8_t volume_ = 128;
 };
 
+/// A battery a test drives. Starts unknown, matching a device whose MCU has
+/// not answered yet — the state the battery app must handle without inventing
+/// a plausible zero.
+class SimulatorPower : public IPowerSource {
+public:
+    BatteryStatus battery() const override { return status_; }
+
+    void setBattery(int percent) {
+        status_.known = true;
+        status_.percent = percent;
+    }
+    void forget() { status_ = BatteryStatus{}; }
+
+private:
+    BatteryStatus status_;
+};
+
 /// Reports whatever status the test sets.
 class SimulatorNetwork : public INetworkManager {
 public:
@@ -232,6 +249,9 @@ struct SimulatorCapabilities {
     bool network = true;
     bool rebooter = true;
     bool mqtt = true;
+    /// Off by default: most panels are mains-only, and a simulator that always
+    /// claimed a battery would hide the nullptr path from every test.
+    bool power = false;
 };
 
 /// Complete simulator implementation of the §53 platform boundary.
@@ -250,6 +270,7 @@ public:
     IAudioOutput* audio() override { return capabilities_.audio ? &audio_ : nullptr; }
     INetworkManager* network() override { return capabilities_.network ? &network_ : nullptr; }
     IRebooter* rebooter() override { return capabilities_.rebooter ? &rebooter_ : nullptr; }
+    IPowerSource* power() override { return capabilities_.power ? &power_ : nullptr; }
     IMqttClient* mqtt() override { return capabilities_.mqtt ? &mqtt_ : nullptr; }
 
     // Concrete accessors for tests and the emulator shell, which need the
@@ -261,6 +282,7 @@ public:
     SimulatorAudio& simulatedAudio() { return audio_; }
     SimulatorNetwork& simulatedNetwork() { return network_; }
     SimulatorRebooter& simulatedRebooter() { return rebooter_; }
+    SimulatorPower& simulatedPower() { return power_; }
     SimulatorMqtt& simulatedMqtt() { return mqtt_; }
 
 private:
@@ -271,6 +293,7 @@ private:
     SimulatorStorage storage_;
     SimulatorAudio audio_;
     SimulatorNetwork network_;
+    SimulatorPower power_;
     SimulatorMqtt mqtt_;
     SimulatorRebooter rebooter_;
 };

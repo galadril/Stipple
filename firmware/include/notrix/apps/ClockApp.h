@@ -91,6 +91,17 @@ struct ClockStyle {
     /// Colon blink period. Zero holds it lit — the blink is the only moving part
     /// on an otherwise static face, and some people find it distracting.
     std::uint32_t blinkPeriodMillis = 1000;
+
+    /// Offset applied to UTC for display, in seconds.
+    ///
+    /// Here rather than read from ISystemClock, because a time zone is a user's
+    /// preference and not a fact about the hardware. ISystemClock::
+    /// utcOffsetSeconds() describes what the *platform* believes, which on a
+    /// device carrying no tzdata is nothing at all — Tc002Clock honestly
+    /// returns zero. Taking the offset from the clock meant the stored setting
+    /// was validated, persisted, and read back by the API while changing
+    /// nothing on the panel.
+    int utcOffsetSeconds = 0;
 };
 
 /// Local wall-clock time, drawn in the configured theme.

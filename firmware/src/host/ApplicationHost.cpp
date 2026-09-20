@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/host/ApplicationHost.h"
 
+#include "notrix/apps/BatteryApp.h"
+
 #include "notrix/api/JsonWriter.h"
 #include "notrix/core/Version.h"
 #include "notrix/demo/TestPattern.h"
@@ -36,6 +38,8 @@ api::ApiContext ApplicationHost::makeContext() noexcept {
     context.configStore = &configStore_;
     context.platform = &platform_;
     context.logger = &logger_;
+    context.frame = &framebuffer_;
+    context.input = this;
     return context;
 }
 
@@ -197,6 +201,20 @@ void ApplicationHost::installBuiltins() {
     clock.builtin = app::Builtin::Clock;
     clock.durationSeconds = 0;  // uses the carousel default
     registry_.put(std::move(clock));
+
+    // Battery is installed only where the platform can actually report one.
+    // Registering it unconditionally would put a permanent "NO BATT" card in
+    // the rotation of every mains-only panel, which is the carousel equivalent
+    // of a switch that does nothing.
+    if (platform_.power() != nullptr) {
+        app::App battery;
+        battery.id = std::string(kBatteryAppId);
+        battery.name = "Battery";
+        battery.source = app::AppSource::System;
+        battery.builtin = app::Builtin::Battery;
+        battery.durationSeconds = 0;
+        registry_.put(std::move(battery));
+    }
 }
 
 void ApplicationHost::loadIcons() {
@@ -432,6 +450,14 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
             } else if (const app::App* active = carousel_.active()) {
                 if (active->builtin == app::Builtin::TestPattern) {
                     scheduler_.invalidate();
+                } else if (active->builtin == app::Builtin::Battery) {
+                    // Once a second is ample for a value that moves a percent
+                    // an hour, and still far more responsive than the panel
+                    // needs. Without it the card would freeze at whatever the
+                    // charge was when it first drew.
+                    if ((nowMillis / 1000u) != (lastClockMillis_ / 1000u)) {
+                        scheduler_.invalidate();
+                    }
                 } else if (active->builtin == app::Builtin::Clock) {
                     if (apps::clockChanged(platform_.clock(), clockStyle(),
                                            lastClockMillis_, nowMillis)) {
@@ -511,6 +537,7 @@ apps::ClockStyle ApplicationHost::clockStyle() const noexcept {
     style.dateSeparator = apps::dateSeparatorFromName(settings_.clock.dateSeparator);
     style.dateYear = apps::dateYearFromName(settings_.clock.dateYear);
     style.blinkPeriodMillis = settings_.clock.blinkPeriodMillis;
+    style.utcOffsetSeconds = settings_.clock.utcOffsetSeconds;
     return style;
 }
 
@@ -571,6 +598,7 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
 
     if (splashActive_) {
         apps::renderSplash(canvas, "NOTRIX", splashDetail_, nowMillis - firstTickMillis_,
+                           config_.splashMillis,
                            config_.splash);
         return;
     }
@@ -591,6 +619,14 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
         case app::Builtin::Clock:
             apps::renderClock(canvas, platform_.clock(), clockStyle());
             return;
+        case app::Builtin::Battery: {
+            platform::BatteryStatus status;
+            if (platform::IPowerSource* power = platform_.power()) {
+                status = power->battery();
+            }
+            apps::renderBattery(canvas, status, apps::BatteryStyle{});
+            return;
+        }
         case app::Builtin::TestPattern:
             demo::drawTestPattern(canvas, static_cast<int>(nowMillis / 33u));
             return;

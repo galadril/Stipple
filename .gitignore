@@ -45,3 +45,16 @@ Thumbs.db
 
 # Node
 node_modules/
+
+# Python bytecode from tooling/
+__pycache__/
+*.pyc
+
+# Probe reports carry a device serial, Wi-Fi SSID and MAC address.
+# Share the versions from them, never the file.
+device-probe*.md
+input-capture.txt
+knob-capture.txt
+
+# Vendor binaries pulled for platform analysis. Ulanzi's, not ours.
+build/vendor-analysis/

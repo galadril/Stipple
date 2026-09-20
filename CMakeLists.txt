@@ -20,6 +20,12 @@ option(NOTRIX_BUILD_TESTS    "Build the host unit and golden-image tests" ON)
 option(NOTRIX_BUILD_EMULATOR "Build the Emscripten browser emulator"      OFF)
 option(NOTRIX_WARNINGS_AS_ERRORS "Treat compiler warnings as errors"      OFF)
 
+# A device build carries only what the device needs. The PNG encoder and the
+# preview tool are host conveniences, and CLAUDE.md is explicit that imageio must
+# never be linked into the memory-constrained device build - so make that a
+# build-system fact rather than a habit.
+option(NOTRIX_DEVICE_BUILD   "Cross build for the TC002: core only, no host tools" OFF)
+
 # Included after the options above: NotrixWarnings reads them at include time.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(NotrixWarnings)
@@ -42,6 +48,7 @@ if(NOTRIX_BUILD_TESTS)
 endif()
 
 message(STATUS "NOTRIX ${PROJECT_VERSION}")
+message(STATUS "  device build : ${NOTRIX_DEVICE_BUILD}")
 message(STATUS "  tests        : ${NOTRIX_BUILD_TESTS}")
 message(STATUS "  emulator     : ${NOTRIX_BUILD_EMULATOR}")
 message(STATUS "  warn-as-error: ${NOTRIX_WARNINGS_AS_ERRORS}")

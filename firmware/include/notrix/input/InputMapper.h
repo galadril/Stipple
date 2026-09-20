@@ -70,6 +70,8 @@ struct InputMapperConfig {
     /// Nothing here is binding: §15 puts mappings in configuration, and these
     /// are only what an unconfigured device does.
     ButtonBinding keyMinus{Action::VolumeDown, Action::BrightnessDown};
+    /// Useful if the third button is there, harmless if it is not.
+    ButtonBinding keyExtra{Action::AppNext, Action::NotificationDismiss};
     ButtonBinding keyPlus{Action::VolumeUp, Action::BrightnessUp};
     ButtonBinding rotaryPress{Action::AppAction, Action::NotificationDismiss};
 };
@@ -100,7 +102,7 @@ public:
     const InputMapperConfig& config() const noexcept { return config_; }
 
 private:
-    static constexpr int kButtonCount = 3;  // minus, plus, rotary press
+    static constexpr int kButtonCount = 4;  // minus, plus, extra, rotary press
 
     static int buttonIndex(platform::RawInput source) noexcept;
     const ButtonBinding& bindingFor(platform::RawInput source) const noexcept;

@@ -5,6 +5,8 @@
 
 #include "notrix/api/JsonWriter.h"
 #include "notrix/app/AppRegistry.h"
+#include "notrix/core/Base64.h"
+#include "notrix/graphics/Framebuffer.h"
 #include "notrix/asset/IconStore.h"
 #include "notrix/app/Carousel.h"
 #include "notrix/apps/ClockApp.h"
@@ -188,9 +190,113 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
         case Resource::AssetItem: return handleAssetItem(request, route.id);
         case Resource::Settings: return handleSettings(request);
         case Resource::SystemReboot: return handleReboot(request);
+        case Resource::DisplayFrame: return handleDisplayFrame(request);
+        case Resource::Input: return handleInput(request, nowMillis);
         case Resource::Unknown: break;
     }
     return notFound("no such endpoint");
+}
+
+// --- live view ---------------------------------------------------------------
+
+Response ApiServer::handleDisplayFrame(const Request& request) {
+    if (request.method != Method::Get) {
+        return methodNotAllowed();
+    }
+    if (context_.frame == nullptr) {
+        return notFound("this build does not expose the framebuffer");
+    }
+
+    // Raw RGB888, base64. Not PNG: notrix_imageio is deliberately absent from
+    // the device build, and 2496 bytes is small enough that encoding anything
+    // cleverer would cost more than it saved. The browser writes these straight
+    // into an ImageData.
+    const Framebuffer& frame = *context_.frame;
+
+    JsonWriter writer;
+    writer.beginObject()
+        .member("width", Framebuffer::kWidth)
+        .member("height", Framebuffer::kHeight)
+        .member("format", "rgb888")
+        .member("pixels", base64::encode(frame.bytes(), Framebuffer::kByteSize))
+        .endObject();
+    return ok(writer.take());
+}
+
+Response ApiServer::handleInput(const Request& request, std::uint64_t nowMillis) {
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+    if (context_.input == nullptr) {
+        return notFound("this build does not accept injected input");
+    }
+
+    Body body(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+    if (!body.valid()) {
+        return badRequest(std::string("invalid JSON: ") + body.errorText());
+    }
+
+    const json::Value root = body.root();
+    if (!root.isObject()) {
+        return badRequest("body must be a JSON object");
+    }
+
+    const json::Value control = root["control"];
+    if (!control.isString()) {
+        return badRequest("'control' is required");
+    }
+
+    // Named for the labels on the case, matching RawInput. Anything else is
+    // refused rather than mapped to a default: a web button that silently
+    // pressed the wrong control would be worse than one that did nothing.
+    const std::string name = control.toString();
+    platform::RawInput source;
+    if (name == "minus") source = platform::RawInput::KeyMinus;
+    else if (name == "middle") source = platform::RawInput::KeyMiddle;
+    else if (name == "plus") source = platform::RawInput::KeyPlus;
+    else if (name == "press") source = platform::RawInput::RotaryPress;
+    else if (name == "left") source = platform::RawInput::RotaryLeft;
+    else if (name == "right") source = platform::RawInput::RotaryRight;
+    else return unprocessable("'control' is not a known control");
+
+    const bool rotation = source == platform::RawInput::RotaryLeft ||
+                          source == platform::RawInput::RotaryRight;
+
+    if (rotation) {
+        // A detent has no duration; it arrives as a single Tick.
+        platform::InputEvent event;
+        event.source = source;
+        event.phase = platform::ButtonPhase::Tick;
+        event.timestampMillis = nowMillis;
+        context_.input->inject(event);
+        return noContent();
+    }
+
+    // Buttons arrive as a Down and an Up, because that is what the mapper
+    // measures. holdMillis lets the web UI reach a long press, which is the
+    // only way to trigger half the default bindings from a browser.
+    std::uint64_t holdMillis = 0;
+    if (const json::Value hold = root["holdMillis"]; hold.isNumber()) {
+        const std::int64_t value = hold.toInt(0);
+        if (value < 0 || value > 10000) {
+            return unprocessable("'holdMillis' must be between 0 and 10000");
+        }
+        holdMillis = static_cast<std::uint64_t>(value);
+    }
+
+    platform::InputEvent down;
+    down.source = source;
+    down.phase = platform::ButtonPhase::Down;
+    down.timestampMillis = nowMillis;
+    context_.input->inject(down);
+
+    platform::InputEvent up;
+    up.source = source;
+    up.phase = platform::ButtonPhase::Up;
+    up.timestampMillis = nowMillis + holdMillis;
+    context_.input->inject(up);
+
+    return noContent();
 }
 
 // --- device information ------------------------------------------------------
@@ -243,9 +349,22 @@ Response ApiServer::handleDevice(const Request& request) {
     if (context_.platform != nullptr) {
         writer.member("audio", context_.platform->audio() != nullptr)
             .member("network", context_.platform->network() != nullptr)
-            .member("reboot", context_.platform->rebooter() != nullptr);
+            .member("reboot", context_.platform->rebooter() != nullptr)
+            .member("battery", context_.platform->power() != nullptr);
     }
     writer.endObject();
+
+    // Reported separately from the capability flag, because "this device has a
+    // battery" and "we currently know its charge" are different facts and a UI
+    // needs to tell them apart.
+    if (context_.platform != nullptr && context_.platform->power() != nullptr) {
+        const platform::BatteryStatus status = context_.platform->power()->battery();
+        writer.key("battery").beginObject().member("known", status.known);
+        if (status.known) {
+            writer.member("percent", status.percent);
+        }
+        writer.endObject();
+    }
 
     writer.endObject();
     return ok(writer.take());
@@ -476,6 +595,65 @@ Response ApiServer::handleAppItem(const Request& request,
         return noContent();
     }
 
+    // PATCH changes only what it names. PUT is a replace and needs the whole
+    // entry, which makes it the wrong verb for "turn this app off" - and it is
+    // what the config page sends for exactly that.
+    if (request.method == Method::Patch) {
+        if (existing == nullptr) {
+            return notFound("no such app");
+        }
+
+        Body patch(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+        if (!patch.valid()) {
+            return badRequest(std::string("invalid JSON: ") + patch.errorText());
+        }
+        const json::Value fields = patch.root();
+        if (!fields.isObject()) {
+            return badRequest("body must be a JSON object");
+        }
+
+        app::App updated = *existing;
+        if (const json::Value enabled = fields["enabled"]; enabled.isBoolean()) {
+            updated.enabled = enabled.toBool(updated.enabled);
+        }
+        if (const json::Value name = fields["name"]; name.isString()) {
+            updated.name = name.toString();
+        }
+        if (const json::Value duration = fields["durationSeconds"]; duration.isNumber()) {
+            const std::int64_t seconds = duration.toInt(updated.durationSeconds);
+            if (seconds < 0 || seconds > 3600) {
+                return unprocessable("'durationSeconds' is outside 0-3600");
+            }
+            updated.durationSeconds = static_cast<int>(seconds);
+        }
+
+        // A scene belongs to a replace, not a patch: changing what an app *is*
+        // is a different operation from changing whether it is shown.
+        if (fields["scene"].valid()) {
+            return unprocessable("'scene' cannot be patched; use PUT");
+        }
+
+        switch (context_.apps->put(std::move(updated))) {
+            case app::AppRegistry::PutResult::Added:
+            case app::AppRegistry::PutResult::Replaced:
+                break;
+            case app::AppRegistry::PutResult::Full:
+                return conflict("app registry is full");
+            case app::AppRegistry::PutResult::InvalidId:
+                return unprocessable("'id' is empty or too long");
+            case app::AppRegistry::PutResult::SceneTooLarge:
+                return payloadTooLarge("'scene' exceeds the per-app limit");
+        }
+
+        if (context_.carousel != nullptr) {
+            context_.carousel->tick(nowMillis);
+        }
+
+        JsonWriter writer;
+        writeApp(writer, *context_.apps->find(id), 0);
+        return ok(writer.take());
+    }
+
     if (request.method != Method::Put) {
         return methodNotAllowed();
     }
@@ -496,6 +674,10 @@ Response ApiServer::handleAppItem(const Request& request,
         root["durationSeconds"].toInt(existing != nullptr ? existing->durationSeconds : 0));
     entry.enabled = root["enabled"].toBool(existing == nullptr || existing->enabled);
     entry.source = existing != nullptr ? existing->source : app::AppSource::Remote;
+    // Carried over, or a PUT on "clock" would leave a system app whose builtin
+    // is None and whose scene is empty - an entry that exists, is enabled, and
+    // renders nothing.
+    entry.builtin = existing != nullptr ? existing->builtin : app::Builtin::None;
 
     const json::Value scene = root["scene"];
     if (scene.valid()) {

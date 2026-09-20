@@ -116,6 +116,31 @@ NOTRIX_TEST(Host, AppliesStoredBrightnessAtBoot) {
     NOTRIX_CHECK_EQ(static_cast<int>(platform.display().brightness()), 42);
 }
 
+NOTRIX_TEST(Host, StoredUtcOffsetReachesTheClockFace) {
+    // The gap that let a whole setting do nothing.
+    //
+    // clock.utcOffsetSeconds was validated by the API, persisted by the config
+    // store and read back correctly, while renderClock took its offset from
+    // ISystemClock instead - so every one of those passed and the panel never
+    // moved. Nothing asserted the path from stored setting to rendered frame,
+    // which is the only assertion that would have caught it.
+    //
+    // 7200 is Amsterdam in summer, which is where it was found.
+    SimulatorPlatform platform;
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    notrix::config::ConfigStore store(platform.storage());
+    notrix::config::Config saved;
+    saved.clock.utcOffsetSeconds = 7200;
+    store.save(saved);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    NOTRIX_CHECK_EQ(host.settings().clock.utcOffsetSeconds, 7200);
+    NOTRIX_CHECK_EQ(host.clockStyle().utcOffsetSeconds, 7200);
+}
+
 // --- display power -----------------------------------------------------------
 
 NOTRIX_TEST(Host, DisplayPowerOffBlanksThePanel) {
@@ -947,4 +972,22 @@ NOTRIX_TEST(Host, CorruptStoredIconsDoNotStopStartup) {
     // make the failure look intermittent.
     std::string leftover;
     NOTRIX_CHECK_FALSE(platform.storage().read(ApplicationHost::kIconStateKey, leftover));
+}
+
+// --- battery -----------------------------------------------------------------
+
+NOTRIX_TEST(Host, BatteryIsOnlyInstalledWhereOneCanBeReported) {
+    // A permanent "NO BATT" card in the rotation of a mains-only panel is the
+    // carousel's version of a switch that does nothing.
+    SimulatorPlatform mainsOnly;
+    ApplicationHost without(mainsOnly, quietConfig());
+    without.initialize();
+    NOTRIX_CHECK(without.apps().find("battery") == nullptr);
+
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform battered(capabilities);
+    ApplicationHost with(battered, quietConfig());
+    with.initialize();
+    NOTRIX_CHECK(with.apps().find("battery") != nullptr);
 }

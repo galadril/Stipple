@@ -90,6 +90,44 @@ jobs:
       - name: Test
         run: ctest --test-dir build/sanitize --output-on-failure
 
+  device-arm:
+    name: Device cross-build (ARMv7)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The §53 boundary is a claim until something proves it. Cross-compiling
+      # notrix_core for the target and running it is that proof, and it costs a
+      # couple of minutes against the alternative of discovering a host-only
+      # dependency with a device on the bench.
+      - name: Install cross toolchain and ARM emulation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y crossbuild-essential-armhf ninja-build qemu-user-static
+
+      - name: Configure
+        run: cmake --preset device-arm
+
+      - name: Build
+        run: cmake --build --preset device-arm
+
+      - name: Check what the binary depends on
+        run: |
+          cd build/device-arm/firmware
+          file notrix_device_smoke
+          # Static by design: a dynamically linked binary from a modern distro
+          # needs GLIBC_2.34 just for __libc_start_main, which an embedded
+          # SigmaStar device is unlikely to have. See firmware/CMakeLists.txt.
+          if readelf -d notrix_device_smoke | grep -q NEEDED; then
+            echo "::error::the device binary gained a shared library dependency"
+            readelf -d notrix_device_smoke | grep NEEDED
+            exit 1
+          fi
+          echo "stripped size: $(arm-linux-gnueabihf-strip -o /tmp/s notrix_device_smoke && stat -c %s /tmp/s) bytes"
+
+      - name: Run it on ARM
+        run: qemu-arm-static build/device-arm/firmware/notrix_device_smoke
+
   emulator:
     name: Browser emulator (WASM)
     runs-on: ubuntu-latest

@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Second ARMv7 cross-toolchain, for dynamically linked *executables*.
+#
+# The bookworm image next door is the main one and builds everything that
+# matters: notrix_core, and the eventual libnotrix.so that zkgui loads. Shared
+# libraries carry no startup files, so they only ask for GLIBC_2.4 and run
+# anywhere.
+#
+# Executables are the exception. Their crt files reference __libc_start_main,
+# which glibc re-versioned to GLIBC_2.34 in glibc 2.34 — so any executable built
+# on Debian 12 demands a glibc newer than the TC002's 2.30 and refuses to start.
+# Static linking dodges that, and does for the smoke test, but a static binary
+# cannot dlopen the vendor HAL, which is exactly what a probe needs to do.
+#
+# Bullseye ships glibc 2.31: after nothing we need, before the re-versioning.
+# Its executables ask for the old __libc_start_main@GLIBC_2.4 and load fine on a
+# 2.30 device — which tooling/probe/abi-check.py confirms per artifact rather
+# than leaving to this comment.
+#
+# Pinned by digest for the same reason as the other image: a tag can be
+# repointed, and a toolchain that changes without anyone choosing to change it
+# is how a device build stops matching what was tested.
+FROM docker.io/library/debian@sha256:70509c95d1857a3704c0a5d92ee2e0adac95f612a9386889d70760bfd7c1ebba AS toolchain
+
+# Just the compiler, not crossbuild-essential-armhf.
+#
+# That metapackage drags in dpkg-dev and therefore perl, and bullseye's perl has
+# had security updates since this image was built — so the pinned package index
+# names versions the archive no longer carries, and the build dies on a 404 for
+# something it never needed. Nothing here builds a Debian package, and the only
+# artifact this image produces is a single compiled source file.
+RUN apt-get update && apt-get install --no-install-recommends --yes \
+        g++-arm-linux-gnueabihf \
+        file \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN arm-linux-gnueabihf-gcc --version | head -1 && \
+    arm-linux-gnueabihf-gcc -print-file-name=libc.so.6
+
+WORKDIR /src

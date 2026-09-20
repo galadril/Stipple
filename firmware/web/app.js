@@ -490,6 +490,83 @@
         return Promise.resolve();
     }
 
+    // --- live view and on-screen controls -----------------------------------
+
+    // Polled rather than streamed. The device answers HTTP from its render loop
+    // one request at a time (see Tc002HttpServer), so a websocket would buy no
+    // concurrency and cost a second protocol. Five frames a second is plenty to
+    // watch a clock and leaves the panel's own budget alone.
+    var LIVE_INTERVAL_MS = 200;
+    var liveTimer = null;
+    var liveBusy = false;
+
+    function drawFrame(payload) {
+        var canvas = $('live');
+        if (!canvas || !payload || payload.format !== 'rgb888') { return; }
+
+        var binary = atob(payload.pixels);
+        var width = payload.width;
+        var height = payload.height;
+
+        var ctx = canvas.getContext('2d');
+        var image = ctx.createImageData(width, height);
+        for (var i = 0, p = 0; i < width * height; ++i) {
+            image.data[p++] = binary.charCodeAt(i * 3);
+            image.data[p++] = binary.charCodeAt(i * 3 + 1);
+            image.data[p++] = binary.charCodeAt(i * 3 + 2);
+            image.data[p++] = 255;
+        }
+        ctx.putImageData(image, 0, 0);
+    }
+
+    function tickLive() {
+        // Skipped while a request is still in flight, so a slow device cannot
+        // accumulate a backlog of frame requests it will never catch up on.
+        if (liveBusy || activePanel !== 'panel-display') { return; }
+        liveBusy = true;
+
+        send('GET', '/api/v1/display/frame')
+            .then(function (payload) {
+                drawFrame(payload);
+                $('live-status').textContent =
+                    'live — ' + payload.width + '×' + payload.height;
+            })
+            .catch(function () {
+                $('live-status').textContent = 'not available';
+            })
+            .then(function () { liveBusy = false; });
+    }
+
+    // A tap and a hold are different actions on this hardware, so the button
+    // has to measure how long it was held rather than just fire on click.
+    function wireControls() {
+        var pressedAt = 0;
+
+        Array.prototype.forEach.call(document.querySelectorAll('[data-control]'), function (button) {
+            var control = button.getAttribute('data-control');
+
+            button.addEventListener('pointerdown', function () { pressedAt = Date.now(); });
+
+            button.addEventListener('click', function () {
+                var held = pressedAt ? Date.now() - pressedAt : 0;
+                pressedAt = 0;
+
+                var body = { control: control };
+                if (control !== 'left' && control !== 'right') {
+                    body.holdMillis = held;
+                }
+
+                send('POST', '/api/v1/input', body)
+                    .then(function () {
+                        // Redraw immediately rather than waiting for the next
+                        // tick, so the button feels connected to the panel.
+                        tickLive();
+                    })
+                    .catch(fail);
+            });
+        });
+    }
+
     // --- liveness -----------------------------------------------------------
 
     function markConnection(online) {
@@ -516,6 +593,7 @@
         wireNotify();
         wireMqtt();
         wireReboot();
+        wireControls();
         showPanel('panel-display');
 
         Promise.all([loadSettings(), loadDevice()])
@@ -530,6 +608,7 @@
             });
 
         setInterval(poll, 4000);
+        liveTimer = setInterval(tickLive, LIVE_INTERVAL_MS);
     }
 
     if (document.readyState === 'loading') {

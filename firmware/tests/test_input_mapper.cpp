@@ -73,6 +73,37 @@ NOTRIX_TEST(InputMapper, TapAdjustsVolumeAndHoldAdjustsBrightness) {
                     actionCode(Action::BrightnessUp));
 }
 
+NOTRIX_TEST(InputMapper, TheThirdButtonDoesSomethingIfItExists) {
+    // Modelled because an unused enum value is invisible, whereas a real button
+    // bound to nothing reads as broken firmware. See ADR 0016's amendment.
+    InputMapper mapper;
+
+    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMiddle, 0, 50).action),
+                    actionCode(Action::AppNext));
+    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMiddle, 1000, 900).action),
+                    actionCode(Action::NotificationDismiss));
+}
+
+NOTRIX_TEST(InputMapper, EachControlTracksItsOwnPressIndependently) {
+    // Four controls now share a press-start array; an off-by-one in buttonIndex
+    // would let one button consume another's timestamp.
+    InputMapper mapper;
+    ActionEvent result;
+
+    const RawInput buttons[] = {RawInput::KeyMinus, RawInput::KeyPlus, RawInput::KeyMiddle,
+                                RawInput::RotaryPress};
+
+    // Press all of them, then release in the same order at staggered times.
+    for (std::size_t i = 0; i < 4; ++i) {
+        mapper.handle(InputEvent({buttons[i], ButtonPhase::Down, i * 10u}), result);
+    }
+    for (std::size_t i = 0; i < 4; ++i) {
+        // Each was held for a different span; none may be reported as long.
+        mapper.handle(InputEvent({buttons[i], ButtonPhase::Up, 40u + i * 10u}), result);
+        NOTRIX_CHECK_FALSE(result.longPress);
+    }
+}
+
 NOTRIX_TEST(InputMapper, MinusAndPlusNeverDisagreeAboutDirection) {
     // A layout where − raised something would be a genuine usability bug, and an
     // easy one to introduce while remapping.
@@ -86,8 +117,9 @@ NOTRIX_TEST(InputMapper, MinusAndPlusNeverDisagreeAboutDirection) {
 NOTRIX_TEST(InputMapper, EveryPhysicalControlIsReachable) {
     // A control the mapper does not recognise is a button that does nothing on a
     // finished device, which is the hardest kind of bug to notice from code.
-    const RawInput controls[] = {RawInput::KeyMinus, RawInput::KeyPlus, RawInput::RotaryPress,
-                                 RawInput::RotaryLeft, RawInput::RotaryRight};
+    const RawInput controls[] = {RawInput::KeyMinus,    RawInput::KeyPlus,
+                                 RawInput::KeyMiddle,    RawInput::RotaryPress,
+                                 RawInput::RotaryLeft,  RawInput::RotaryRight};
 
     for (RawInput control : controls) {
         InputMapper mapper;

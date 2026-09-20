@@ -252,21 +252,24 @@
 
     // --- controls -----------------------------------------------------------
 
-    // RawInput ordinals, mirroring firmware/include/notrix/platform/Input.h.
-    var INPUT_ROTARY_PRESS = 2;
-    var INPUT_ROTARY_RIGHT = 4;
+    // Resolved from the core rather than hard-coded: these ordinals shifted
+    // twice while the input model was being corrected, and a browser has no way
+    // to notice that its buttons have started sending the wrong events.
+    function inputSource(name) {
+        return core.ccall('notrix_input_source', 'number', ['string'], [name]);
+    }
 
     function wireControls() {
         // A short knob press toggles pause in the core's default input map, so
         // the on-screen control sends exactly that rather than reaching past the
         // mapper to the carousel.
         el.play.addEventListener('click', function () {
-            sendInput(INPUT_ROTARY_PRESS, PHASE_DOWN);
-            sendInput(INPUT_ROTARY_PRESS, PHASE_UP);
+            sendInput(inputSource('rotaryPress'), PHASE_DOWN);
+            sendInput(inputSource('rotaryPress'), PHASE_UP);
         });
 
         el.step.addEventListener('click', function () {
-            sendInput(INPUT_ROTARY_RIGHT, PHASE_TICK);
+            sendInput(inputSource('rotaryRight'), PHASE_TICK);
         });
 
         el.brightness.addEventListener('input', function () {

@@ -31,6 +31,40 @@
 <main>
 
 <section class="panel" id="panel-display">
+    <h2>Live view</h2>
+    <div class="field">
+        <!-- 52x16, drawn at integer scale so pixels stay square and crisp. The
+             device sends raw RGB; the scaling all happens here. -->
+        <canvas id="live" class="live" width="52" height="16"
+                aria-label="Live view of the panel"></canvas>
+        <p class="help" id="live-status">connecting&hellip;</p>
+    </div>
+
+    <h2>Controls</h2>
+    <div class="field">
+        <!-- These reach the firmware through the same mapper as the physical
+             controls, so a tap and a hold mean here exactly what they mean on
+             the case. -->
+        <div class="pad">
+            <button class="btn btn-hw" data-control="left" type="button"
+                    title="Previous app">&#8634;</button>
+            <button class="btn btn-hw" data-control="minus" type="button"
+                    title="Tap: volume down. Hold: dimmer.">&minus;</button>
+            <button class="btn btn-hw" data-control="press" type="button"
+                    title="Tap: pause. Hold: dismiss notification.">Knob</button>
+            <button class="btn btn-hw" data-control="middle" type="button"
+                    title="Tap: next app. Hold: dismiss notification.">M</button>
+            <button class="btn btn-hw" data-control="plus" type="button"
+                    title="Tap: volume up. Hold: brighter.">+</button>
+            <button class="btn btn-hw" data-control="right" type="button"
+                    title="Next app">&#8635;</button>
+        </div>
+        <p class="help">
+            Click for a tap; press and hold for a long press. The knob buttons
+            turn one detent per click.
+        </p>
+    </div>
+
     <h2>Display</h2>
     <div class="field">
         <label for="power">Panel</label>
@@ -63,9 +97,9 @@
         <select id="theme" data-setting="clock.theme">
             <option value="minimal">Minimal &mdash; HH:MM</option>
             <option value="seconds">Seconds &mdash; HH:MM:SS</option>
-            <option value="dateBelow">Date below</option>
+            <option value="date">Date below</option>
             <option value="weekday">Weekday below</option>
-            <option value="secondsBar">Seconds bar</option>
+            <option value="secondsbar">Seconds bar</option>
             <option value="calendar">Calendar</option>
         </select>
     </div>

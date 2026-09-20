@@ -29,7 +29,7 @@ Directories for `sdk/`, `installer/`, `integrations/` and `tooling/` do not exis
 
 ## What NOTRIX is
 
-Open-source replacement *user application* for the Ulanzi TC002 pixel clock (52×16 RGB matrix, 832 pixels). The device is a SigmaStar SSD21x / ARMv7 Cortex-A7 running a FlyThings / EasyUI runtime; the NOTRIX application loads as `libzkgui.so` inside that host. Stage 1 replaces the app experience only — **not** the bootloader, kernel or Linux platform services.
+Open-source replacement *user application* for the Ulanzi TC002 pixel clock (52×16 RGB matrix, 832 pixels). The device is a SigmaStar SSD21x / dual-core ARMv7 Cortex-A7 with 36 MB RAM and glibc 2.30, running a FlyThings / EasyUI runtime. **Confirmed on hardware:** `/bin/zkgui` (9.5 KB) is the EasyUI host and loads the application from `/res/lib/libzkgui.so` (7.14 MB) at runtime — so the NOTRIX application really does load as `libzkgui.so` inside that host, exactly as blueprint §7.1 says. The LED panel is reached through the vendor HAL (`ledc_set_led` / `ledc_set_group` in `libzkhw.so`), not by driving SPI directly. See `docs/research/tc002-platform-findings.md`. Stage 1 replaces the app experience only — **not** the bootloader, kernel or Linux platform services.
 
 It is not an ESP32 firmware, not a port of AWTRIX 3 or AWTRIX NG, and must not incorporate AWTRIX source. AWTRIX may be studied as a product/API/UX reference only; concepts (custom apps, notifications, rotation, indicators, MQTT) get reimplemented independently.
 
@@ -96,6 +96,7 @@ MQTT namespace is `notrix/{deviceId}/...`, off by default. Commands are translat
 .\dev.ps1 golden       # rewrite golden fixtures after an intentional change
 .\dev.ps1 emulator     # build the WASM emulator (needs EMSDK)
 .\dev.ps1 verify       # drive the built WASM module under node
+.\dev.ps1 device       # cross-build for ARMv7 and run it under emulation
 .\dev.ps1 serve        # build it and serve on http://localhost:8080/
 ```
 
@@ -103,7 +104,9 @@ Or directly: `cmake --preset host-debug`, `cmake --build --preset host-debug`, `
 
 CMake from a Visual Studio install is **not on PATH**; `dev.ps1` locates it via `vswhere`.
 
-The device verbs arrive in Phase 7. ADR 0008 fixes the set as `doctor`,
+`docs/bring-up.md` is the day-one runbook for a new device: probe read-only first, capture a restore image before anything else, never flash what has not run from `/tmp` on that exact unit. `tooling/probe/probe.py` refuses to start if a mutating command is ever added to it.
+
+The remaining device verbs arrive in Phase 7. ADR 0008 fixes the set as `doctor`,
 `deploy`, `capture`, `flash`, `restore`, `logs` — `capture` and `flash` are
 additions to blueprint §27.3, and `dev.ps1` wraps the CLI rather than
 reimplementing it.

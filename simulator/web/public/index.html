@@ -48,21 +48,22 @@
     </section>
 
     <section class="device-inputs">
-        <!-- data-source values are RawInput enum ordinals. Keep them in step
-             with firmware/include/notrix/platform/Input.h. -->
+        <!-- data-control names are resolved to RawInput ordinals by the core at
+             startup, so this markup cannot drift out of step with the enum. -->
         <div class="input-cluster">
             <span class="cluster-label">Buttons</span>
             <div class="cluster-row">
-                <button class="btn btn-hw" data-source="0" type="button" title="Tap: volume down. Hold: brightness down.">&minus;</button>
-                <button class="btn btn-hw" data-source="1" type="button" title="Tap: volume up. Hold: brightness up.">+</button>
+                <button class="btn btn-hw" data-control="minus" type="button" title="Tap: volume down. Hold: brightness down.">&minus;</button>
+                <button class="btn btn-hw" data-control="plus" type="button" title="Tap: volume up. Hold: brightness up.">+</button>
+                <button class="btn btn-hw" data-control="middle" type="button" title="Tap: next app. Hold: dismiss notification.">M</button>
             </div>
         </div>
         <div class="input-cluster">
             <span class="cluster-label">Knob</span>
             <div class="cluster-row">
-                <button class="btn btn-hw" data-source="3" data-tick="1" type="button" title="Previous app">&#8630;</button>
-                <button class="btn btn-hw" data-source="2" type="button" title="Tap: pause. Hold: dismiss notification.">Press</button>
-                <button class="btn btn-hw" data-source="4" data-tick="1" type="button" title="Next app">&#8631;</button>
+                <button class="btn btn-hw" data-control="rotaryLeft" data-tick="1" type="button" title="Previous app">&#8630;</button>
+                <button class="btn btn-hw" data-control="rotaryPress" type="button" title="Tap: pause. Hold: dismiss notification.">Press</button>
+                <button class="btn btn-hw" data-control="rotaryRight" data-tick="1" type="button" title="Next app">&#8631;</button>
             </div>
         </div>
         <div class="input-cluster">

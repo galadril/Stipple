@@ -111,6 +111,10 @@ enum class Resource : std::uint8_t {
     AssetItem,
     Settings,
     SystemReboot,
+    /// The frame currently on the panel, for the web UI's live view.
+    DisplayFrame,
+    /// A button press injected from somewhere that is not the hardware.
+    Input,
 };
 
 struct RouteMatch {

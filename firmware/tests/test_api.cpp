@@ -2,10 +2,13 @@
 #include "notrix/api/ApiServer.h"
 
 #include <string>
+#include <vector>
 
 #include "notrix/api/JsonWriter.h"
+#include "notrix/core/Base64.h"
 #include "notrix/app/Carousel.h"
 #include "notrix/config/Config.h"
+#include "notrix/graphics/Framebuffer.h"
 #include "notrix/json/Json.h"
 #include "notrix/notify/Notifications.h"
 #include "notrix/platform/simulator/SimulatorPlatform.h"
@@ -31,6 +34,15 @@ using notrix::platform::simulator::SimulatorPlatform;
 namespace {
 
 /// Owns a whole device's worth of state plus the server in front of it.
+/// Records what the input endpoint injected, so a test can assert the events
+/// that would have reached the mapper rather than their side effects.
+struct RecordingInput : notrix::platform::IInputSink {
+    std::vector<notrix::platform::InputEvent> events;
+    void inject(const notrix::platform::InputEvent& event) override {
+        events.push_back(event);
+    }
+};
+
 struct Fixture {
     SimulatorPlatform platform;
     AppRegistry apps;
@@ -38,6 +50,8 @@ struct Fixture {
     NotificationQueue notifications;
     Config config;
     ConfigStore configStore{platform.storage()};
+    notrix::Framebuffer framebuffer;
+    RecordingInput input;
     ApiServer server;
 
     explicit Fixture(ApiOptions options = ApiOptions{})
@@ -51,6 +65,8 @@ struct Fixture {
         context.config = &config;
         context.configStore = &configStore;
         context.platform = &platform;
+        context.frame = &framebuffer;
+        context.input = &input;
         return context;
     }
 
@@ -103,6 +119,8 @@ NOTRIX_TEST(Api, RoutesKnownPaths) {
     NOTRIX_CHECK(matchRoute("/api/v1/notifications").resource == Resource::NotificationCollection);
     NOTRIX_CHECK(matchRoute("/api/v1/notifications/x").resource == Resource::NotificationItem);
     NOTRIX_CHECK(matchRoute("/api/v1/settings").resource == Resource::Settings);
+    NOTRIX_CHECK(matchRoute("/api/v1/display/frame").resource == Resource::DisplayFrame);
+    NOTRIX_CHECK(matchRoute("/api/v1/input").resource == Resource::Input);
     NOTRIX_CHECK(matchRoute("/api/v1/system/reboot").resource == Resource::SystemReboot);
 }
 
@@ -789,4 +807,153 @@ NOTRIX_TEST(Api, EveryResponseBodyIsValidJson) {
         Parsed parsed(response.body);
         NOTRIX_CHECK(parsed.ok);
     }
+}
+
+// --- live view and injected input --------------------------------------------
+
+NOTRIX_TEST(Api, TheFrameEndpointReturnsTheWholePanel) {
+    Fixture fixture;
+    fixture.framebuffer.fill(notrix::colors::kBlack);
+    fixture.framebuffer.set(0, 0, notrix::rgb(255, 0, 0));
+    fixture.framebuffer.set(51, 15, notrix::rgb(0, 0, 255));
+
+    const Response response = fixture.call("GET", "/api/v1/display/frame");
+    NOTRIX_CHECK_EQ(response.status, 200);
+
+    // Base64 of 52*16*3 bytes, which must be the whole panel and not a crop.
+    const std::size_t expected =
+        notrix::base64::encodedSize(notrix::Framebuffer::kByteSize);
+    const std::size_t open = response.body.find("\"pixels\":\"");
+    NOTRIX_CHECK(open != std::string::npos);
+    const std::size_t start = open + 10;
+    const std::size_t close = response.body.find('"', start);
+    NOTRIX_CHECK_EQ(close - start, expected);
+
+    NOTRIX_CHECK(response.body.find("\"width\":52") != std::string::npos);
+    NOTRIX_CHECK(response.body.find("\"height\":16") != std::string::npos);
+    NOTRIX_CHECK(response.body.find("rgb888") != std::string::npos);
+}
+
+NOTRIX_TEST(Api, TheFrameEndpointIsReadOnly) {
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(fixture.call("POST", "/api/v1/display/frame").status, 405);
+}
+
+NOTRIX_TEST(Api, AButtonPressArrivesAsDownAndUp) {
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(
+        fixture.call("POST", "/api/v1/input", R"({"control":"middle"})", {}, 5000).status,
+        204);
+
+    NOTRIX_CHECK_EQ(fixture.input.events.size(), std::size_t{2});
+    NOTRIX_CHECK(fixture.input.events[0].source == notrix::platform::RawInput::KeyMiddle);
+    NOTRIX_CHECK(fixture.input.events[0].phase == notrix::platform::ButtonPhase::Down);
+    NOTRIX_CHECK(fixture.input.events[1].phase == notrix::platform::ButtonPhase::Up);
+}
+
+NOTRIX_TEST(Api, HoldMillisReachesTheMapperAsARealLongPress) {
+    // The whole point of the field: without it a browser could only ever tap,
+    // and half the default bindings are long presses.
+    Fixture fixture;
+    fixture.call("POST", "/api/v1/input", R"({"control":"plus","holdMillis":900})", {}, 1000);
+
+    NOTRIX_CHECK_EQ(fixture.input.events.size(), std::size_t{2});
+    NOTRIX_CHECK_EQ(fixture.input.events[1].timestampMillis -
+                        fixture.input.events[0].timestampMillis,
+                    std::uint64_t{900});
+}
+
+NOTRIX_TEST(Api, ADetentIsOneTickNotAPress) {
+    Fixture fixture;
+    fixture.call("POST", "/api/v1/input", R"({"control":"right"})", {}, 0);
+
+    NOTRIX_CHECK_EQ(fixture.input.events.size(), std::size_t{1});
+    NOTRIX_CHECK(fixture.input.events[0].source == notrix::platform::RawInput::RotaryRight);
+    NOTRIX_CHECK(fixture.input.events[0].phase == notrix::platform::ButtonPhase::Tick);
+}
+
+NOTRIX_TEST(Api, AnUnknownControlIsRefusedRatherThanGuessed) {
+    // A web button that silently pressed the wrong control would be worse than
+    // one that did nothing at all.
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(fixture.call("POST", "/api/v1/input", R"({"control":"wheel"})").status, 422);
+    NOTRIX_CHECK_EQ(fixture.call("POST", "/api/v1/input", R"({})").status, 400);
+    NOTRIX_CHECK(fixture.input.events.empty());
+}
+
+NOTRIX_TEST(Api, AnAbsurdHoldIsRefused) {
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(
+        fixture.call("POST", "/api/v1/input", R"({"control":"plus","holdMillis":99999})").status,
+        422);
+    NOTRIX_CHECK(fixture.input.events.empty());
+}
+
+// --- enabling and disabling apps ---------------------------------------------
+
+NOTRIX_TEST(Api, DisablingAnAppIsAPatchNotAReplace) {
+    // The config page has always sent PATCH here. The route only handled GET,
+    // DELETE and PUT, so every toggle in the UI answered 405 and the app stayed
+    // exactly as it was.
+    Fixture fixture;
+    fixture.addApp("weather");
+
+    const Response off =
+        fixture.call("PATCH", "/api/v1/apps/weather", R"({"enabled":false})");
+    NOTRIX_CHECK_EQ(off.status, 200);
+    NOTRIX_CHECK_FALSE(fixture.apps.find("weather")->enabled);
+
+    const Response on =
+        fixture.call("PATCH", "/api/v1/apps/weather", R"({"enabled":true})");
+    NOTRIX_CHECK_EQ(on.status, 200);
+    NOTRIX_CHECK(fixture.apps.find("weather")->enabled);
+}
+
+NOTRIX_TEST(Api, PatchingLeavesEverythingItDoesNotName) {
+    Fixture fixture;
+    fixture.addApp("weather", R"({"elements":[]})");
+    fixture.apps.find("weather")->name = "Weather";
+    fixture.apps.find("weather")->durationSeconds = 12;
+
+    fixture.call("PATCH", "/api/v1/apps/weather", R"({"enabled":false})");
+
+    const notrix::app::App* entry = fixture.apps.find("weather");
+    NOTRIX_CHECK_EQ(entry->name, std::string("Weather"));
+    NOTRIX_CHECK_EQ(entry->durationSeconds, 12);
+    NOTRIX_CHECK_FALSE(entry->sceneJson.empty());
+}
+
+NOTRIX_TEST(Api, PatchingSomethingAbsentIsNotFound) {
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(fixture.call("PATCH", "/api/v1/apps/ghost", R"({"enabled":false})").status,
+                    404);
+}
+
+NOTRIX_TEST(Api, ASceneCannotBePatchedIn) {
+    // Changing what an app *is* is a replace. Allowing it here would make PATCH
+    // a second, subtly different way to create apps.
+    Fixture fixture;
+    fixture.addApp("weather");
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/apps/weather", R"({"scene":{"elements":[]}})").status,
+        422);
+}
+
+NOTRIX_TEST(Api, ReplacingASystemAppKeepsItABuiltin) {
+    // A PUT that dropped `builtin` left an entry that existed, was enabled, and
+    // rendered nothing - the clock silently replaced by a blank card.
+    Fixture fixture;
+    notrix::app::App clock;
+    clock.id = "clock";
+    clock.name = "Clock";
+    clock.source = notrix::app::AppSource::System;
+    clock.builtin = notrix::app::Builtin::Clock;
+    fixture.apps.put(std::move(clock));
+
+    fixture.call("PUT", "/api/v1/apps/clock", R"({"enabled":false})");
+    NOTRIX_CHECK(fixture.apps.find("clock")->builtin == notrix::app::Builtin::Clock);
+
+    fixture.call("PATCH", "/api/v1/apps/clock", R"({"enabled":true})");
+    NOTRIX_CHECK(fixture.apps.find("clock")->builtin == notrix::app::Builtin::Clock);
+    NOTRIX_CHECK(fixture.apps.find("clock")->source == notrix::app::AppSource::System);
 }

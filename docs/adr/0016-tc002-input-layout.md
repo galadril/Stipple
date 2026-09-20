@@ -1,6 +1,6 @@
-# 0016 — TC002 input layout: a knob and two buttons
+# 0016 — TC002 input layout: a knob and three buttons
 
-- **Status:** Accepted, pending hardware confirmation
+- **Status:** Accepted. Amended 2026-09-18, **confirmed against hardware 2026-09-19**
 - **Date:** 2026-09-16
 
 ## Context
@@ -106,3 +106,137 @@ belongs with the Phase 6 settings UI, and this ADR does not decide it.
   settles
 - [0013](0013-platform-capability-model.md) — why a missing speaker reports
   absence rather than silently swallowing volume changes
+
+---
+
+## Amendment, 2026-09-18: the third button is back
+
+A second and independent source — a TC002 owner describing the stock firmware —
+lists "1 knob with press/rotate" **and** "3 separate buttons". The port's
+documentation this ADR was built on describes a knob and two buttons marked
+− and +.
+
+Both cannot be right about the count, and the most likely explanation is that
+neither is wrong about what it was describing: a README explaining what a
+firmware *does with* the controls is not an inventory of them, and a firmware
+that binds two of three buttons reads exactly like the one quoted above.
+
+### What changes
+
+`RawInput` regains a third button:
+
+```
+KeyMinus, KeyPlus, KeyExtra, RotaryPress, RotaryLeft, RotaryRight
+```
+
+`KeyExtra` is named for what is actually known about it, which is nothing beyond
+its existence. Calling it `KeyMiddle` or `KeyBack` would assert a position or a
+purpose that no source supports, and a wrong name outlives the uncertainty that
+produced it.
+
+> **Amended 2026-09-20 — confirmed on hardware, and renamed to `KeyMiddle`.**
+>
+> `firmware/tools/input_probe` read the raw evdev stream while each control was
+> pressed on a real TC002. All four keys `/proc/bus/input/devices` declares are
+> wired: − is `KEY_DOWN` (108), the third button is `KEY_LEFT` (105), + is
+> `KEY_RIGHT` (106), and the knob press is `KEY_UP` (103). The button is real,
+> it sits between − and +, so the uncertainty this paragraph was protecting is
+> gone and the honest name is now available. See
+> `docs/research/tc002-platform-findings.md`.
+>
+> The decision below — model three rather than two — was right, and for the
+> reason given: had we modelled two, a physical button on the case would have
+> done nothing.
+>
+> The rotary is settled too. `knob_key` reports `ABS_X` but is not an axis: the
+> value pair carries the direction — `{1, 8}` clockwise, `{11, 13}`
+> counter-clockwise — and the alternation within a pair only exists because
+> evdev drops unchanged `EV_ABS` values. `Tc002Input` converts each event into
+> one `RotaryLeft` or `RotaryRight` tick, which is exactly the detent stream
+> `InputMapper` was written against, so its acceleration logic needed no change.
+>
+> All six `RawInput` values now fire on real hardware.
+
+Its default binding is `AppNext` on a short press and `NotificationDismiss` on a
+long one — useful if the button is there, harmless if it is not.
+
+### Why this way round
+
+The asymmetry decides it:
+
+- Model three, hardware has two → one enum value never fires. Invisible.
+- Model two, hardware has three → a physical button on a shipped device does
+  nothing, and its owner reasonably concludes the firmware is broken.
+
+The first costs a few bytes of unreachable table. The second is the kind of
+defect that gets reported as "NOTRIX doesn't work on my clock".
+
+### What has not changed
+
+The naming argument in the original decision stands: controls are named for
+their labels, not their positions, and `KeyLeft` still invites bindings that
+make no sense on a button marked −. Navigation stays on the knob; − and + keep
+volume on a tap and brightness on a hold.
+
+`InputMapper.EveryPhysicalControlIsReachable` still asserts that every `RawInput`
+value produces some action, so a control added here without a binding fails the
+build rather than shipping dead.
+
+### How this actually gets settled
+
+Not by a third document. `docs/bring-up.md` has the probe read the device's input
+event codes directly, which reports what the hardware has rather than what
+someone wrote about it. Until then this ADR is the best available guess, and it
+is guessing in the direction that fails quietly.
+
+---
+
+## Confirmed on hardware, 2026-09-19
+
+A TC002 was probed and each control pressed in a known order while `getevent`
+watched. No more guessing.
+
+**Three buttons plus a knob that presses and turns.** The amendment was right
+and the original decision was wrong, which is the outcome the amendment's
+asymmetry argument was designed to make cheap.
+
+`soc:gpio_keys_1` (`/dev/input/event67`) carries four keys:
+
+| Control | Linux code |
+|---|---|
+| Button 1 | `KEY_DOWN` (108) |
+| Button 2 | `KEY_RIGHT` (106) |
+| Button 3 | `KEY_LEFT` (105) |
+| Knob press | `KEY_UP` (103) |
+
+Rotation is a **separate input device**, `knob_key` (`/dev/input/event68`),
+reporting `EV_ABS` on `ABS_X` as small discrete codes rather than a continuous
+position.
+
+### The naming decision paid off
+
+The vendor's codes are directional names used as arbitrary identifiers. Nothing
+about `KEY_LEFT` says the button is on the left, and nothing about `KEY_UP` says
+the knob press means "up" — it is simply the constant they had spare.
+
+Had `RawInput` kept positional names, the obvious thing would have been to wire
+`KEY_LEFT` to `AppPrevious` and call it done. That would have been reasoning
+from a vendor's arbitrary choice of enum value, and it would have felt correct
+while being unrelated to where anyone's fingers are.
+
+`KeyMinus` / `KeyPlus` / `KeyExtra` do not have that failure mode: they cannot
+be mapped to these codes without someone first checking which physical button
+does what. That check is still owed — which of the three buttons is marked − and
+which +, if either, needs a look at the case.
+
+### What is still open
+
+- **Which physical button is which.** Press order established the codes, not the
+  labels. `KeyMinus` and `KeyPlus` should be assigned by reading the case, not
+  by assuming the capture order matched left-to-right.
+- **What the knob's `ABS_X` values mean.** It declares an 8-bit 0-255 range,
+  but observed values do not step like a detent position: two captures gave
+  `11 8 1 8 1 ...` and `13 11 13 11 ...`. Position, quadrature state and
+  gesture code all remain possible. A slow single-direction capture settles it.
+  This is local to the device adapter — `InputMapper` consumes `RotaryLeft` and
+  `RotaryRight` and does not care how they were derived.
