@@ -595,6 +595,65 @@ Response ApiServer::handleAppItem(const Request& request,
         return noContent();
     }
 
+    // PATCH changes only what it names. PUT is a replace and needs the whole
+    // entry, which makes it the wrong verb for "turn this app off" - and it is
+    // what the config page sends for exactly that.
+    if (request.method == Method::Patch) {
+        if (existing == nullptr) {
+            return notFound("no such app");
+        }
+
+        Body patch(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+        if (!patch.valid()) {
+            return badRequest(std::string("invalid JSON: ") + patch.errorText());
+        }
+        const json::Value fields = patch.root();
+        if (!fields.isObject()) {
+            return badRequest("body must be a JSON object");
+        }
+
+        app::App updated = *existing;
+        if (const json::Value enabled = fields["enabled"]; enabled.isBoolean()) {
+            updated.enabled = enabled.toBool(updated.enabled);
+        }
+        if (const json::Value name = fields["name"]; name.isString()) {
+            updated.name = name.toString();
+        }
+        if (const json::Value duration = fields["durationSeconds"]; duration.isNumber()) {
+            const std::int64_t seconds = duration.toInt(updated.durationSeconds);
+            if (seconds < 0 || seconds > 3600) {
+                return unprocessable("'durationSeconds' is outside 0-3600");
+            }
+            updated.durationSeconds = static_cast<int>(seconds);
+        }
+
+        // A scene belongs to a replace, not a patch: changing what an app *is*
+        // is a different operation from changing whether it is shown.
+        if (fields["scene"].valid()) {
+            return unprocessable("'scene' cannot be patched; use PUT");
+        }
+
+        switch (context_.apps->put(std::move(updated))) {
+            case app::AppRegistry::PutResult::Added:
+            case app::AppRegistry::PutResult::Replaced:
+                break;
+            case app::AppRegistry::PutResult::Full:
+                return conflict("app registry is full");
+            case app::AppRegistry::PutResult::InvalidId:
+                return unprocessable("'id' is empty or too long");
+            case app::AppRegistry::PutResult::SceneTooLarge:
+                return payloadTooLarge("'scene' exceeds the per-app limit");
+        }
+
+        if (context_.carousel != nullptr) {
+            context_.carousel->tick(nowMillis);
+        }
+
+        JsonWriter writer;
+        writeApp(writer, *context_.apps->find(id), 0);
+        return ok(writer.take());
+    }
+
     if (request.method != Method::Put) {
         return methodNotAllowed();
     }
@@ -615,6 +674,10 @@ Response ApiServer::handleAppItem(const Request& request,
         root["durationSeconds"].toInt(existing != nullptr ? existing->durationSeconds : 0));
     entry.enabled = root["enabled"].toBool(existing == nullptr || existing->enabled);
     entry.source = existing != nullptr ? existing->source : app::AppSource::Remote;
+    // Carried over, or a PUT on "clock" would leave a system app whose builtin
+    // is None and whose scene is empty - an entry that exists, is enabled, and
+    // renders nothing.
+    entry.builtin = existing != nullptr ? existing->builtin : app::Builtin::None;
 
     const json::Value scene = root["scene"];
     if (scene.valid()) {

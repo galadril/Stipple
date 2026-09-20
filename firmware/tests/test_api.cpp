@@ -888,3 +888,72 @@ NOTRIX_TEST(Api, AnAbsurdHoldIsRefused) {
         422);
     NOTRIX_CHECK(fixture.input.events.empty());
 }
+
+// --- enabling and disabling apps ---------------------------------------------
+
+NOTRIX_TEST(Api, DisablingAnAppIsAPatchNotAReplace) {
+    // The config page has always sent PATCH here. The route only handled GET,
+    // DELETE and PUT, so every toggle in the UI answered 405 and the app stayed
+    // exactly as it was.
+    Fixture fixture;
+    fixture.addApp("weather");
+
+    const Response off =
+        fixture.call("PATCH", "/api/v1/apps/weather", R"({"enabled":false})");
+    NOTRIX_CHECK_EQ(off.status, 200);
+    NOTRIX_CHECK_FALSE(fixture.apps.find("weather")->enabled);
+
+    const Response on =
+        fixture.call("PATCH", "/api/v1/apps/weather", R"({"enabled":true})");
+    NOTRIX_CHECK_EQ(on.status, 200);
+    NOTRIX_CHECK(fixture.apps.find("weather")->enabled);
+}
+
+NOTRIX_TEST(Api, PatchingLeavesEverythingItDoesNotName) {
+    Fixture fixture;
+    fixture.addApp("weather", R"({"elements":[]})");
+    fixture.apps.find("weather")->name = "Weather";
+    fixture.apps.find("weather")->durationSeconds = 12;
+
+    fixture.call("PATCH", "/api/v1/apps/weather", R"({"enabled":false})");
+
+    const notrix::app::App* entry = fixture.apps.find("weather");
+    NOTRIX_CHECK_EQ(entry->name, std::string("Weather"));
+    NOTRIX_CHECK_EQ(entry->durationSeconds, 12);
+    NOTRIX_CHECK_FALSE(entry->sceneJson.empty());
+}
+
+NOTRIX_TEST(Api, PatchingSomethingAbsentIsNotFound) {
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(fixture.call("PATCH", "/api/v1/apps/ghost", R"({"enabled":false})").status,
+                    404);
+}
+
+NOTRIX_TEST(Api, ASceneCannotBePatchedIn) {
+    // Changing what an app *is* is a replace. Allowing it here would make PATCH
+    // a second, subtly different way to create apps.
+    Fixture fixture;
+    fixture.addApp("weather");
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/apps/weather", R"({"scene":{"elements":[]}})").status,
+        422);
+}
+
+NOTRIX_TEST(Api, ReplacingASystemAppKeepsItABuiltin) {
+    // A PUT that dropped `builtin` left an entry that existed, was enabled, and
+    // rendered nothing - the clock silently replaced by a blank card.
+    Fixture fixture;
+    notrix::app::App clock;
+    clock.id = "clock";
+    clock.name = "Clock";
+    clock.source = notrix::app::AppSource::System;
+    clock.builtin = notrix::app::Builtin::Clock;
+    fixture.apps.put(std::move(clock));
+
+    fixture.call("PUT", "/api/v1/apps/clock", R"({"enabled":false})");
+    NOTRIX_CHECK(fixture.apps.find("clock")->builtin == notrix::app::Builtin::Clock);
+
+    fixture.call("PATCH", "/api/v1/apps/clock", R"({"enabled":true})");
+    NOTRIX_CHECK(fixture.apps.find("clock")->builtin == notrix::app::Builtin::Clock);
+    NOTRIX_CHECK(fixture.apps.find("clock")->source == notrix::app::AppSource::System);
+}
