@@ -487,6 +487,54 @@ autorepeat noise and no dropped events. Unrecognised `ABS_X` values are dropped
 rather than guessed — a wrong direction moves the carousel the way the user did
 not turn, which is worse than a missed detent.
 
+### The MCU protocol, and where battery comes from
+
+There is no battery in sysfs. `/sys/class/power_supply` does not exist, nor
+`/sys/class/hwmon`, nor `/sys/bus/iio/devices` — all three checked on hardware.
+The MCU on `/dev/ttyS1` is the only source, exactly as the third-party port's
+documentation implied.
+
+Framing, decoded from the `zkgui` capture and then confirmed by asking the MCU
+ourselves with `firmware/tools/mcu_probe`:
+
+```
+ff 55 <cmd> <len> <payload[len]> <trailer[2]>          at 1500000 baud
+
+->  ff 55 11 00 01 65                                  ask the version
+<-  ff 55 11 07 56 31 2e 30 2e 31 37 02 e7             "V1.0.17" in ASCII
+<-  ff 55 03 03 5a 0c 4e 02 0e                         telemetry, pushed unprompted
+<-  ff 55 02 01 01 01 58                               a flag, always 01 so far
+```
+
+The version handshake is what makes the rest trustworthy: the MCU answered
+`V1.0.17`, which matches the version the stock firmware reports, so the port
+settings and the framing are both right rather than merely plausible.
+
+**Battery is payload byte 0 of command `0x03`.** The evidence:
+
+- It sat at `0x5b` (91) in one session and `0x5a` (90) hours later — a slow,
+  monotonic decrease.
+- It stays inside 0–100, which the other two bytes do not have to.
+- Nothing else on this device can report charge, and the MCU is documented as
+  the place it comes from.
+
+Byte 1 has been constant at `0x0c` (12). Byte 2 drifts between roughly 70 and 78
+within *seconds* — far too fast for temperature, and this hardware has no
+temperature sensor anyway. **Both are deliberately left undecoded.** Naming them
+would be inventing meaning, and a battery app is worth having without them.
+
+Implemented as `platform::tc002::Tc002Mcu`, which reads only. The MCU also
+drives the panel's power rails, and sending commands whose meaning is a guess is
+not worth a clock. Values outside 0–100 are discarded rather than clamped:
+clamping 200 to 100 would invent a full battery.
+
+Confirmed end to end — `GET /api/v1/device` on the running firmware returns
+`"battery":{"known":true,"percent":90}`.
+
+**The one check still owed:** watch the value fall while running on battery with
+the charger out. Everything above is consistent with a discharging battery, but
+a deliberate discharge is what would make it certain.
+
 ### Things that need design work
 
 - **The knob is an absolute axis, not detents.** `/proc/bus/input/devices` shows

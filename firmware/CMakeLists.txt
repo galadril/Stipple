@@ -32,11 +32,13 @@ add_library(notrix_core
     src/input/InputMapper.cpp
     src/json/Json.cpp
     src/scene/Scene.cpp
+    src/core/Base64.cpp
     src/core/Checksum.cpp
     src/core/Log.cpp
     src/core/Rgb.cpp
     src/render/FrameScheduler.cpp
     src/asset/IconStore.cpp
+    src/apps/BatteryApp.cpp
     src/apps/ClockApp.cpp
     src/apps/SplashScreen.cpp
     src/host/ApplicationHost.cpp
@@ -100,6 +102,7 @@ if(NOTRIX_DEVICE_BUILD)
         src/platform/tc002/Tc002Display.cpp
         src/platform/tc002/Tc002HttpServer.cpp
         src/platform/tc002/Tc002Input.cpp
+        src/platform/tc002/Tc002Mcu.cpp
         src/platform/tc002/Tc002Platform.cpp
     )
 
@@ -212,6 +215,13 @@ if(NOTRIX_DEVICE_BUILD)
     target_compile_options(notrix_input_probe PRIVATE
         -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
     target_link_options(notrix_input_probe PRIVATE -static)
+
+    # Reads the MCU link. The only source of battery state on this device -
+    # there is no power_supply class, no hwmon and no IIO.
+    add_executable(notrix_mcu_probe tools/mcu_probe/main.c)
+    target_compile_options(notrix_mcu_probe PRIVATE
+        -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
+    target_link_options(notrix_mcu_probe PRIVATE -static)
 endif()
 
 # Host-only frame previewer. Renders through the simulator adapter and writes

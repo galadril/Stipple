@@ -30,6 +30,7 @@ const char* appSourceName(AppSource source) noexcept;
 enum class Builtin : std::uint8_t {
     None,         ///< renders `sceneJson`
     Clock,
+    Battery,
     TestPattern,
 };
 

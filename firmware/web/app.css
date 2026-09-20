@@ -211,3 +211,32 @@ input[type="color"] {
 @media (prefers-reduced-motion: reduce) {
     .toast { transition: none; }
 }
+
+/* --- live view and on-screen controls ------------------------------------ */
+
+/* Integer-scaled so a 52x16 panel stays square-pixelled rather than smeared.
+   image-rendering matters here: the browser's default smoothing turns a pixel
+   clock into a blur, which is exactly what this view exists to avoid. */
+.live {
+    width: 100%;
+    max-width: 624px;          /* 52 * 12 */
+    height: auto;
+    aspect-ratio: 52 / 16;
+    image-rendering: pixelated;
+    background: #000;
+    border: 1px solid var(--line, #2a2f3a);
+    border-radius: 6px;
+    display: block;
+}
+
+.pad {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.btn-hw {
+    min-width: 56px;
+    font-variant-numeric: tabular-nums;
+    touch-action: manipulation;  /* no double-tap zoom eating a long press */
+}

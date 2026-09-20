@@ -46,6 +46,27 @@ public:
     virtual NetworkStatus status() const = 0;
 };
 
+struct BatteryStatus {
+    /// False means this device cannot report a battery at all, not that it is
+    /// empty. Callers must tell those apart — a clock showing 0% because
+    /// nothing answered is exactly the kind of confident lie ADR 0013 exists
+    /// to prevent.
+    bool known = false;
+    /// 0-100 when `known`.
+    int percent = 0;
+};
+
+/// Battery state.
+///
+/// Optional because most panels are mains-only. On the TC002 it comes from the
+/// MCU over a serial link and nowhere else: there is no /sys/class/power_supply,
+/// no hwmon and no IIO on this hardware.
+class IPowerSource {
+public:
+    virtual ~IPowerSource() = default;
+    virtual BatteryStatus battery() const = 0;
+};
+
 /// Deliberately its own interface rather than a method on IPlatformServices:
 /// rebooting is the single most destructive thing NOTRIX can do to a clock, and
 /// code that needs it should have to be handed it explicitly.
@@ -89,6 +110,9 @@ public:
     virtual IStorage& storage() = 0;
 
     virtual IAudioOutput* audio() { return nullptr; }
+
+    /// Battery, where there is one to report. Null on a mains-only panel.
+    virtual IPowerSource* power() { return nullptr; }
     virtual INetworkManager* network() { return nullptr; }
     virtual IRebooter* rebooter() { return nullptr; }
 

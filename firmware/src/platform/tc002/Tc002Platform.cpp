@@ -263,10 +263,15 @@ bool Tc002Platform::open() {
         display_.close();
         return false;
     }
+
+    // Optional: a clock with no battery reading is still a clock, so a failure
+    // here reports absence rather than refusing to start.
+    mcu_.open();
     return true;
 }
 
 void Tc002Platform::close() noexcept {
+    mcu_.close();
     input_.close();
     display_.close();
 }

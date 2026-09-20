@@ -33,7 +33,10 @@ class ConfigStore;
 
 namespace platform {
 class IPlatformServices;
+class IInputSink;
 }
+
+class Framebuffer;
 
 namespace api {
 
@@ -51,6 +54,19 @@ struct ApiContext {
     config::ConfigStore* configStore = nullptr;
     platform::IPlatformServices* platform = nullptr;
     log::RingLog* logger = nullptr;
+
+    /// The most recently rendered frame, for the live view.
+    ///
+    /// Read from here rather than from IFrameBufferDisplay, which is
+    /// deliberately write-only — a display is somewhere pixels go, and adding a
+    /// read-back would oblige every adapter to keep a copy it otherwise has no
+    /// use for. The host already owns exactly one framebuffer; this points at
+    /// it.
+    const Framebuffer* frame = nullptr;
+
+    /// Where an injected press goes. Null disables the input endpoint rather
+    /// than accepting presses that vanish.
+    platform::IInputSink* input = nullptr;
 };
 
 struct ApiOptions {
@@ -110,6 +126,9 @@ private:
 
     Response handleSettings(const Request& request);
     Response handleReboot(const Request& request);
+
+    Response handleDisplayFrame(const Request& request);
+    Response handleInput(const Request& request, std::uint64_t nowMillis);
 
     ApiContext context_;
     ApiOptions options_;

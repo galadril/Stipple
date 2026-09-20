@@ -141,6 +141,19 @@ int main(int argc, char** argv) {
     std::printf("  brightness  : %u/255%s\n",
                 static_cast<unsigned>(platform.display().brightness()),
                 overrideBrightness ? " (overridden)" : " (from config)");
+    // Reported at startup because the MCU answers within a second or two, and
+    // "no telemetry yet" versus "link not open" are different problems.
+    if (const auto* power = platform.power()) {
+        const auto battery = power->battery();
+        if (battery.known) {
+            std::printf("  battery     : %d%%  (mcu %s)\n", battery.percent,
+                        platform.mcu().version());
+        } else {
+            std::printf("  battery     : MCU open, no telemetry yet\n");
+        }
+    } else {
+        std::printf("  battery     : unavailable (MCU link not open)\n");
+    }
     std::printf("  clock face  : %s, utc%+d\n",
                 host.settings().clock.theme.c_str(),
                 host.settings().clock.utcOffsetSeconds / 3600);
@@ -177,6 +190,10 @@ int main(int argc, char** argv) {
         // Before tick(), so a request that arrives between frames is answered
         // this iteration rather than waiting for the next one.
         platform.http().poll(now);
+
+        // Telemetry arrives unprompted and is tiny; draining it here keeps the
+        // battery app's source on the same single thread as everything else.
+        platform.mcu().poll();
 
         const std::uint32_t renderedBefore = host.frameStats().rendered;
 

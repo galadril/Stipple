@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "notrix/apps/BatteryApp.h"
 #include "notrix/apps/ClockApp.h"
 
 #include <string>
@@ -398,4 +399,63 @@ NOTRIX_TEST(Clock, ThemesMatchGolden) {
 
         NOTRIX_CHECK_GOLDEN((std::string("clock-") + names[i]).c_str(), render(clock, style));
     }
+}
+
+// --- battery -----------------------------------------------------------------
+
+NOTRIX_TEST(Battery, AnUnknownChargeSaysSoRatherThanShowingZero) {
+    // The failure this guards against is a clock confidently reporting a flat
+    // battery because nothing answered, which is indistinguishable to the user
+    // from a real flat battery.
+    notrix::platform::BatteryStatus unknown;  // known == false
+    Framebuffer frame;
+    Canvas canvas(frame);
+    notrix::apps::renderBattery(canvas, unknown, notrix::apps::BatteryStyle{});
+
+    const Framebuffer empty;
+    NOTRIX_CHECK(frame != empty);  // it drew *something*
+
+    notrix::platform::BatteryStatus flat;
+    flat.known = true;
+    flat.percent = 0;
+    Framebuffer flatFrame;
+    Canvas flatCanvas(flatFrame);
+    notrix::apps::renderBattery(flatCanvas, flat, notrix::apps::BatteryStyle{});
+
+    // And the two must not look the same.
+    NOTRIX_CHECK(frame != flatFrame);
+}
+
+NOTRIX_TEST(Battery, ChargeChangesWhatIsDrawn) {
+    auto render = [](int percent) {
+        notrix::platform::BatteryStatus status;
+        status.known = true;
+        status.percent = percent;
+        Framebuffer frame;
+        Canvas canvas(frame);
+        notrix::apps::renderBattery(canvas, status, notrix::apps::BatteryStyle{});
+        return frame;
+    };
+
+    NOTRIX_CHECK(render(10) != render(90));
+    NOTRIX_CHECK(render(100) != render(50));
+
+    // Any charge at all lights something: a battery at 3% must not be
+    // pixel-identical to one at 0%.
+    NOTRIX_CHECK(render(3) != render(0));
+}
+
+NOTRIX_TEST(Battery, OutOfRangeChargeIsClampedNotWrapped) {
+    auto render = [](int percent) {
+        notrix::platform::BatteryStatus status;
+        status.known = true;
+        status.percent = percent;
+        Framebuffer frame;
+        Canvas canvas(frame);
+        notrix::apps::renderBattery(canvas, status, notrix::apps::BatteryStyle{});
+        return frame;
+    };
+
+    NOTRIX_CHECK(render(250) == render(100));
+    NOTRIX_CHECK(render(-20) == render(0));
 }

@@ -52,6 +52,25 @@ struct InputEvent {
     std::uint64_t timestampMillis = 0;
 };
 
+/// Somewhere raw input events can be delivered *to*.
+///
+/// The mirror of IInputDevice, and it exists because a press has more than one
+/// legitimate origin. The web UI's on-screen buttons must reach exactly the
+/// same code as the physical ones — the mapper, the long-press timing, the
+/// splash dismissal — or the two would drift and the browser would be testing
+/// something the device never does.
+///
+/// Deliberately not a method on IInputDevice: a device is a source, and giving
+/// it a way to fabricate events would let anything holding one lie about the
+/// hardware.
+class IInputSink {
+public:
+    virtual ~IInputSink() = default;
+
+    /// Handle an event as though it had come from the panel's own controls.
+    virtual void inject(const InputEvent& event) = 0;
+};
+
 /// Source of raw input events.
 ///
 /// Polled rather than callback-driven: the application loop decides when input

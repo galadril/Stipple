@@ -189,12 +189,17 @@ RouteMatch matchRoute(std::string_view path) {
         else if (head == "notifications") match.resource = Resource::NotificationCollection;
         else if (head == "assets") match.resource = Resource::AssetCollection;
         else if (head == "settings") match.resource = Resource::Settings;
+        else if (head == "input") match.resource = Resource::Input;
         return match;
     }
 
     if (parts.size() == 4) {
         if (head == "system" && parts[3] == "reboot") {
             match.resource = Resource::SystemReboot;
+            return match;
+        }
+        if (head == "display" && parts[3] == "frame") {
+            match.resource = Resource::DisplayFrame;
             return match;
         }
         if (head == "apps") {

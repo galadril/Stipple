@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// Reads the TC002's MCU link and prints the frames it pushes.
+//
+// The MCU is the only source of battery state on this device: there is no
+// /sys/class/power_supply, no hwmon and no IIO. zkgui opens /dev/ttyS1, sends
+// exactly one command (a version query) and then listens, so everything else
+// the MCU reports is unsolicited telemetry.
+//
+// Framing, decoded from a capture of zkgui:
+//
+//     ff 55 <cmd> <len> <payload[len]> <trailer...>
+//
+//     ff 55 11 00 01 65                  host -> MCU, "what version are you"
+//     ff 55 fe 00 02 52 ...              MCU -> host, ack
+//     ff 55 11 07 56 31 2e 30 2e 31 37   MCU -> host, "V1.0.17" in ASCII
+//     ff 55 03 03 5b 0c 49 02 0a         MCU -> host, three drifting bytes
+//     ff 55 02 01 01 01 58               MCU -> host, one flag
+//
+// This prints them so the 0x03 payload can be identified rather than assumed.
+// Run it with the vendor app stopped, or both will read the same port.
+
+#define _GNU_SOURCE
+
+#include <fcntl.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termios.h>
+#include <unistd.h>
+
+#define PORT "/dev/ttyS1"
+
+static void dump(const uint8_t* frame, int length) {
+    printf("cmd=%02x len=%02x  payload:", frame[2], frame[3]);
+    for (int i = 0; i < frame[3]; ++i) {
+        printf(" %02x", frame[4 + i]);
+    }
+    printf("   decimal:");
+    for (int i = 0; i < frame[3]; ++i) {
+        printf(" %3u", frame[4 + i]);
+    }
+    printf("   raw:");
+    for (int i = 0; i < length; ++i) {
+        printf(" %02x", frame[i]);
+    }
+    printf("\n");
+    fflush(stdout);
+}
+
+int main(int argc, char** argv) {
+    const int seconds = (argc > 1) ? atoi(argv[1]) : 20;
+
+    const int fd = open(PORT, O_RDWR | O_NOCTTY);
+    if (fd < 0) {
+        perror("open " PORT);
+        return 1;
+    }
+
+    struct termios tty;
+    if (tcgetattr(fd, &tty) != 0) {
+        perror("tcgetattr");
+        close(fd);
+        return 1;
+    }
+
+    cfmakeraw(&tty);
+    // 1.5 Mbaud, from the port's own configuration rather than a guess.
+    cfsetispeed(&tty, B1500000);
+    cfsetospeed(&tty, B1500000);
+    tty.c_cflag |= (CLOCAL | CREAD);
+    tty.c_cflag &= (unsigned)~CRTSCTS;
+    tty.c_cc[VMIN] = 0;
+    tty.c_cc[VTIME] = 10;  // 1s read timeout
+
+    if (tcsetattr(fd, TCSANOW, &tty) != 0) {
+        perror("tcsetattr");
+        close(fd);
+        return 1;
+    }
+
+    printf("listening on " PORT " for %ds\n\n", seconds);
+
+    // Ask the version, exactly as zkgui does. If the MCU answers, the link and
+    // the baud rate are both right, which makes everything after it meaningful.
+    const uint8_t version[] = {0xff, 0x55, 0x11, 0x00, 0x01, 0x65};
+    if (write(fd, version, sizeof(version)) != (ssize_t)sizeof(version)) {
+        printf("(version query could not be written)\n");
+    }
+
+    uint8_t buffer[512];
+    int held = 0;
+
+    for (int elapsed = 0; elapsed < seconds; ) {
+        uint8_t chunk[256];
+        const ssize_t got = read(fd, chunk, sizeof(chunk));
+        if (got <= 0) {
+            ++elapsed;  // VTIME made this a one second timeout
+            continue;
+        }
+
+        if (held + got > (int)sizeof(buffer)) {
+            held = 0;  // resync rather than grow
+        }
+        memcpy(buffer + held, chunk, (size_t)got);
+        held += (int)got;
+
+        // Walk the buffer for ff 55 headers and emit whole frames.
+        int at = 0;
+        while (at + 4 <= held) {
+            if (buffer[at] != 0xff || buffer[at + 1] != 0x55) {
+                ++at;
+                continue;
+            }
+            const int payload = buffer[at + 3];
+            const int total = 4 + payload + 2;  // header+cmd+len, payload, trailer
+            if (at + total > held) {
+                break;  // wait for the rest
+            }
+            dump(buffer + at, total);
+            at += total;
+        }
+
+        if (at > 0) {
+            memmove(buffer, buffer + at, (size_t)(held - at));
+            held -= at;
+        }
+    }
+
+    close(fd);
+    return 0;
+}

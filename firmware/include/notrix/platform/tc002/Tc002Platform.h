@@ -10,6 +10,7 @@
 #include "notrix/platform/tc002/Tc002Display.h"
 #include "notrix/platform/tc002/Tc002HttpServer.h"
 #include "notrix/platform/tc002/Tc002Input.h"
+#include "notrix/platform/tc002/Tc002Mcu.h"
 
 namespace notrix {
 namespace platform {
@@ -117,6 +118,10 @@ public:
 
     INetworkManager* network() override { return &network_; }
 
+    /// Non-null only once the MCU link is open. A device whose serial port
+    /// could not be configured reports no battery rather than zero percent.
+    IPowerSource* power() override { return mcu_.isOpen() ? &mcu_ : nullptr; }
+
     /// Non-null once start() has been called on it. Reported through the
     /// interface so core sees a transport appear exactly when one exists.
     IHttpServer* httpServer() override {
@@ -124,6 +129,9 @@ public:
     }
 
     Tc002Display& panel() noexcept { return display_; }
+
+    /// Concrete, because the MCU is polled from the loop like the transport.
+    Tc002Mcu& mcu() noexcept { return mcu_; }
 
     /// Concrete, because the transport is polled rather than threaded and
     /// IHttpServer has no poll() — see Tc002HttpServer for why.
@@ -135,6 +143,7 @@ private:
     Tc002Clock clock_;
     Tc002Storage storage_;
     Tc002Network network_;
+    Tc002Mcu mcu_;
     Tc002HttpServer http_;
 };
 

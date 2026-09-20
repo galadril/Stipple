@@ -973,3 +973,21 @@ NOTRIX_TEST(Host, CorruptStoredIconsDoNotStopStartup) {
     std::string leftover;
     NOTRIX_CHECK_FALSE(platform.storage().read(ApplicationHost::kIconStateKey, leftover));
 }
+
+// --- battery -----------------------------------------------------------------
+
+NOTRIX_TEST(Host, BatteryIsOnlyInstalledWhereOneCanBeReported) {
+    // A permanent "NO BATT" card in the rotation of a mains-only panel is the
+    // carousel's version of a switch that does nothing.
+    SimulatorPlatform mainsOnly;
+    ApplicationHost without(mainsOnly, quietConfig());
+    without.initialize();
+    NOTRIX_CHECK(without.apps().find("battery") == nullptr);
+
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform battered(capabilities);
+    ApplicationHost with(battered, quietConfig());
+    with.initialize();
+    NOTRIX_CHECK(with.apps().find("battery") != nullptr);
+}
