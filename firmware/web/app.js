@@ -584,65 +584,255 @@
         }
     }
 
-    // --- colour ---------------------------------------------------------------
-
-    // A swatch grid instead of <input type="color">.
+    // --- colour picker ------------------------------------------------------
     //
-    // The OS picker offers sixteen million colours to a device that shows them
-    // on 832 LEDs behind a diffuser, and it opens a modal that hides the live
-    // view - so you cannot see what you picked while picking it. These are
-    // colours chosen to be legible on this panel, and clicking one applies it
-    // immediately with the live view still on screen.
-    var SWATCHES = [
+    // A dialog rather than <input type="color">, for two reasons that matter on
+    // this product. The native picker is an OS modal that covers the page, so
+    // the live view - the only place you can actually see the colour land - is
+    // hidden while you choose. And it offers a precision the hardware does not
+    // have: 832 LEDs behind a diffuser, where neighbouring shades are the same
+    // colour.
+    //
+    // So: a saturation/value field, a hue slider, presets that are known to
+    // read well on the panel, and a hex box for when someone knows exactly what
+    // they want. It is a panel anchored to the swatch, not a full-screen modal,
+    // and it applies live so the panel updates as you drag.
+
+    var PRESETS = [
         '#FFFFFF', '#C9C9C9', '#8A8A8A',
         '#FF3B30', '#FF8000', '#FFD400',
         '#4FC96F', '#00C8A0', '#00BEFF',
         '#5C7FBF', '#9B5CFF', '#FF5CA8'
     ];
 
-    function buildSwatches(input) {
-        var host = el('div', 'swatches');
+    function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
 
-        SWATCHES.forEach(function (hex) {
-            var cell = el('button', 'swatch');
+    function hsvToRgb(h, s, v) {
+        var i = Math.floor(h * 6);
+        var f = h * 6 - i;
+        var p = v * (1 - s);
+        var q = v * (1 - f * s);
+        var t = v * (1 - (1 - f) * s);
+        var r, g, b;
+        switch (i % 6) {
+            case 0: r = v; g = t; b = p; break;
+            case 1: r = q; g = v; b = p; break;
+            case 2: r = p; g = v; b = t; break;
+            case 3: r = p; g = q; b = v; break;
+            case 4: r = t; g = p; b = v; break;
+            default: r = v; g = p; b = q; break;
+        }
+        return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+    }
+
+    function rgbToHsv(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        var max = Math.max(r, g, b);
+        var min = Math.min(r, g, b);
+        var d = max - min;
+        var h = 0;
+        if (d !== 0) {
+            if (max === r) { h = ((g - b) / d + (g < b ? 6 : 0)) / 6; }
+            else if (max === g) { h = ((b - r) / d + 2) / 6; }
+            else { h = ((r - g) / d + 4) / 6; }
+        }
+        return [h, max === 0 ? 0 : d / max, max];
+    }
+
+    function toHex(rgbArray) {
+        return '#' + rgbArray.map(function (c) {
+            var t = c.toString(16).toUpperCase();
+            return t.length < 2 ? '0' + t : t;
+        }).join('');
+    }
+
+    function parseHex(text) {
+        var m = /^#?([0-9a-fA-F]{6})$/.exec(String(text).trim());
+        if (!m) { return null; }
+        var n = parseInt(m[1], 16);
+        return [(n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF];
+    }
+
+    var openPicker = null;
+
+    function closePicker() {
+        if (openPicker) {
+            openPicker.root.remove();
+            openPicker = null;
+        }
+    }
+
+    document.addEventListener('pointerdown', function (event) {
+        if (openPicker && !openPicker.root.contains(event.target) &&
+            event.target !== openPicker.trigger) {
+            closePicker();
+        }
+    });
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') { closePicker(); }
+    });
+
+    function buildPicker(input, trigger) {
+        var rgbNow = parseHex(input.value) || [255, 255, 255];
+        var hsv = rgbToHsv(rgbNow[0], rgbNow[1], rgbNow[2]);
+        var hue = hsv[0], sat = hsv[1], val = hsv[2];
+
+        var root = el('div', 'picker');
+
+        var field = el('canvas', 'picker-field');
+        field.width = 180;
+        field.height = 120;
+        root.appendChild(field);
+
+        var hueInput = el('input', 'picker-hue');
+        hueInput.type = 'range';
+        hueInput.min = 0;
+        hueInput.max = 360;
+        root.appendChild(hueInput);
+
+        var row = el('div', 'picker-row');
+        var preview = el('span', 'picker-preview');
+        var hexInput = el('input', 'picker-hex');
+        hexInput.type = 'text';
+        hexInput.maxLength = 7;
+        hexInput.spellcheck = false;
+        row.appendChild(preview);
+        row.appendChild(hexInput);
+        root.appendChild(row);
+
+        var presets = el('div', 'picker-presets');
+        PRESETS.forEach(function (hex) {
+            var cell = el('button', 'picker-preset');
             cell.type = 'button';
             cell.style.background = hex;
             cell.title = hex;
-            cell.setAttribute('aria-label', hex);
             cell.addEventListener('click', function () {
-                input.value = hex;
-                markSelected(host, hex);
-                applySetting(input);
+                var parsed = parseHex(hex);
+                var next = rgbToHsv(parsed[0], parsed[1], parsed[2]);
+                hue = next[0]; sat = next[1]; val = next[2];
+                redraw(true);
             });
-            host.appendChild(cell);
+            presets.appendChild(cell);
+        });
+        root.appendChild(presets);
+
+        function paintField() {
+            var ctx = field.getContext('2d');
+            var base = hsvToRgb(hue, 1, 1);
+
+            ctx.fillStyle = 'rgb(' + base[0] + ',' + base[1] + ',' + base[2] + ')';
+            ctx.fillRect(0, 0, field.width, field.height);
+
+            var white = ctx.createLinearGradient(0, 0, field.width, 0);
+            white.addColorStop(0, 'rgba(255,255,255,1)');
+            white.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = white;
+            ctx.fillRect(0, 0, field.width, field.height);
+
+            var black = ctx.createLinearGradient(0, 0, 0, field.height);
+            black.addColorStop(0, 'rgba(0,0,0,0)');
+            black.addColorStop(1, 'rgba(0,0,0,1)');
+            ctx.fillStyle = black;
+            ctx.fillRect(0, 0, field.width, field.height);
+
+            // The marker is drawn twice, dark under light, so it stays visible
+            // against both ends of the field.
+            var mx = sat * field.width;
+            var my = (1 - val) * field.height;
+            ctx.beginPath();
+            ctx.arc(mx, my, 6, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(mx, my, 6, 0, Math.PI * 2);
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+        }
+
+        // `apply` is false while dragging the hex box, so typing does not fight
+        // the field being redrawn under the cursor.
+        function redraw(apply) {
+            var rgbArray = hsvToRgb(hue, sat, val);
+            var hex = toHex(rgbArray);
+
+            paintField();
+            hueInput.value = Math.round(hue * 360);
+            preview.style.background = hex;
+            if (apply !== 'hex') { hexInput.value = hex; }
+            if (trigger) { trigger.style.background = hex; }
+
+            if (apply) {
+                input.value = hex;
+                applySetting(input);
+            }
+        }
+
+        function pickFromEvent(event) {
+            var box = field.getBoundingClientRect();
+            sat = clamp01((event.clientX - box.left) / box.width);
+            val = 1 - clamp01((event.clientY - box.top) / box.height);
+            redraw(true);
+        }
+
+        field.addEventListener('pointerdown', function (event) {
+            field.setPointerCapture(event.pointerId);
+            pickFromEvent(event);
+        });
+        field.addEventListener('pointermove', function (event) {
+            if (event.buttons === 1) { pickFromEvent(event); }
         });
 
-        // The full picker stays available as an escape hatch, just not as the
-        // primary control.
-        var custom = el('button', 'swatch swatch-custom', '+');
-        custom.type = 'button';
-        custom.title = 'Any colour';
-        custom.addEventListener('click', function () { input.click(); });
-        host.appendChild(custom);
-
-        input.addEventListener('input', function () { markSelected(host, input.value); });
-        return host;
-    }
-
-    function markSelected(host, hex) {
-        var want = String(hex).toUpperCase();
-        Array.prototype.forEach.call(host.querySelectorAll('.swatch'), function (cell) {
-            var mine = (cell.title || '').toUpperCase();
-            cell.classList.toggle('on', mine === want);
+        hueInput.addEventListener('input', function () {
+            hue = Number(hueInput.value) / 360;
+            redraw(true);
         });
+
+        hexInput.addEventListener('input', function () {
+            var parsed = parseHex(hexInput.value);
+            if (!parsed) { return; }
+            var next = rgbToHsv(parsed[0], parsed[1], parsed[2]);
+            hue = next[0]; sat = next[1]; val = next[2];
+            redraw('hex');
+            input.value = toHex(parsed);
+            applySetting(input);
+        });
+
+        redraw(false);
+        return root;
     }
 
-    function wireSwatches() {
+    function wireColorPickers() {
         Array.prototype.forEach.call(
             document.querySelectorAll('input[type="color"][data-setting]'),
             function (input) {
                 input.classList.add('color-hidden');
-                input.parentNode.insertBefore(buildSwatches(input), input.nextSibling);
+
+                var trigger = el('button', 'color-trigger');
+                trigger.type = 'button';
+                trigger.style.background = input.value || '#FFFFFF';
+                trigger.title = 'Choose a colour';
+                trigger.setAttribute('aria-haspopup', 'dialog');
+
+                trigger.addEventListener('click', function (event) {
+                    event.stopPropagation();
+                    var wasMine = openPicker && openPicker.trigger === trigger;
+                    closePicker();
+                    if (wasMine) { return; }
+
+                    var root = buildPicker(input, trigger);
+                    trigger.parentNode.insertBefore(root, trigger.nextSibling);
+                    openPicker = { root: root, trigger: trigger };
+                });
+
+                // The stored value can change from elsewhere - a settings reload,
+                // or another client - so the swatch follows the input.
+                input.addEventListener('input', function () {
+                    trigger.style.background = input.value;
+                });
+
+                input.parentNode.insertBefore(trigger, input.nextSibling);
             });
     }
 
@@ -683,11 +873,10 @@
         if (rec) {
             rec.addEventListener('click', function () {
                 if (recording) {
-                    var count = recording.frames.length;
                     // Written as an APNG-free animated strip: every captured
                     // frame stacked vertically in one PNG. No encoder, no
                     // dependency, and it opens anywhere.
-                    saveStrip(recording.frames, count);
+                    saveRecording(recording.frames);
                     recording = null;
                     rec.textContent = 'Record';
                     rec.classList.remove('btn-live');
@@ -701,89 +890,211 @@
         }
     }
 
-    // Frames stacked into one tall PNG, at 1:1 rather than LED scale so the
-    // result is exact pixel data rather than a picture of a picture.
-    function saveStrip(frames, count) {
-        if (!count || !lastFrame) { return toast('nothing recorded', true); }
+    // --- GIF encoding -------------------------------------------------------
+    //
+    // Written out rather than pulled in. The device serves its own assets from
+    // flash with no internet behind it, so a CDN library is not an option, and
+    // the embedded asset table takes text only. GIF89a with LZW is about a
+    // hundred lines and has no dependencies, which is the right trade here.
 
-        var w = lastFrame.width;
-        var h = lastFrame.height;
-        var sheet = document.createElement('canvas');
-        sheet.width = w;
-        sheet.height = h * count;
+    function ByteStream() {
+        this.bytes = [];
+    }
+    ByteStream.prototype.byte = function (b) { this.bytes.push(b & 0xFF); };
+    ByteStream.prototype.short = function (v) {
+        this.bytes.push(v & 0xFF, (v >> 8) & 0xFF);
+    };
+    ByteStream.prototype.text = function (t) {
+        for (var i = 0; i < t.length; ++i) { this.bytes.push(t.charCodeAt(i) & 0xFF); }
+    };
 
-        var ctx = sheet.getContext('2d');
-        var image = ctx.createImageData(w, h * count);
+    // A palette built from what is actually on screen.
+    //
+    // This panel shows a handful of distinct colours at a time, so an exact
+    // palette almost always fits in 256 entries and the GIF is lossless. Only
+    // when it does not does this fall back to quantising, and then it says so
+    // rather than silently degrading.
+    function buildPalette(frames, pixelCount) {
+        var map = {};
+        var palette = [];
+        var exact = true;
+        var f, i;
 
-        for (var f = 0; f < count; ++f) {
+        for (f = 0; f < frames.length && exact; ++f) {
             var binary = frames[f];
-            for (var i = 0; i < w * h; ++i) {
-                var src = i * 3;
-                var dst = (f * w * h + i) * 4;
-                image.data[dst] = binary.charCodeAt(src);
-                image.data[dst + 1] = binary.charCodeAt(src + 1);
-                image.data[dst + 2] = binary.charCodeAt(src + 2);
-                image.data[dst + 3] = 255;
+            for (i = 0; i < pixelCount; ++i) {
+                var r = binary.charCodeAt(i * 3);
+                var g = binary.charCodeAt(i * 3 + 1);
+                var b = binary.charCodeAt(i * 3 + 2);
+                var key = (r << 16) | (g << 8) | b;
+                if (map[key] === undefined) {
+                    if (palette.length >= 256) { exact = false; break; }
+                    map[key] = palette.length;
+                    palette.push([r, g, b]);
+                }
             }
         }
-        ctx.putImageData(image, 0, 0);
 
-        sheet.toBlob(function (blob) {
-            var url = URL.createObjectURL(blob);
-            var link = el('a');
-            link.href = url;
-            link.download = 'notrix-' + stamp() + '-' + count + 'frames.png';
-            link.click();
-            setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-        });
+        if (exact) { return { exact: true, map: map, palette: palette }; }
+
+        // 3-3-2 bits. Coarse, but this is the fallback, not the normal path.
+        map = null;
+        palette = [];
+        for (var v = 0; v < 256; ++v) {
+            palette.push([
+                Math.round(((v >> 5) & 0x07) * 255 / 7),
+                Math.round(((v >> 2) & 0x07) * 255 / 7),
+                Math.round((v & 0x03) * 255 / 3)
+            ]);
+        }
+        return { exact: false, map: null, palette: palette };
     }
 
-    function tickLive() {
-        // Skipped while a request is still in flight, so a slow device cannot
-        // accumulate a backlog of frame requests it will never catch up on.
-        if (liveBusy || activePanel !== 'panel-display') { return; }
-        liveBusy = true;
-
-        send('GET', '/api/v1/display/frame')
-            .then(function (payload) {
-                drawFrame(payload);
-                $('live-status').textContent =
-                    'live — ' + payload.width + '×' + payload.height;
-            })
-            .catch(function () {
-                $('live-status').textContent = 'not available';
-            })
-            .then(function () { liveBusy = false; });
+    function paletteIndex(built, r, g, b) {
+        if (built.exact) { return built.map[(r << 16) | (g << 8) | b]; }
+        return ((r >> 5) << 5) | ((g >> 5) << 2) | (b >> 6);
     }
 
-    // A tap and a hold are different actions on this hardware, so the button
-    // has to measure how long it was held rather than just fire on click.
-    function wireControls() {
-        var pressedAt = 0;
+    // GIF-flavoured LZW: codes grow from minCodeSize+1 up to 12 bits, then the
+    // dictionary is cleared and it starts over.
+    function lzwEncode(indices, minCodeSize) {
+        var clearCode = 1 << minCodeSize;
+        var endCode = clearCode + 1;
+        var codeSize = minCodeSize + 1;
+        var next = endCode + 1;
+        var dict = {};
 
-        Array.prototype.forEach.call(document.querySelectorAll('[data-control]'), function (button) {
-            var control = button.getAttribute('data-control');
+        var out = [];
+        var bits = 0;
+        var bitCount = 0;
 
-            button.addEventListener('pointerdown', function () { pressedAt = Date.now(); });
+        function emit(code) {
+            // LSB-first, which is what GIF specifies and the usual place to get
+            // this wrong.
+            bits |= code << bitCount;
+            bitCount += codeSize;
+            while (bitCount >= 8) {
+                out.push(bits & 0xFF);
+                bits >>= 8;
+                bitCount -= 8;
+            }
+        }
 
-            button.addEventListener('click', function () {
-                var held = pressedAt ? Date.now() - pressedAt : 0;
-                pressedAt = 0;
+        emit(clearCode);
 
-                var body = { control: control };
-                if (control !== 'left' && control !== 'right') {
-                    body.holdMillis = held;
+        var prefix = indices[0];
+        for (var i = 1; i < indices.length; ++i) {
+            var k = indices[i];
+            var key = prefix + ',' + k;
+            if (dict[key] !== undefined) {
+                prefix = dict[key];
+                continue;
+            }
+
+            emit(prefix);
+            dict[key] = next++;
+
+            if (next > (1 << codeSize)) {
+                if (codeSize < 12) {
+                    ++codeSize;
+                } else {
+                    emit(clearCode);
+                    dict = {};
+                    next = endCode + 1;
+                    codeSize = minCodeSize + 1;
                 }
+            }
+            prefix = k;
+        }
 
-                send('POST', '/api/v1/input', body)
-                    .then(function () {
-                        // Redraw immediately rather than waiting for the next
-                        // tick, so the button feels connected to the panel.
-                        tickLive();
-                    })
-                    .catch(fail);
-            });
-        });
+        emit(prefix);
+        emit(endCode);
+        if (bitCount > 0) { out.push(bits & 0xFF); }
+        return out;
+    }
+
+    function encodeGif(frames, width, height, delayCentis) {
+        var pixelCount = width * height;
+        var built = buildPalette(frames, pixelCount);
+        var stream = new ByteStream();
+        var i;
+
+        stream.text('GIF89a');
+        stream.short(width);
+        stream.short(height);
+        stream.byte(0xF7);   // global table, 256 entries
+        stream.byte(0);      // background index
+        stream.byte(0);      // default aspect ratio
+
+        for (i = 0; i < 256; ++i) {
+            var entry = built.palette[i] || [0, 0, 0];
+            stream.byte(entry[0]);
+            stream.byte(entry[1]);
+            stream.byte(entry[2]);
+        }
+
+        // Netscape extension: loop forever. Without it most viewers play once,
+        // and a single pass of a clock recording is not much use.
+        stream.byte(0x21); stream.byte(0xFF); stream.byte(11);
+        stream.text('NETSCAPE2.0');
+        stream.byte(3); stream.byte(1); stream.short(0);
+        stream.byte(0);
+
+        for (var f = 0; f < frames.length; ++f) {
+            var binary = frames[f];
+
+            stream.byte(0x21); stream.byte(0xF9); stream.byte(4);
+            stream.byte(0);              // no disposal, no transparency
+            stream.short(delayCentis);
+            stream.byte(0);
+            stream.byte(0);
+
+            stream.byte(0x2C);
+            stream.short(0); stream.short(0);
+            stream.short(width); stream.short(height);
+            stream.byte(0);              // no local table, not interlaced
+
+            var indices = new Array(pixelCount);
+            for (i = 0; i < pixelCount; ++i) {
+                indices[i] = paletteIndex(built,
+                                          binary.charCodeAt(i * 3),
+                                          binary.charCodeAt(i * 3 + 1),
+                                          binary.charCodeAt(i * 3 + 2));
+            }
+
+            stream.byte(8);
+            var data = lzwEncode(indices, 8);
+
+            // Sub-blocks of at most 255 bytes, each preceded by its length.
+            for (var at = 0; at < data.length; at += 255) {
+                var chunk = data.slice(at, at + 255);
+                stream.byte(chunk.length);
+                for (var c = 0; c < chunk.length; ++c) { stream.byte(chunk[c]); }
+            }
+            stream.byte(0);
+        }
+
+        stream.byte(0x3B);   // trailer
+        return { bytes: new Uint8Array(stream.bytes), exact: built.exact };
+    }
+
+    function saveRecording(frames) {
+        if (!frames.length || !lastFrame) { return toast('nothing recorded', true); }
+
+        // Played back at the rate it was captured, so what you watch is what
+        // the panel did rather than an arbitrary speed.
+        var delay = Math.max(2, Math.round(LIVE_INTERVAL_MS / 10));
+        var result = encodeGif(frames, lastFrame.width, lastFrame.height, delay);
+
+        var blob = new Blob([result.bytes], { type: 'image/gif' });
+        var url = URL.createObjectURL(blob);
+        var link = el('a');
+        link.href = url;
+        link.download = 'notrix-' + stamp() + '.gif';
+        link.click();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+
+        toast(frames.length + ' frames' + (result.exact ? '' : ' (colours reduced)'));
     }
 
     // --- liveness -----------------------------------------------------------
@@ -814,7 +1125,7 @@
         wireReboot();
         wireControls();
         wireCapture();
-        wireSwatches();
+        wireColorPickers();
 
         ['twentyFourHour', 'theme'].forEach(function (id) {
             var input = $(id);
