@@ -598,6 +598,7 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
 
     if (splashActive_) {
         apps::renderSplash(canvas, "NOTRIX", splashDetail_, nowMillis - firstTickMillis_,
+                           config_.splashMillis,
                            config_.splash);
         return;
     }

@@ -98,6 +98,9 @@ void drawTwoDigits(Canvas& canvas, int x, int y, int value, Rgb color,
 }
 
 constexpr int kPairWidth = kDigitWidth * 2 + kGap;                 // 11
+/// Frame thickness for icons that contain content. DESIGN.md section 4: the
+/// interior is width - 2 * this, and the interior is what has to fit.
+constexpr int kFrameBorder = 1;
 constexpr int kSeparatorWidth = kGap + kColonWidth + kGap;         // 3
 constexpr int kTimeWidth = kPairWidth * 2 + kSeparatorWidth;       // 25
 constexpr int kTimeWithSecondsWidth = kPairWidth * 3 + kSeparatorWidth * 2;  // 39
@@ -142,14 +145,24 @@ void drawCentredText(Canvas& canvas, std::string_view text, int y, Rgb color) {
 }
 
 /// A calendar glyph: a filled header bar over an outlined body, with the day
-/// number inside. Eleven wide, which is exactly two digits plus their gap.
+/// number inside. Thirteen wide, so the 11-wide digit pair fits the interior.
 void drawCalendarIcon(Canvas& canvas, int x, int y, int day, const ClockStyle& style) {
-    constexpr int kIconWidth = kPairWidth;  // 11
+    // 13 x 14, and the 13 is the whole point (DESIGN.md section 4).
+    //
+    // This was kPairWidth (11) with a 1px border, leaving a 9-column interior
+    // for an 11-column digit pair - so the day overlapped both borders, on
+    // every face, for every date. Content inside a frame is measured against
+    // the interior, never against the frame.
+    constexpr int kIconWidth = kFrameBorder * 2 + kPairWidth;  // 13
     constexpr int kIconHeight = 14;
+    constexpr int kHeaderRows = 3;
 
-    canvas.fillRect(Rect{x, y, kIconWidth, 3}, style.accentColor);
+    // Header band first, then the outline over it, so the corners stay square.
+    canvas.fillRect(Rect{x, y, kIconWidth, kHeaderRows}, style.accentColor);
     canvas.rect(Rect{x, y, kIconWidth, kIconHeight}, style.accentColor);
-    drawTwoDigits(canvas, x, y + 5, day, style.color);
+
+    // Inset by the border, below the header band.
+    drawTwoDigits(canvas, x + kFrameBorder, y + kHeaderRows + 1, day, style.color);
 }
 
 }  // namespace
@@ -412,7 +425,7 @@ void renderClock(Canvas& canvas, const platform::ISystemClock& clock, const Cloc
 
         case ClockTheme::Calendar: {
             const CivilDate date = civilFromDays(time.days);
-            constexpr int kIconWidth = kPairWidth;
+            constexpr int kIconWidth = kFrameBorder * 2 + kPairWidth;  // 13
             constexpr int kSpacing = 3;
             const int total = kIconWidth + kSpacing + kTimeWidth;
             const int x = centreX(total);
