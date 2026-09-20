@@ -511,6 +511,7 @@ apps::ClockStyle ApplicationHost::clockStyle() const noexcept {
     style.dateSeparator = apps::dateSeparatorFromName(settings_.clock.dateSeparator);
     style.dateYear = apps::dateYearFromName(settings_.clock.dateYear);
     style.blinkPeriodMillis = settings_.clock.blinkPeriodMillis;
+    style.utcOffsetSeconds = settings_.clock.utcOffsetSeconds;
     return style;
 }
 

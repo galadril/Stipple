@@ -78,8 +78,13 @@ int main(int argc, char** argv) {
     // Optional cap, mostly so a development run cannot outlive the terminal
     // that started it. Zero or absent means run until signalled.
     const int seconds = (argc > 1) ? std::atoi(argv[1]) : 0;
+    // Absent means "leave the stored setting alone". An earlier version always
+    // applied a default here, which silently overrode whatever the user had
+    // chosen in the web UI - a development convenience quietly overwriting real
+    // configuration is the same class of mistake as a control that lies.
+    const bool overrideBrightness = argc > 2;
     const std::uint8_t brightness =
-        (argc > 2) ? static_cast<std::uint8_t>(std::atoi(argv[2])) : 96;
+        overrideBrightness ? static_cast<std::uint8_t>(std::atoi(argv[2])) : 0;
 
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
@@ -101,9 +106,10 @@ int main(int argc, char** argv) {
 
     // After initialize(), not before: the host pushes the stored setting to the
     // display during startup, so a brightness set earlier is silently replaced
-    // by whatever is in config. This is a development override of the stored
-    // value, and the hold-to-dim binding will move it from here.
-    platform.panel().setBrightness(brightness);
+    // by whatever is in config.
+    if (overrideBrightness) {
+        platform.panel().setBrightness(brightness);
+    }
 
     // Started here rather than in Tc002Platform::open(), because the transport
     // needs a handler and ApplicationHost is the handler — it cannot exist
@@ -132,7 +138,12 @@ int main(int argc, char** argv) {
         std::printf("  web         : %s\n",
                     serving ? "listening" : "unavailable (port 80 in use?)");
     }
-    std::printf("  brightness  : %u/255\n", static_cast<unsigned>(brightness));
+    std::printf("  brightness  : %u/255%s\n",
+                static_cast<unsigned>(platform.display().brightness()),
+                overrideBrightness ? " (overridden)" : " (from config)");
+    std::printf("  clock face  : %s, utc%+d\n",
+                host.settings().clock.theme.c_str(),
+                host.settings().clock.utcOffsetSeconds / 3600);
     std::printf("\nrunning%s\n\n",
                 (seconds > 0) ? " (time limited)" : " - Ctrl-C to stop");
 

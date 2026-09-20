@@ -24,8 +24,8 @@ struct LocalTime {
     int seconds = 0;
 };
 
-LocalTime localTimeOf(const platform::ISystemClock& clock) noexcept {
-    const std::int64_t local = clock.unixSeconds() + clock.utcOffsetSeconds();
+LocalTime localTimeOf(const platform::ISystemClock& clock, int utcOffsetSeconds) noexcept {
+    const std::int64_t local = clock.unixSeconds() + utcOffsetSeconds;
 
     // Floor division, not truncation: before 1970 a truncating divide would land
     // on the wrong day.
@@ -359,7 +359,7 @@ void renderClock(Canvas& canvas, const platform::ISystemClock& clock, const Cloc
         return;
     }
 
-    const LocalTime time = localTimeOf(clock);
+    const LocalTime time = localTimeOf(clock, style.utcOffsetSeconds);
     const bool colonLit = colonIsLit(clock, style);
 
     switch (style.theme) {
