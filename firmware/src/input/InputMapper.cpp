@@ -43,7 +43,7 @@ int InputMapper::buttonIndex(RawInput source) noexcept {
             return 0;
         case RawInput::KeyPlus:
             return 1;
-        case RawInput::KeyExtra:
+        case RawInput::KeyMiddle:
             return 2;
         case RawInput::RotaryPress:
             return 3;
@@ -60,7 +60,7 @@ const ButtonBinding& InputMapper::bindingFor(RawInput source) const noexcept {
             return config_.keyMinus;
         case RawInput::KeyPlus:
             return config_.keyPlus;
-        case RawInput::KeyExtra:
+        case RawInput::KeyMiddle:
             return config_.keyExtra;
         case RawInput::RotaryPress:
         default:

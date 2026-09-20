@@ -268,7 +268,7 @@ EMSCRIPTEN_KEEPALIVE int notrix_input_source(const char* name) {
     const std::string wanted = name != nullptr ? name : "";
     if (wanted == "minus") return static_cast<int>(notrix::platform::RawInput::KeyMinus);
     if (wanted == "plus") return static_cast<int>(notrix::platform::RawInput::KeyPlus);
-    if (wanted == "extra") return static_cast<int>(notrix::platform::RawInput::KeyExtra);
+    if (wanted == "middle") return static_cast<int>(notrix::platform::RawInput::KeyMiddle);
     if (wanted == "rotaryPress") return static_cast<int>(notrix::platform::RawInput::RotaryPress);
     if (wanted == "rotaryLeft") return static_cast<int>(notrix::platform::RawInput::RotaryLeft);
     if (wanted == "rotaryRight") return static_cast<int>(notrix::platform::RawInput::RotaryRight);

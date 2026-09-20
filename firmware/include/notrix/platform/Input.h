@@ -21,10 +21,15 @@ namespace platform {
 enum class RawInput {
     KeyMinus,
     KeyPlus,
-    /// A third button that one source reports and another does not. Named for
-    /// what is known about it - that it exists - rather than for a position or
-    /// purpose no evidence supports. See the 2026-09-18 amendment in ADR 0016.
-    KeyExtra,
+    /// The middle button, between - and +.
+    ///
+    /// It was called KeyExtra while one source reported a third button and
+    /// another did not. Settled on hardware 2026-09-20: pressing it emits
+    /// KEY_LEFT (105) on /dev/input/event67, alongside - as KEY_DOWN (108),
+    /// + as KEY_RIGHT (106) and the knob press as KEY_UP (103). The codes are
+    /// arbitrary arrow keys the device tree happened to pick; only the mapping
+    /// means anything.
+    KeyMiddle,
     RotaryPress,
     RotaryLeft,   ///< one detent counter-clockwise
     RotaryRight,  ///< one detent clockwise

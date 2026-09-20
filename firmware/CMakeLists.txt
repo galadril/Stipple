@@ -98,6 +98,7 @@ add_library(notrix::platform_simulator ALIAS notrix_platform_simulator)
 if(NOTRIX_DEVICE_BUILD)
     add_library(notrix_platform_tc002
         src/platform/tc002/Tc002Display.cpp
+        src/platform/tc002/Tc002Input.cpp
     )
 
     target_link_libraries(notrix_platform_tc002 PUBLIC notrix_core notrix_warnings)
@@ -185,6 +186,14 @@ if(NOTRIX_DEVICE_BUILD)
     target_compile_options(notrix_panel_test PRIVATE
         -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
     target_link_options(notrix_panel_test PRIVATE -static)
+
+    # Prints what the physical controls actually send. /proc says event67
+    # declares four keys; the device tree may well name more than the case has.
+    # Safe to run alongside zkgui - evdev delivers to every reader.
+    add_executable(notrix_input_probe tools/input_probe/main.c)
+    target_compile_options(notrix_input_probe PRIVATE
+        -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
+    target_link_options(notrix_input_probe PRIVATE -static)
 endif()
 
 # Host-only frame previewer. Renders through the simulator adapter and writes

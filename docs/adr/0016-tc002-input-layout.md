@@ -134,6 +134,29 @@ its existence. Calling it `KeyMiddle` or `KeyBack` would assert a position or a
 purpose that no source supports, and a wrong name outlives the uncertainty that
 produced it.
 
+> **Amended 2026-09-20 — confirmed on hardware, and renamed to `KeyMiddle`.**
+>
+> `firmware/tools/input_probe` read the raw evdev stream while each control was
+> pressed on a real TC002. All four keys `/proc/bus/input/devices` declares are
+> wired: − is `KEY_DOWN` (108), the third button is `KEY_LEFT` (105), + is
+> `KEY_RIGHT` (106), and the knob press is `KEY_UP` (103). The button is real,
+> it sits between − and +, so the uncertainty this paragraph was protecting is
+> gone and the honest name is now available. See
+> `docs/research/tc002-platform-findings.md`.
+>
+> The decision below — model three rather than two — was right, and for the
+> reason given: had we modelled two, a physical button on the case would have
+> done nothing.
+>
+> The rotary is settled too. `knob_key` reports `ABS_X` but is not an axis: the
+> value pair carries the direction — `{1, 8}` clockwise, `{11, 13}`
+> counter-clockwise — and the alternation within a pair only exists because
+> evdev drops unchanged `EV_ABS` values. `Tc002Input` converts each event into
+> one `RotaryLeft` or `RotaryRight` tick, which is exactly the detent stream
+> `InputMapper` was written against, so its acceleration logic needed no change.
+>
+> All six `RawInput` values now fire on real hardware.
+
 Its default binding is `AppNext` on a short press and `NotificationDismiss` on a
 long one — useful if the button is there, harmless if it is not.
 

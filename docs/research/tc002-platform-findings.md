@@ -423,6 +423,70 @@ second source".
 The same source gives the MCU link's baud rate as **1,500,000**, which the
 capture could not show.
 
+### The controls, read off the hardware
+
+Measured 2026-09-20 with `firmware/tools/input_probe`, by pressing each control
+and reading what arrived. Two evdev nodes, and `/proc/bus/input/devices`
+describes both accurately:
+
+```
+event67  soc:gpio_keys_1   EV=3 (EV_SYN|EV_KEY)  KEY bitmap 1680 -> 103,105,106,108
+event68  knob_key          EV=9 (EV_SYN|EV_ABS)  ABS=1 -> ABS_X
+```
+
+All four declared keys are wired, and the mapping is:
+
+| Control | Code | Linux name |
+|---|---|---|
+| − | 108 | `KEY_DOWN` |
+| middle | 105 | `KEY_LEFT` |
+| + | 106 | `KEY_RIGHT` |
+| knob press | 103 | `KEY_UP` |
+
+The names are meaningless — the device tree picked four arrow keys for four
+GPIOs — so nothing should ever read intent from them. Only the mapping matters.
+
+**The third button is real.** ADR 0016 named it `KeyExtra` because one source
+reported a middle button and another did not, and deliberately refused to guess
+at a purpose. It exists, it sits between − and +, and it is now `KeyMiddle`
+throughout. The enum shape ADR 0016 chose — two labelled buttons, a middle one,
+a rotary press and two detent directions — turned out to be exactly right.
+
+**The knob reports `ABS_X` but is not an axis. The direction is the value pair.**
+
+A slow single-direction capture settled it:
+
+```
+clockwise  (18 detents):   8 1 8 1 8 1 8 1 ...
+turnaround:                11 8 1 13
+counter-cw (20 detents):   13 11 13 11 13 11 ...
+```
+
+So `{1, 8}` is clockwise and `{11, 13}` is counter-clockwise. One detent, one
+event, and the value never ramps the way a real position would.
+
+**Why it alternates at all:** evdev suppresses an `EV_ABS` event whose value has
+not changed. With a single value per direction, a second detent the same way
+would emit nothing. The toggle exists to keep events flowing — it is a
+mechanism, not information, and an adapter that tried to read meaning from
+*which* of the two values arrived would be decoding noise.
+
+This is also why the first capture looked unreadable. It was a back-and-forth
+turn, and alternating values from a reversing knob cannot distinguish "direction
+code" from "wrapped position". The data was fine; the experiment was wrong.
+
+**The kernel generates it, not `zkgui`.** The capture above ran with `zkgui`
+confirmed stopped and events still arrived, so `knob_key` — virtual though it is
+(`/devices/virtual/input/input1`, vendor `dead`, product `beef`) — does not
+depend on the vendor application. The adapter reads `event68` and nothing else.
+
+Implemented in `platform::tc002::Tc002Input` and verified end to end on
+hardware: three buttons and the knob press produce clean `Down`/`Up` pairs,
+clockwise produces `RotaryRight`, counter-clockwise `RotaryLeft`, with no
+autorepeat noise and no dropped events. Unrecognised `ABS_X` values are dropped
+rather than guessed — a wrong direction moves the carousel the way the user did
+not turn, which is worse than a missed detent.
+
 ### Things that need design work
 
 - **The knob is an absolute axis, not detents.** `/proc/bus/input/devices` shows

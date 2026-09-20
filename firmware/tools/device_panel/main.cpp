@@ -28,6 +28,7 @@
 #include "notrix/graphics/Canvas.h"
 #include "notrix/graphics/Framebuffer.h"
 #include "notrix/platform/tc002/Tc002Display.h"
+#include "notrix/platform/tc002/Tc002Input.h"
 
 namespace {
 
@@ -51,6 +52,29 @@ notrix::platform::tc002::ChannelOrder parseOrder(const char* text) {
         return ChannelOrder::Bgr;
     }
     return ChannelOrder::Rgb;
+}
+
+const char* sourceName(notrix::platform::RawInput source) {
+    using notrix::platform::RawInput;
+    switch (source) {
+        case RawInput::KeyMinus: return "-";
+        case RawInput::KeyMiddle: return "middle";
+        case RawInput::KeyPlus: return "+";
+        case RawInput::RotaryPress: return "knob press";
+        case RawInput::RotaryLeft: return "knob left";
+        case RawInput::RotaryRight: return "knob right";
+    }
+    return "?";
+}
+
+const char* phaseName(notrix::platform::ButtonPhase phase) {
+    using notrix::platform::ButtonPhase;
+    switch (phase) {
+        case ButtonPhase::Down: return "down";
+        case ButtonPhase::Up: return "up";
+        case ButtonPhase::Tick: return "tick";
+    }
+    return "?";
 }
 
 void sleepMillis(int millis) {
@@ -96,12 +120,27 @@ int main(int argc, char** argv) {
                 (argc > 3) ? argv[3] : "rgb (assumed, unconfirmed)");
     std::printf("  pacing      : %d ms per frame, %d frames\n", intervalMillis,
                 frames);
-    std::printf("\nrendering - look at the panel\n");
+
+    // Input is optional here on purpose. The panel is the point of this tool,
+    // and a device whose evdev nodes moved should still render rather than
+    // refuse to start.
+    notrix::platform::tc002::Tc002Input input;
+    const bool haveInput = input.open();
+    std::printf("  input       : %s\n",
+                haveInput ? "event67 + event68" : "unavailable");
+    std::printf("\nrendering - look at the panel, and press the controls\n");
 
     notrix::Framebuffer framebuffer;
     notrix::Canvas canvas(framebuffer);
 
     for (int frame = 0; frame < frames; ++frame) {
+        notrix::platform::InputEvent event;
+        while (haveInput && input.poll(event)) {
+            std::printf("  input: %-11s %s\n", sourceName(event.source),
+                        phaseName(event.phase));
+            std::fflush(stdout);
+        }
+
         notrix::demo::drawTestPattern(canvas, frame);
 
         // Unconditionally, every tick. The driver chips hold an image only

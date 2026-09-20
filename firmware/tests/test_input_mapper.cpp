@@ -78,9 +78,9 @@ NOTRIX_TEST(InputMapper, TheThirdButtonDoesSomethingIfItExists) {
     // bound to nothing reads as broken firmware. See ADR 0016's amendment.
     InputMapper mapper;
 
-    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyExtra, 0, 50).action),
+    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMiddle, 0, 50).action),
                     actionCode(Action::AppNext));
-    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyExtra, 1000, 900).action),
+    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMiddle, 1000, 900).action),
                     actionCode(Action::NotificationDismiss));
 }
 
@@ -90,7 +90,7 @@ NOTRIX_TEST(InputMapper, EachControlTracksItsOwnPressIndependently) {
     InputMapper mapper;
     ActionEvent result;
 
-    const RawInput buttons[] = {RawInput::KeyMinus, RawInput::KeyPlus, RawInput::KeyExtra,
+    const RawInput buttons[] = {RawInput::KeyMinus, RawInput::KeyPlus, RawInput::KeyMiddle,
                                 RawInput::RotaryPress};
 
     // Press all of them, then release in the same order at staggered times.
@@ -118,7 +118,7 @@ NOTRIX_TEST(InputMapper, EveryPhysicalControlIsReachable) {
     // A control the mapper does not recognise is a button that does nothing on a
     // finished device, which is the hardest kind of bug to notice from code.
     const RawInput controls[] = {RawInput::KeyMinus,    RawInput::KeyPlus,
-                                 RawInput::KeyExtra,    RawInput::RotaryPress,
+                                 RawInput::KeyMiddle,    RawInput::RotaryPress,
                                  RawInput::RotaryLeft,  RawInput::RotaryRight};
 
     for (RawInput control : controls) {
