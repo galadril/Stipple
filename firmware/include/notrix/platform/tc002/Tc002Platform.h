@@ -8,6 +8,7 @@
 
 #include "notrix/platform/PlatformServices.h"
 #include "notrix/platform/tc002/Tc002Display.h"
+#include "notrix/platform/tc002/Tc002HttpServer.h"
 #include "notrix/platform/tc002/Tc002Input.h"
 
 namespace notrix {
@@ -98,8 +99,7 @@ public:
 ///               nothing here speaks that protocol yet.
 ///   rebooter  — deliberately absent until there is a reason to expose the most
 ///               destructive thing NOTRIX can do to a clock.
-///   http      — Phase 7, next.
-///   mqtt      — Phase 7, after that.
+///   mqtt      — Phase 7, after the HTTP transport has carried some real use.
 class Tc002Platform final : public IPlatformServices {
 public:
     /// Brings up display, input, storage and clock. Returns false if the
@@ -117,7 +117,17 @@ public:
 
     INetworkManager* network() override { return &network_; }
 
+    /// Non-null once start() has been called on it. Reported through the
+    /// interface so core sees a transport appear exactly when one exists.
+    IHttpServer* httpServer() override {
+        return http_.running() ? &http_ : nullptr;
+    }
+
     Tc002Display& panel() noexcept { return display_; }
+
+    /// Concrete, because the transport is polled rather than threaded and
+    /// IHttpServer has no poll() — see Tc002HttpServer for why.
+    Tc002HttpServer& http() noexcept { return http_; }
 
 private:
     Tc002Display display_;
@@ -125,6 +135,7 @@ private:
     Tc002Clock clock_;
     Tc002Storage storage_;
     Tc002Network network_;
+    Tc002HttpServer http_;
 };
 
 }  // namespace tc002

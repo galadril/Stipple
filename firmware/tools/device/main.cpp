@@ -105,6 +105,15 @@ int main(int argc, char** argv) {
     // value, and the hold-to-dim binding will move it from here.
     platform.panel().setBrightness(brightness);
 
+    // Started here rather than in Tc002Platform::open(), because the transport
+    // needs a handler and ApplicationHost is the handler — it cannot exist
+    // before the platform it is constructed from.
+    //
+    // Port 80 is what a user typing the device's IP into a browser expects, and
+    // the process runs as root on this device so binding it is not a problem.
+    constexpr int kHttpPort = 80;
+    const bool serving = platform.http().start(kHttpPort, host);
+
     const auto status = platform.network()->status();
     std::printf("NOTRIX on %s\n", platform.name());
     std::printf("  boot mode   : %s\n",
@@ -117,6 +126,12 @@ int main(int argc, char** argv) {
                 status.hostname.c_str());
     std::printf("  wall clock  : %s\n",
                 platform.clock().wallClockValid() ? "set" : "unset (no RTC)");
+    if (serving && status.connected) {
+        std::printf("  web         : http://%s/\n", status.ipv4.c_str());
+    } else {
+        std::printf("  web         : %s\n",
+                    serving ? "listening" : "unavailable (port 80 in use?)");
+    }
     std::printf("  brightness  : %u/255\n", static_cast<unsigned>(brightness));
     std::printf("\nrunning%s\n\n",
                 (seconds > 0) ? " (time limited)" : " - Ctrl-C to stop");
@@ -147,6 +162,10 @@ int main(int argc, char** argv) {
             std::fflush(stdout);
             host.handleInput(event);
         }
+
+        // Before tick(), so a request that arrives between frames is answered
+        // this iteration rather than waiting for the next one.
+        platform.http().poll(now);
 
         const std::uint32_t renderedBefore = host.frameStats().rendered;
 
@@ -204,5 +223,7 @@ int main(int argc, char** argv) {
                 stats.rendered, stats.skipped, stats.overruns);
     std::printf("  worst frame : %u ms\n", stats.worstRenderMillis);
     std::printf("  input drops : %u\n", platform.input().droppedEventCount());
+    std::printf("  http        : %u served, %u rejected\n",
+                platform.http().servedCount(), platform.http().rejectedCount());
     return 0;
 }

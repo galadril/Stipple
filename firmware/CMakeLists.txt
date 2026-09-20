@@ -98,6 +98,7 @@ add_library(notrix::platform_simulator ALIAS notrix_platform_simulator)
 if(NOTRIX_DEVICE_BUILD)
     add_library(notrix_platform_tc002
         src/platform/tc002/Tc002Display.cpp
+        src/platform/tc002/Tc002HttpServer.cpp
         src/platform/tc002/Tc002Input.cpp
         src/platform/tc002/Tc002Platform.cpp
     )
