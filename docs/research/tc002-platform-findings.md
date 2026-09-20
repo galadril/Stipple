@@ -377,6 +377,52 @@ GRB or BGR. Determining it needs either a capture while the panel shows
 something coloured, or one test frame of our own with the channels deliberately
 unequal.
 
+### GPIO 35 is the latch, and without it every frame is invisible
+
+**NOTRIX rendered on real hardware on 2026-09-20.** `demo::drawTestPattern`,
+through `Canvas` and the real `Framebuffer`, on the panel. The missing piece was
+not the frame format — that was already right — but a line nobody had looked at.
+
+Writing 3072 bytes to `/dev/spidev0.0` only loads the driver chips' shift
+registers. **GPIO 35 latches them onto the panel: low before the write, high
+after.** Without the strobe every `write()` succeeds, returns 3072, and lights
+nothing.
+
+That single fact explains every confusing observation from the bring-up:
+
+- A well-formed frame lit nothing once `zkgui` was stopped — no strobe.
+- Frames *did* flicker through while `zkgui` was running — it was strobing the
+  latch on its own schedule, and our data was whatever sat in the registers when
+  it did. What looked like two writers fighting was one writer latching another's
+  data.
+- Suspending `zkgui` with `SIGSTOP` did not help. Its file descriptors stayed
+  open and the hardware stayed initialised, but a stopped process strobes
+  nothing. This was the experiment that ruled out "enable is held state" and, in
+  hindsight, pointed straight at an action rather than a resource.
+
+`/sys/class/gpio/gpio35` exists, exports cleanly and accepts `direction=out`.
+Other lines are already exported by the platform: gpio2, gpio6, gpio24, gpio61.
+
+**Why the capture never found it.** The `LD_PRELOAD` shim watched `open`,
+`write`, `ioctl`, `read` and `close`, and its filter was widened to everything
+under `/dev` and `/sys`. It still saw nothing, because `zkgui` does not reach the
+GPIO through sysfs — it goes through `/dev/oflash`, a vendor driver carrying
+ioctls with magic `'o'` (nr 3, 8, 9 seen). No amount of watching `/sys/class/gpio`
+would have shown it. That is the lesson worth keeping: *absence in a capture is
+evidence about the capture, not about the device.*
+
+**Provenance.** The fact came from reading the third-party TC002 port's hardware
+source after the clean-room capture had stalled — a deliberate, recorded decision
+rather than a drift. What was taken is a hardware fact ("GPIO 35, low before the
+write, high after"), which is not copyrightable; `Tc002Display` is our own
+implementation and no code was copied. Their project is **PolyForm
+Noncommercial 1.0.0**, which is incompatible with GPL-3.0-or-later, so their code
+cannot be linked or vendored here regardless — see the licence note under "A
+second source".
+
+The same source gives the MCU link's baud rate as **1,500,000**, which the
+capture could not show.
+
 ### Things that need design work
 
 - **The knob is an absolute axis, not detents.** `/proc/bus/input/devices` shows

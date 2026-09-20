@@ -37,16 +37,17 @@
 // frames and recorded nothing but the dark left edge of the panel - the lit
 // pixels are further in. Full frames are what make the layout readable, and
 // eight of them at ~9 KB of hex each is still nothing against 16 MB of tmpfs.
-#define MAX_RECORDS 8
+#define MAX_RECORDS 600
 
 // A frame turned out to be exactly 3072 bytes: 1024 pixels of RGB. Capturing
 // all of it means the pixel layout can be recovered by comparing frames.
-#define MAX_BYTES 3072
+#define MAX_BYTES 512
 
 static int (*real_open)(const char*, int, ...);
 static int (*real_open64)(const char*, int, ...);
 static ssize_t (*real_write)(int, const void*, size_t);
 static int (*real_ioctl)(int, unsigned long, ...);
+static ssize_t (*real_read)(int, void*, size_t);
 static int (*real_close)(int);
 
 // Descriptors currently open on a spidev node. Small fixed array rather than a
@@ -69,6 +70,7 @@ static void resolve(void) {
     real_open64 = dlsym(RTLD_NEXT, "open64");
     real_write = dlsym(RTLD_NEXT, "write");
     real_ioctl = dlsym(RTLD_NEXT, "ioctl");
+    real_read = dlsym(RTLD_NEXT, "read");
     real_close = dlsym(RTLD_NEXT, "close");
 }
 
@@ -95,6 +97,34 @@ static void note(const char* format, ...) {
     if (length > 0) {
         emit(line, (size_t)length);
     }
+}
+
+/// Everything under /dev and /sys, deliberately.
+///
+/// The narrow version of this filter - spidev, ttyS, /sys, gpio, pwm - cost a
+/// whole round of experiments. It proved that zkgui sends the panel nothing we
+/// do not, which looked like a finding and was actually a blind spot: ioctls on
+/// /dev/mi_sys, /dev/mi_gfx, /dev/fb0 and /dev/oflash were never logged at all,
+/// because those paths did not match.
+///
+/// The panel lights only while zkgui is alive, and a well-formed frame from us
+/// lights nothing once it stops, so the enable is real and is on one of the
+/// descriptors the old filter ignored. The SigmaStar MI layer is the obvious
+/// candidate. Watching everything costs log volume, which is cheap; watching
+/// too little costs a day, which is not.
+static int interesting(const char* path) {
+    return strncmp(path, "/dev/", 5) == 0 || strncmp(path, "/sys/", 5) == 0;
+}
+
+/// Every path opened, whether tracked or not.
+///
+/// A well-formed frame written to spidev lit nothing once zkgui was stopped,
+/// and the MCU link carries no enable command - so whatever turns the panel on
+/// is somewhere neither of those covers. Logging every open is the cheap way to
+/// find it, since the answer is more likely a sysfs file than a clever
+/// protocol.
+static void note_open(const char* path) {
+    note("open %s\n", path);
 }
 
 static int is_tracked(int fd) {
@@ -163,9 +193,12 @@ int open(const char* path, int flags, ...) {
     }
 
     const int fd = real_open(path, flags, mode);
-    if (fd >= 0 && !inside && strstr(path, "spidev") != NULL) {
+    if (fd >= 0 && !inside) {
         inside = 1;
-        track(fd, path);
+        note_open(path);
+        if (interesting(path)) {
+            track(fd, path);
+        }
         inside = 0;
     }
     return fd;
@@ -184,9 +217,12 @@ int open64(const char* path, int flags, ...) {
 
     const int fd = real_open64 != NULL ? real_open64(path, flags, mode)
                                        : real_open(path, flags, mode);
-    if (fd >= 0 && !inside && strstr(path, "spidev") != NULL) {
+    if (fd >= 0 && !inside) {
         inside = 1;
-        track(fd, path);
+        note_open(path);
+        if (interesting(path)) {
+            track(fd, path);
+        }
         inside = 0;
     }
     return fd;
@@ -224,6 +260,17 @@ int ioctl(int fd, unsigned long request, ...) {
     }
 
     return real_ioctl(fd, request, argument);
+}
+
+ssize_t read(int fd, void* buffer, size_t count) {
+    resolve();
+    const ssize_t got = real_read(fd, buffer, count);
+    if (!inside && got > 0 && is_tracked(fd)) {
+        inside = 1;
+        dump("READ", fd, (const unsigned char*)buffer, (size_t)got);
+        inside = 0;
+    }
+    return got;
 }
 
 int close(int fd) {

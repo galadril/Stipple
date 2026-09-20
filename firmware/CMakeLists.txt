@@ -88,6 +88,23 @@ target_link_libraries(notrix_platform_simulator PUBLIC notrix_core)
 
 add_library(notrix::platform_simulator ALIAS notrix_platform_simulator)
 
+# The TC002 adapter — the device half of the §53 boundary, and the sibling the
+# comment above promised.
+#
+# Device-only because it is POSIX: it opens /dev/spidev0.0 and issues ioctls,
+# which neither the host test runner nor a browser can do. notrix_core must
+# never depend on it, and keeping them separate targets is what makes that
+# violation a link error rather than a review comment.
+if(NOTRIX_DEVICE_BUILD)
+    add_library(notrix_platform_tc002
+        src/platform/tc002/Tc002Display.cpp
+    )
+
+    target_link_libraries(notrix_platform_tc002 PUBLIC notrix_core notrix_warnings)
+
+    add_library(notrix::platform_tc002 ALIAS notrix_platform_tc002)
+endif()
+
 # Smoke test for the target architecture. Small enough to push over ADB, and it
 # answers the questions that must be settled before anything is flashed: does the
 # core run on this CPU at all, and what does the binary actually depend on.
@@ -126,6 +143,48 @@ endif()
 if(NOTRIX_DEVICE_BUILD)
     add_executable(notrix_hal_probe tools/hal_probe/main.cpp)
     target_link_libraries(notrix_hal_probe PRIVATE ${CMAKE_DL_LIBS} notrix_warnings)
+endif()
+
+# The last unknown in the display protocol: channel order.
+#
+# The spidev capture settled the device node, the SPI mode, the 3072-byte frame
+# and the 64-column stride, but every lit pixel in it was white - and white is
+# identical under RGB, GRB and BGR. This writes three bands with deliberately
+# unequal channels so a person can look at the panel and say which is which.
+# It is the one question no amount of further capture can answer.
+#
+# Plain C, and the only C in the tree, so the language is enabled here rather
+# than in the top-level project() - a host build has no reason to gain a C
+# compiler requirement for a file it never compiles.
+#
+# Static for the same reason as the smoke test, and it costs nothing here: this
+# talks to spidev through ioctl and write, and dlopens nothing.
+#
+# notrix_warnings is deliberately NOT linked. It carries -Wold-style-cast and
+# friends, which GCC reports as "valid for C++ but not for C" - a warning that
+# the device preset's warnings-as-errors would turn into a build failure.
+# NOTRIX core rendering on the real panel.
+#
+# The first thing that puts *our* renderer on the device rather than bytes
+# written by hand against the wire: Framebuffer, Canvas and demo::drawTestPattern
+# are the same code the emulator and the golden tests run, with only the display
+# adapter swapped. Static for the same reason as the smoke test.
+if(NOTRIX_DEVICE_BUILD)
+    add_executable(notrix_device_panel tools/device_panel/main.cpp)
+    target_link_libraries(notrix_device_panel PRIVATE
+        notrix_core
+        notrix_platform_tc002
+        notrix_warnings)
+    target_link_options(notrix_device_panel PRIVATE -static)
+endif()
+
+if(NOTRIX_DEVICE_BUILD)
+    enable_language(C)
+
+    add_executable(notrix_panel_test tools/panel_test/main.c)
+    target_compile_options(notrix_panel_test PRIVATE
+        -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
+    target_link_options(notrix_panel_test PRIVATE -static)
 endif()
 
 # Host-only frame previewer. Renders through the simulator adapter and writes

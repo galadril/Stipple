@@ -11,8 +11,9 @@ namespace platform {
 /// The panel, as the rest of NOTRIX sees it.
 ///
 /// Core code renders into a Framebuffer it owns and hands the finished frame
-/// here. On the TC002 this forwards to PageBase::sendLedData; in the simulator
-/// it reaches a browser canvas. Nothing above this interface can tell which.
+/// here. On the TC002 this writes 3072 bytes to /dev/spidev0.0 and strobes the
+/// GPIO 35 latch; in the simulator it reaches a browser canvas. Nothing above
+/// this interface can tell which.
 class IFrameBufferDisplay {
 public:
     virtual ~IFrameBufferDisplay() = default;

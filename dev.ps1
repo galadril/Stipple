@@ -11,6 +11,7 @@
 #   .\dev.ps1 emulator       build the browser emulator (needs EMSDK)
 #   .\dev.ps1 verify         drive the built WASM module headlessly (needs node)
 #   .\dev.ps1 device         cross-build for the TC002 and run it under ARM emulation
+#   .\dev.ps1 panel <ip>     build the channel-order test and run it on the panel
 #   .\dev.ps1 serve          build the emulator and serve it on localhost
 #   .\dev.ps1 clean          remove build output
 #   .\dev.ps1 doctor         report toolchain status
@@ -21,7 +22,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'serve', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'panel', 'serve', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -200,6 +201,66 @@ qemu-arm-static notrix_device_smoke
         & $engine.Source run --rm -v "${repoRoot}:/src" $image bash -c $script
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Write-Host "`nDevice build runs on ARM." -ForegroundColor Green
+    }
+
+    'panel' {
+        # Cross-builds the channel-order test and runs it on the real matrix.
+        #
+        # This is the one question the spidev capture could not answer: every
+        # lit pixel the vendor app drew was white, and white is the same bytes
+        # under RGB, GRB and BGR. The answer comes from a person looking at the
+        # panel, so the job here is to get the binary in front of them with as
+        # few steps as possible.
+        $target = if ($Rest) { $Rest[0] } else { $null }
+
+        $adb = Get-Command adb -ErrorAction SilentlyContinue
+        if (-not $adb) { throw "adb not found on PATH. See docs/bring-up.md for how to get it." }
+
+        $engine = (Get-Command podman -ErrorAction SilentlyContinue) ??
+                  (Get-Command docker -ErrorAction SilentlyContinue)
+        if (-not $engine) {
+            throw "podman or docker is needed to run the pinned cross-toolchain. See tooling/cross/."
+        }
+
+        # Static, so the bookworm image is fine — the __libc_start_main problem
+        # only bites dynamically linked executables.
+        $image = 'notrix-cross:bookworm'
+        & $engine.Source build -t $image -f tooling/cross/Containerfile tooling/cross
+        if ($LASTEXITCODE -ne 0) { throw "could not build the cross-toolchain image" }
+
+        $script = @'
+set -e
+cmake --preset device-arm
+cmake --build --preset device-arm --target notrix_panel_test
+file /src/build/device-arm/firmware/notrix_panel_test
+'@
+        $script = $script -replace "`r", ""
+
+        & $engine.Source run --rm -v "${repoRoot}:/src" $image bash -c $script
+        if ($LASTEXITCODE -ne 0) { throw "cross-build failed" }
+
+        $binary = Join-Path $repoRoot 'build\device-arm\firmware\notrix_panel_test'
+        if (-not (Test-Path $binary)) { throw "expected $binary after the build" }
+
+        if ($target) {
+            & $adb.Source connect $target | Out-Null
+        }
+
+        # /tmp is the volatile path — a power cycle wipes it, which is exactly
+        # what we want from something that takes the panel away from zkgui.
+        & $adb.Source push $binary /tmp/notrix_panel_test
+        if ($LASTEXITCODE -ne 0) { throw "adb push failed — is the device connected?" }
+
+        & $adb.Source shell chmod 700 /tmp/notrix_panel_test
+
+        Write-Host "`nLook at the panel." -ForegroundColor Green
+        Write-Host "  Three bands, one channel each, left to right." -ForegroundColor Gray
+        Write-Host "  Leftmost colour is channel 0, middle is 1, right is 2." -ForegroundColor Gray
+        Write-Host "  One white dot top-left, two white pixels top-right." -ForegroundColor Gray
+        Write-Host ""
+
+        & $adb.Source shell /tmp/notrix_panel_test
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 
     'golden' {
