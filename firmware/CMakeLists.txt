@@ -99,6 +99,7 @@ if(NOTRIX_DEVICE_BUILD)
     add_library(notrix_platform_tc002
         src/platform/tc002/Tc002Display.cpp
         src/platform/tc002/Tc002Input.cpp
+        src/platform/tc002/Tc002Platform.cpp
     )
 
     target_link_libraries(notrix_platform_tc002 PUBLIC notrix_core notrix_warnings)
@@ -164,6 +165,22 @@ endif()
 # notrix_warnings is deliberately NOT linked. It carries -Wold-style-cast and
 # friends, which GCC reports as "valid for C++ but not for C" - a warning that
 # the device preset's warnings-as-errors would turn into a build failure.
+# NOTRIX itself, on the device.
+#
+# Runs ApplicationHost - the same startup, loop, boot record and safe-mode
+# fallback the emulator and the host tests run - over the TC002 platform
+# adapter. This is the firmware; notrix_device_panel below is the bring-up demo
+# that preceded it and stays because it isolates the display from everything
+# else when something goes wrong.
+if(NOTRIX_DEVICE_BUILD)
+    add_executable(notrix_device tools/device/main.cpp)
+    target_link_libraries(notrix_device PRIVATE
+        notrix_core
+        notrix_platform_tc002
+        notrix_warnings)
+    target_link_options(notrix_device PRIVATE -static)
+endif()
+
 # NOTRIX core rendering on the real panel.
 #
 # The first thing that puts *our* renderer on the device rather than bytes
