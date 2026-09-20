@@ -11,6 +11,7 @@
 #include "notrix/platform/tc002/Tc002HttpServer.h"
 #include "notrix/platform/tc002/Tc002Input.h"
 #include "notrix/platform/tc002/Tc002Mcu.h"
+#include "notrix/platform/tc002/Tc002MqttClient.h"
 
 namespace notrix {
 namespace platform {
@@ -100,7 +101,9 @@ public:
 ///               nothing here speaks that protocol yet.
 ///   rebooter  — deliberately absent until there is a reason to expose the most
 ///               destructive thing NOTRIX can do to a clock.
-///   mqtt      — Phase 7, after the HTTP transport has carried some real use.
+/// MQTT is always present: unlike audio, "no broker configured" is a state the
+/// service already models, so reporting the capability as absent would be the
+/// wrong answer.
 class Tc002Platform final : public IPlatformServices {
 public:
     /// Brings up display, input, storage and clock. Returns false if the
@@ -128,6 +131,10 @@ public:
         return http_.running() ? &http_ : nullptr;
     }
 
+    /// Always offered: a configured-but-disconnected broker is a state the
+    /// service reports, not an absent capability.
+    IMqttClient* mqtt() override { return &mqtt_; }
+
     Tc002Display& panel() noexcept { return display_; }
 
     /// Concrete, because the MCU is polled from the loop like the transport.
@@ -144,6 +151,7 @@ private:
     Tc002Storage storage_;
     Tc002Network network_;
     Tc002Mcu mcu_;
+    Tc002MqttClient mqtt_;
     Tc002HttpServer http_;
 };
 

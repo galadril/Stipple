@@ -195,6 +195,11 @@ int main(int argc, char** argv) {
         // battery app's source on the same single thread as everything else.
         platform.mcu().poll();
 
+        // The broker lives on the same thread as everything else, so nothing
+        // arrives while a frame is half-rendered. MqttService owns reconnect
+        // policy; this only pumps the socket.
+        platform.mqtt()->poll(now);
+
         const std::uint32_t renderedBefore = host.frameStats().rendered;
 
         if (!host.tick(now)) {
