@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/render/FrameScheduler.h"
+#include "notrix/render/Transition.h"
 
 #include "support/TestFramework.h"
 
@@ -218,4 +219,103 @@ NOTRIX_TEST(FrameScheduler, RenderingIsNotRequiredAfterBeginFrameSaysYes) {
     NOTRIX_CHECK(scheduler.beginFrame(0));
     NOTRIX_CHECK_EQ(scheduler.stats().rendered, 0u);
     NOTRIX_CHECK(scheduler.dirty());
+}
+
+// --- transitions -------------------------------------------------------------
+
+namespace {
+
+notrix::Framebuffer solid(notrix::Rgb color) {
+    notrix::Framebuffer frame;
+    frame.fill(color);
+    return frame;
+}
+
+}  // namespace
+
+NOTRIX_TEST(Transition, EndpointsAreExactlyTheTwoFrames) {
+    // Whatever happens in between, a transition must start as one frame and end
+    // as the other. Anything else leaves a seam at the join.
+    using namespace notrix::render;
+    const notrix::Framebuffer from = solid(notrix::rgb(255, 0, 0));
+    const notrix::Framebuffer to = solid(notrix::rgb(0, 0, 255));
+
+    for (const TransitionStyle style :
+         {TransitionStyle::None, TransitionStyle::Slide, TransitionStyle::Fade}) {
+        notrix::Framebuffer out;
+        composite(out, from, to, style, TransitionDirection::Forward, 1000);
+        NOTRIX_CHECK(out == to);
+    }
+
+    notrix::Framebuffer start;
+    composite(start, from, to, TransitionStyle::Slide, TransitionDirection::Forward, 0);
+    NOTRIX_CHECK(start == from);
+}
+
+NOTRIX_TEST(Transition, ProgressIsClamped) {
+    using namespace notrix::render;
+    const notrix::Framebuffer from = solid(notrix::rgb(255, 0, 0));
+    const notrix::Framebuffer to = solid(notrix::rgb(0, 0, 255));
+
+    notrix::Framebuffer under;
+    notrix::Framebuffer over;
+    composite(under, from, to, TransitionStyle::Slide, TransitionDirection::Forward, -500);
+    composite(over, from, to, TransitionStyle::Slide, TransitionDirection::Forward, 9999);
+
+    NOTRIX_CHECK(under == from);
+    NOTRIX_CHECK(over == to);
+}
+
+NOTRIX_TEST(Transition, SlideMovesContentTheWayTheKnobTurned) {
+    // Forward slides content left, so a marker near the left edge of the
+    // outgoing frame should leave first. Backward is the mirror.
+    using namespace notrix::render;
+
+    notrix::Framebuffer from;
+    from.set(0, 8, notrix::rgb(255, 0, 0));
+    from.set(notrix::Framebuffer::kWidth - 1, 8, notrix::rgb(0, 255, 0));
+    const notrix::Framebuffer to;  // black
+
+    notrix::Framebuffer forward;
+    composite(forward, from, to, TransitionStyle::Slide, TransitionDirection::Forward, 100);
+    // Content moved left, so the red pixel that was at column 0 is gone.
+    NOTRIX_CHECK(forward.at(0, 8) != notrix::rgb(255, 0, 0));
+
+    notrix::Framebuffer backward;
+    composite(backward, from, to, TransitionStyle::Slide, TransitionDirection::Backward, 100);
+    // Content moved right, so the green pixel that was at the right edge is gone.
+    NOTRIX_CHECK(backward.at(notrix::Framebuffer::kWidth - 1, 8) != notrix::rgb(0, 255, 0));
+}
+
+NOTRIX_TEST(Transition, FadeGoesThroughBlackRatherThanBlendingTwoFrames) {
+    // Blending would spend the middle of every transition showing two times
+    // superimposed, which on 52x16 is unreadable.
+    using namespace notrix::render;
+    const notrix::Framebuffer from = solid(notrix::rgb(255, 255, 255));
+    const notrix::Framebuffer to = solid(notrix::rgb(255, 255, 255));
+
+    notrix::Framebuffer middle;
+    composite(middle, from, to, TransitionStyle::Fade, TransitionDirection::Forward, 500);
+
+    // Both ends are full white; a blend would stay white all the way through.
+    NOTRIX_CHECK(middle.at(26, 8) == notrix::colors::kBlack);
+}
+
+NOTRIX_TEST(Transition, NoneIsTheDestinationImmediately) {
+    using namespace notrix::render;
+    const notrix::Framebuffer from = solid(notrix::rgb(255, 0, 0));
+    const notrix::Framebuffer to = solid(notrix::rgb(0, 0, 255));
+
+    notrix::Framebuffer out;
+    composite(out, from, to, TransitionStyle::None, TransitionDirection::Forward, 1);
+    NOTRIX_CHECK(out == to);
+}
+
+NOTRIX_TEST(Transition, NamesRoundTrip) {
+    using namespace notrix::render;
+    for (const TransitionStyle style :
+         {TransitionStyle::None, TransitionStyle::Slide, TransitionStyle::Fade}) {
+        NOTRIX_CHECK(transitionStyleFromName(transitionStyleName(style)) == style);
+    }
+    NOTRIX_CHECK(transitionStyleFromName("nonsense") == TransitionStyle::None);
 }

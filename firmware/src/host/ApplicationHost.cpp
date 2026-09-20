@@ -289,6 +289,10 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
         return;
     }
 
+    // Someone pressing a button has already decided; making them watch the
+    // rest of an animation is the interface arguing (DESIGN.md section 6).
+    transitionActive_ = false;
+
     input::ActionEvent action;
     if (!mapper_.handle(event, action)) {
         return;
@@ -296,11 +300,13 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
 
     switch (action.action) {
         case input::Action::AppNext:
+            transitionDirection_ = render::TransitionDirection::Forward;
             for (int i = 0; i < action.repeat; ++i) {
                 carousel_.next(lastTickMillis_);
             }
             break;
         case input::Action::AppPrevious:
+            transitionDirection_ = render::TransitionDirection::Backward;
             for (int i = 0; i < action.repeat; ++i) {
                 carousel_.previous(lastTickMillis_);
             }
@@ -443,6 +449,20 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
                 scheduler_.invalidate();
             }
 
+            // A rotation that happened on its own always reads as forward. A
+            // knob turn sets the direction before calling next()/previous(),
+            // and beginTransition keeps whichever was set most recently.
+            if (carouselMoved && !splashActive_) {
+                beginTransition(nowMillis, transitionDirection_);
+            }
+
+            // A transition is motion by definition, so it has to keep asking
+            // for frames for as long as it runs - dirty tracking would
+            // otherwise freeze it on its first step.
+            if (transitionRunning(nowMillis)) {
+                scheduler_.invalidate();
+            }
+
             // Anything time-varying has to say so, or dirty tracking would leave
             // it frozen between content changes.
             if (notifications_.active() != nullptr) {
@@ -491,6 +511,22 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         const std::uint64_t startedAt = platform_.clock().monotonicMillis();
 
         renderFrame(nowMillis);
+
+        // Composited after rendering, never during it. renderFrame only ever
+        // draws the app that is active now; the outgoing frame was captured
+        // when the change happened, so nothing in the renderer knows a
+        // transition exists.
+        if (transitionRunning(nowMillis)) {
+            transitionScratch_ = framebuffer_;
+            const std::uint64_t elapsed = nowMillis - transitionStartMillis_;
+            const int permille = static_cast<int>(
+                (elapsed * 1000u) / render::kTransitionMillis);
+            render::composite(framebuffer_, previousFrame_, transitionScratch_,
+                              transitionStyle_, transitionDirection_, permille);
+        } else {
+            transitionActive_ = false;
+        }
+
         platform_.display().present(framebuffer_);
 
         const std::uint64_t finishedAt = platform_.clock().monotonicMillis();
@@ -639,6 +675,34 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
         // starts reading from the beginning of its text.
         scene_.render(canvas, carousel_.dwellMillis(nowMillis));
     }
+}
+
+void ApplicationHost::beginTransition(std::uint64_t nowMillis,
+                                      render::TransitionDirection direction) {
+    if (!settings_.apps.transitions) {
+        transitionActive_ = false;
+        return;
+    }
+
+    // The frame already on the panel becomes the outgoing one. Capturing it
+    // here is what lets the renderer stay ignorant of transitions entirely: it
+    // only ever draws the app that is active now.
+    previousFrame_ = framebuffer_;
+    transitionStartMillis_ = nowMillis;
+    transitionDirection_ = direction;
+    // Notifications arrive rather than rotate, so they fade; the carousel
+    // slides (DESIGN.md section 6).
+    transitionStyle_ = notifications_.active() != nullptr
+                           ? render::TransitionStyle::Fade
+                           : render::TransitionStyle::Slide;
+    transitionActive_ = true;
+}
+
+bool ApplicationHost::transitionRunning(std::uint64_t nowMillis) const noexcept {
+    if (!transitionActive_) {
+        return false;
+    }
+    return nowMillis - transitionStartMillis_ < render::kTransitionMillis;
 }
 
 // --- API ---------------------------------------------------------------------

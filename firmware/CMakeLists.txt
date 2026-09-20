@@ -37,6 +37,7 @@ add_library(notrix_core
     src/core/Log.cpp
     src/core/Rgb.cpp
     src/render/FrameScheduler.cpp
+    src/render/Transition.cpp
     src/asset/IconStore.cpp
     src/apps/BatteryApp.cpp
     src/apps/ClockApp.cpp

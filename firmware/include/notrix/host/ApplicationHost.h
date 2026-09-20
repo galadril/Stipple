@@ -20,6 +20,7 @@
 #include "notrix/platform/HttpServer.h"
 #include "notrix/platform/PlatformServices.h"
 #include "notrix/render/FrameScheduler.h"
+#include "notrix/render/Transition.h"
 #include "notrix/scene/Scene.h"
 
 namespace notrix {
@@ -185,6 +186,11 @@ private:
     void renderSafeMode();
     bool refreshActiveScene();
 
+    /// Start a transition from whatever is currently on screen.
+    void beginTransition(std::uint64_t nowMillis, render::TransitionDirection direction);
+    /// True while one is still running at `nowMillis`.
+    bool transitionRunning(std::uint64_t nowMillis) const noexcept;
+
     bool splashElapsed(std::uint64_t nowMillis) const noexcept;
 
     platform::IPlatformServices& platform_;
@@ -221,6 +227,20 @@ private:
     /// Display power as of the last rendered frame, so a change made through any
     /// route forces one more redraw. Starts true to match the default setting.
     bool renderedWithPower_ = true;
+
+    /// The frame as it was when the active app last changed, and the clock and
+    /// direction of the transition running over it. One extra framebuffer is
+    /// 2496 bytes, which is far cheaper than teaching the renderer to draw an
+    /// app that is no longer active.
+    Framebuffer previousFrame_;
+    /// The incoming frame, held while it is composited over the outgoing
+    /// one. A member rather than a local so the render path allocates
+    /// nothing, on the stack or otherwise.
+    Framebuffer transitionScratch_;
+    std::uint64_t transitionStartMillis_ = 0;
+    render::TransitionStyle transitionStyle_ = render::TransitionStyle::None;
+    render::TransitionDirection transitionDirection_ = render::TransitionDirection::Forward;
+    bool transitionActive_ = false;
 
     bool splashActive_ = false;
     bool ticking_ = false;
