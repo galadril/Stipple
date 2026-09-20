@@ -535,6 +535,65 @@ Confirmed end to end — `GET /api/v1/device` on the running firmware returns
 the charger out. Everything above is consistent with a discharging battery, but
 a deliberate discharge is what would make it certain.
 
+### Audio is reachable, and not the way it looked
+
+`IAudioOutput` was the least-understood capability: no ALSA, no `/dev/snd`, and
+`zkgui` driving `/dev/mi_ao` through proprietary SigmaStar ioctls (`magic='i'`,
+903 of them in a ten-second capture). Decoding those means reconstructing
+`MI_AO_Attr_t` and friends without headers, which is exactly the kind of
+guessing this project refuses.
+
+It turns out not to be necessary. Two vendor libraries sit above those ioctls:
+
+**`/lib/libmi_ao.so`** — the SigmaStar MI audio API, needing only `libc.so.6`:
+`MI_AO_Init`, `MI_AO_SetPubAttr`, `MI_AO_Enable`, `MI_AO_EnableChn`,
+`MI_AO_SendFrame`, `MI_AO_SetVolume`, `MI_AO_SetMute`. Usable, but
+`SetPubAttr` takes a struct whose layout we would still be inferring.
+
+**`/lib/libzkmedia.so`** — the vendor's own C++ wrapper, and the useful one:
+
+```
+media::SoundDevice::init(unsigned int, unsigned int)      // rate, channels
+media::SoundDevice::output(unsigned char*, unsigned int)  // raw PCM
+media::SoundDevice::setVolume(float)
+media::SoundDevice::deinit(bool)
+
+media::ZKAudioPlayer::play(const char*)                   // a file, by path
+media::ZKAudioPlayer::stop / pause / resume / seekTo
+media::ZKAudioPlayer::getDuration / getCurrentPosition
+media::ZKAudioPlayer::setVolume(float)
+```
+
+Every argument type is legible from the mangled names, and there is no opaque
+struct anywhere in it. That maps onto `IAudioOutput` almost one to one:
+`playTone` synthesises PCM and calls `output`, `playSound` calls `play`,
+`setVolume` calls `setVolume`.
+
+**Two things stand between this and working audio, and both are decisions
+rather than unknowns.**
+
+*The firmware is statically linked, and a static binary cannot `dlopen`.* That
+was the right call for bring-up — it removed the entire `GLIBC_2.34` question
+(see "This changes how the device binary must be linked"). Using either vendor
+library means a dynamically linked `notrix_device`, built with the bullseye
+toolchain whose executables ask only for `GLIBC_2.4`. `notrix_hal_probe`
+already proves that combination loads and runs on this device, so the path is
+known to work; it is the trade that needs deciding, not the mechanism.
+
+*Linking a GPL-3.0-or-later program against proprietary vendor libraries.*
+GPLv3 §1 excludes "System Libraries" — components that come with the operating
+system the program runs on. `libzkmedia.so` and `libmi_ao.so` ship in this
+device's firmware image and are exactly that kind of platform component, which
+is the ordinary reading. It still deserves to be written down and decided
+deliberately rather than assumed, because it is the first time NOTRIX would
+link against anything it did not write.
+
+*A smaller third thing:* `SoundDevice` is a C++ class, so using it through
+`dlsym` means allocating storage for an object whose size we do not know.
+Over-allocating is the usual trick and it usually works; it is also precisely
+the sort of "usually works" this project has been avoiding. `ZKAudioPlayer::play`
+may sidestep it if a factory function can be reached instead of a constructor.
+
 ### Things that need design work
 
 - **The knob is an absolute axis, not detents.** `/proc/bus/input/devices` shows
@@ -543,7 +602,10 @@ a deliberate discharge is what would make it certain.
   left/right ticks, so the device adapter has to convert position changes into
   detents. The mapper's acceleration logic is unaffected; only the source
   changes.
-- **There is no ALSA.** No `/dev/snd`, no `/proc/asound/cards`. Audio is not
+- **There is no ALSA.** *(Superseded — see "Audio is reachable, and not the way
+  it looked". The conclusion below is correct about ALSA and wrong about the
+  consequence: `libzkmedia.so` exposes a usable PCM and file-playback API above
+  those ioctls.)* No `/dev/snd`, no `/proc/asound/cards`. Audio is not
   reachable through any standard Linux interface, which matches the report that
   the speaker is driven through the vendor SDK's AudioManager. `IAudioOutput`
   has no obvious binding, and this is now the least-understood capability.
