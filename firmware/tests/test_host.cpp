@@ -276,27 +276,65 @@ NOTRIX_TEST(Host, TimeKeepsRunningWhileTheDisplayIsOff) {
 
 // --- volume and brightness from the buttons ----------------------------------
 
-NOTRIX_TEST(Host, TappingPlusAndMinusChangesBrightness) {
-    // These buttons used to tap volume. On hardware reporting no audio output
-    // that meant the two most obviously pressable controls on the device did
-    // nothing whatsoever - the same defect as a switch for a sensor that is not
-    // fitted. Brightness is the adjustment that always applies (ADR 0017).
-    SimulatorPlatform platform;
+NOTRIX_TEST(Host, TappingPlusAndMinusChangesVolumeWhereThereIsASpeaker) {
+    // These used to tap volume on hardware reporting no audio output, so they
+    // did nothing whatsoever. Volume is back on them now that there is a
+    // speaker behind it, which is where it belongs on a device that makes
+    // noise: brightness is set once, volume is reached for.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
     ApplicationHost host(platform, quietConfig());
     host.initialize();
 
-    const int start = static_cast<int>(host.settings().display.brightness);
+    const int begin = static_cast<int>(host.settings().audio.volumePercent);
+    const int step = host.inputMapper().config().volumeStepPercent;
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
+    host.tick(200);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), begin + step);
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 300, 50);
+    host.tick(400);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), begin);
+}
+
+NOTRIX_TEST(Host, WithNoSpeakerTheSameTapReachesBrightnessInstead) {
+    // The buttons must not go dead again on hardware without audio. The
+    // control still means "adjust the thing"; what the thing is depends on
+    // what the device can actually do.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = false;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    const int begin = static_cast<int>(host.settings().display.brightness);
     const int step = host.inputMapper().config().brightnessStep;
 
     platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
     host.tick(200);
-    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), start + step);
-
-    platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 300, 50);
-    host.tick(400);
-    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), start);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), begin + step);
 }
 
+NOTRIX_TEST(Host, HoldingPlusReachesBrightnessWithoutTouchingVolume) {
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    const int begin = static_cast<int>(host.settings().display.brightness);
+    const int volumeBefore = static_cast<int>(host.settings().audio.volumePercent);
+    const int step = host.inputMapper().config().brightnessStep;
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 900);
+    host.tick(1200);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), begin + step);
+    // And holding must not also move the thing a tap would have moved.
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), volumeBefore);
+}
 NOTRIX_TEST(Host, BrightnessFromTheButtonsReachesThePanel) {
     // Changing the stored setting without telling the display would look
     // exactly like a working control and do nothing at all.
@@ -304,8 +342,9 @@ NOTRIX_TEST(Host, BrightnessFromTheButtonsReachesThePanel) {
     ApplicationHost host(platform, quietConfig());
     host.initialize();
 
-    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
-    host.tick(200);
+    // Held, because a tap reaches volume on a platform with a speaker.
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 900);
+    host.tick(1200);
 
     NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()),
                     static_cast<int>(host.settings().display.brightness));
@@ -366,17 +405,18 @@ NOTRIX_TEST(Host, BrightnessStopsAtTheEnds) {
     ApplicationHost host(platform, quietConfig());
     host.initialize();
 
+    // Held throughout: a tap reaches volume where there is a speaker.
     for (int i = 0; i < 40; ++i) {
-        platform.simulatedInput().pressAndRelease(
-            RawInput::KeyMinus, static_cast<std::uint64_t>(i) * 100u + 100u, 50);
-        host.tick(static_cast<std::uint64_t>(i) * 100u + 180u);
+        const std::uint64_t at = static_cast<std::uint64_t>(i) * 1000u + 100u;
+        platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, at, 900);
+        host.tick(at + 950);
     }
     NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), 0);
 
     for (int i = 0; i < 40; ++i) {
-        platform.simulatedInput().pressAndRelease(
-            RawInput::KeyPlus, 10000u + static_cast<std::uint64_t>(i) * 100u, 50);
-        host.tick(10000u + static_cast<std::uint64_t>(i) * 100u + 80u);
+        const std::uint64_t at = 60000u + static_cast<std::uint64_t>(i) * 1000u;
+        platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, at, 900);
+        host.tick(at + 950);
     }
     NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), 255);
 }
@@ -1254,8 +1294,9 @@ NOTRIX_TEST(Host, TurningBrightnessUpRevivesABlankedPanel) {
     host.settings().display.power = false;
     host.settings().display.brightness = 0;
 
-    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 1000, 50);
-    host.tick(1100);
+    // Held, because that is what reaches brightness.
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 1000, 900);
+    host.tick(2000);
 
     NOTRIX_CHECK(host.settings().display.power);
     NOTRIX_CHECK(host.settings().display.brightness > 0);

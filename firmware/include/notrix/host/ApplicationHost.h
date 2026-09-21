@@ -267,6 +267,11 @@ private:
     /// it changed: a brightness step is invisible in daylight and at night
     /// it looks like the whole panel flickered for no reason.
     std::uint64_t adjustmentShownUntilMillis_ = 0;
+
+    /// Which quantity the readout is showing. A bare number answers "something
+    /// changed" and not "what", and − / + reach two different things depending
+    /// on whether this device has a speaker.
+    bool adjustmentIsVolume_ = false;
     render::FrameScheduler scheduler_;
 
     Framebuffer framebuffer_;

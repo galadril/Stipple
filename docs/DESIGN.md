@@ -223,9 +223,16 @@ applies *to*, never what it means.
 
 Anything a control changes must be visible on the panel at the moment it
 changes. A brightness step is invisible in daylight and at night reads as the
-panel having glitched, so − / + while browsing draw a readout: the value, and a
-two-row bar across the bottom. It stays for 1200 ms — long enough to read after
-the press that caused it, short enough not to hide the clock.
+panel having glitched, so − / + while browsing draw a readout. It stays for
+1200 ms — long enough to read after the press that caused it, short enough not
+to hide the clock.
+
+The readout uses the settings screen's own layout: label on the first line,
+value on the second, bar on the last row. It began as a bare number and that
+was not enough — it answered "something changed" and not "what", which stopped
+being survivable once the same two buttons reached volume on a tap and
+brightness on a hold. One visual language for adjustment, however you got
+there.
 
 This is not decoration. A control with no feedback is indistinguishable from a
 broken one, which is how volume sat on those buttons doing nothing.

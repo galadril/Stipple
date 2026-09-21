@@ -74,12 +74,15 @@ NOTRIX_TEST(InputMapper, MinusAndPlusAdjustWhateverIsSelected) {
     NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyPlus, 1000, 50).action),
                     actionCode(Action::AdjustUp));
 
-    // Holding means the same as tapping. Someone holding a button to change a
-    // value faster must not find they have changed a different value.
+    // Holding reaches brightness instead. The one place a long press means
+    // something other than its short press, and it earns the exception: both
+    // are "turn this up", the direction is the same, and a slip of the thumb
+    // changes the other quantity by one step rather than doing something
+    // unrelated.
     NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMinus, 2000, 900).action),
-                    actionCode(Action::AdjustDown));
+                    actionCode(Action::BrightnessDown));
     NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyPlus, 3000, 900).action),
-                    actionCode(Action::AdjustUp));
+                    actionCode(Action::BrightnessUp));
 }
 
 NOTRIX_TEST(InputMapper, TheMiddleButtonIsAlwaysBack) {
@@ -120,9 +123,9 @@ NOTRIX_TEST(InputMapper, MinusAndPlusNeverDisagreeAboutDirection) {
     // easy one to introduce while remapping.
     const InputMapperConfig config;
     NOTRIX_CHECK_EQ(actionCode(config.keyMinus.shortPress), actionCode(Action::AdjustDown));
-    NOTRIX_CHECK_EQ(actionCode(config.keyMinus.longPress), actionCode(Action::AdjustDown));
+    NOTRIX_CHECK_EQ(actionCode(config.keyMinus.longPress), actionCode(Action::BrightnessDown));
     NOTRIX_CHECK_EQ(actionCode(config.keyPlus.shortPress), actionCode(Action::AdjustUp));
-    NOTRIX_CHECK_EQ(actionCode(config.keyPlus.longPress), actionCode(Action::AdjustUp));
+    NOTRIX_CHECK_EQ(actionCode(config.keyPlus.longPress), actionCode(Action::BrightnessUp));
 }
 
 NOTRIX_TEST(InputMapper, EveryPhysicalControlIsReachable) {
@@ -253,7 +256,7 @@ NOTRIX_TEST(InputMapper, EachButtonTracksItsOwnPressIndependently) {
 
     mapper.handle(InputEvent({RawInput::KeyMinus, ButtonPhase::Up, 900}), result);
     NOTRIX_CHECK(result.longPress);  // held 900 ms
-    NOTRIX_CHECK_EQ(actionCode(result.action), actionCode(Action::AdjustDown));
+    NOTRIX_CHECK_EQ(actionCode(result.action), actionCode(Action::BrightnessDown));
 }
 
 // --- rotary ------------------------------------------------------------------

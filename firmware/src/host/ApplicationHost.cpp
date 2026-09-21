@@ -394,22 +394,38 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
                 navigator_.noteActivity(lastTickMillis_);
                 break;
             }
-            // Browsing: the thing being adjusted is the panel itself.
-            adjustBrightness(steps);
+            // Browsing: volume where there is a speaker, brightness where
+            // there is not.
+            //
+            // Not a second meaning for the control - it still adjusts "the
+            // thing" - but the thing at the top level depends on what the
+            // device can actually do. On hardware with audio, volume is what
+            // people reach for; on hardware without, falling through to
+            // brightness keeps the buttons useful rather than letting them go
+            // dead, which is the defect this whole model exists to avoid.
+            if (!adjustVolume(steps)) {
+                adjustBrightness(steps);
+            }
             // Shown on screen because a brightness step is invisible in
             // daylight and at night reads as the panel having glitched. A
             // control with no feedback is indistinguishable from a broken one,
             // which is what put volume on these buttons for so long without
             // anyone noticing it did nothing.
             adjustmentShownUntilMillis_ = lastTickMillis_ + kAdjustmentReadoutMillis;
+            adjustmentIsVolume_ = platform_.audio() != nullptr;
             break;
         }
         case input::Action::BrightnessUp:
         case input::Action::BrightnessDown:
             // Named rather than relative, so an API or MQTT caller with no
-            // on-device context still gets exactly what it asked for.
+            // on-device context still gets exactly what it asked for. Also
+            // what holding − or + does, which is why it shows the readout: a
+            // brightness step is invisible in daylight and at night reads as
+            // the panel having glitched.
             adjustBrightness((action.action == input::Action::BrightnessUp ? 1 : -1) *
                              action.repeat);
+            adjustmentShownUntilMillis_ = lastTickMillis_ + kAdjustmentReadoutMillis;
+            adjustmentIsVolume_ = false;
             break;
         case input::Action::VolumeUp:
         case input::Action::VolumeDown:
@@ -644,27 +660,43 @@ void ApplicationHost::renderSettings(Canvas& canvas) const {
 }
 
 void ApplicationHost::renderAdjustment(Canvas& canvas) const {
-    // Brightness is the only thing − / + adjust while browsing, so the readout
-    // says so rather than showing a bare number that could be anything.
-    const int level = static_cast<int>(settings_.display.brightness);
+    // The same two lines the settings screen uses, over the app.
+    //
+    // The first version wrote a bare number into the bottom six rows with no
+    // label, which answered "something changed" and not "what". Reusing the
+    // settings layout means one visual language for adjustment on this device:
+    // whatever is being changed, it reads the same whether you got there by
+    // holding the knob or by tapping a button.
+    const bool volume = adjustmentIsVolume_;
 
-    // Painted over whatever the app drew, not blended with it: this is a
-    // momentary interruption and half-visible digits would be worse than none.
-    canvas.fillRect(Rect{0, Framebuffer::kHeight - 6, Framebuffer::kWidth, 6},
-                    colors::kBlack);
+    const int level = volume ? static_cast<int>(settings_.audio.volumePercent)
+                             : static_cast<int>(settings_.display.brightness);
+    const int permille = volume ? level * 10 : (level * 1000) / 255;
 
-    char value[8] = {};
-    writeNumber(value, sizeof(value), level);
+    // Cleared rather than blended. This is a momentary interruption, and half
+    // an app showing through the digits is harder to read than either alone.
+    canvas.fillRect(Framebuffer::bounds(), colors::kBlack);
 
-    text::TextStyle style;
-    style.font = &text::font5x7();
-    style.color = colors::kWhite;
-    style.hAlign = text::HAlign::Right;
-    style.vAlign = text::VAlign::Top;
-    text::draw(canvas, value, Rect{Framebuffer::kWidth - 22, Framebuffer::kHeight - 6, 20, 5},
-               style);
+    text::TextStyle label;
+    label.font = &text::font5x7();
+    label.color = colors::kWhite;
+    label.hAlign = text::HAlign::Left;
+    label.vAlign = text::VAlign::Top;
+    text::draw(canvas, volume ? "VOLUME" : "BRIGHT",
+               Rect{1, 0, Framebuffer::kWidth - 2, 7}, label);
 
-    drawBar(canvas, (level * 1000) / 255, colors::kWhite, rgb(30, 30, 30));
+    char value[10] = {};
+    const int digits = writeNumber(value, sizeof(value), level);
+    if (volume && digits > 0 && digits < static_cast<int>(sizeof(value)) - 1) {
+        value[digits] = '%';
+        value[digits + 1] = 0;
+    }
+
+    text::TextStyle reading = label;
+    reading.color = colors::kCyan;
+    text::draw(canvas, value, Rect{1, 8, Framebuffer::kWidth - 2, 7}, reading);
+
+    drawBar(canvas, permille, colors::kCyan, rgb(30, 30, 30));
 }
 
 // --- the loop ----------------------------------------------------------------

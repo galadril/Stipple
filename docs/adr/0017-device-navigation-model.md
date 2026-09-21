@@ -152,3 +152,36 @@ selected. A greyed-out entry would have been the same lie in a quieter voice.
 The simulator claims audio by default, which is how the dead bindings survived
 this long: every test that pressed those buttons had a speaker, and the device
 does not.
+
+## Amended once audio existed
+
+The decision above put **brightness** on − / + and moved volume into settings,
+on the grounds that volume was a control with nothing behind it: this hardware
+reported `audio: false`, so those two buttons did nothing at all.
+
+That has changed. `Tc002Audio` reaches the speaker through the vendor's own
+library, the device reports `audio: true`, and volume is a real control again.
+So the default flipped:
+
+| Gesture | Browsing |
+|---|---|
+| Tap − / + | **Volume** where there is a speaker, brightness where there is not |
+| Hold − / + | **Brightness** |
+
+The model survives intact. − / + still mean "adjust the thing"; what the thing
+is at the top level now depends on what the device can actually do. On a device
+that makes noise, volume is what people reach for and brightness is set once
+and left. On a device that cannot, the host falls through to brightness rather
+than letting the buttons go dead — which is the defect the whole model exists
+to prevent, and it must not come back by accident.
+
+Hold is the one place a long press means something other than its short press.
+It earns the exception: both are "turn this up", the direction is identical, and
+a slip of the thumb changes the other quantity by one step rather than doing
+something unrelated.
+
+**The readout grew a label at the same time.** It had been a bare number in the
+bottom rows, which answers "something changed" and not "what" — unacceptable
+once the same two buttons reach two different quantities. It now uses the
+settings screen's own layout, so adjustment reads the same on this device
+whether you got there by holding the knob or by tapping a button.
