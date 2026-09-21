@@ -46,15 +46,48 @@ bool Tc002Mcu::open(const char* devicePath) {
     // on the answer, but a device that cannot answer it is one whose telemetry
     // should not be trusted either.
     ::write(fd_, mcu::kVersionQuery, sizeof(mcu::kVersionQuery));
+
+    // The microphone is switched on in poll(), not here. See requestMicrophone.
     return true;
+}
+
+void Tc002Mcu::requestMicrophone() {
+    // The MCU sends no audio until asked, and the ask is sticky - it keeps
+    // streaming until told to stop or until power is lost. That is the whole
+    // history of this feature: the vendor application enabled it, NOTRIX
+    // inherited a microphone it had never requested, the visualiser worked, and
+    // a reboot silently took it away again.
+    //
+    // **Sent only once the MCU has answered something.** Writing it straight
+    // after the version query did not work, and the wire says why: every frame
+    // we send is acknowledged with a 0xfe, and a second frame written before
+    // the first was acknowledged is dropped on the floor. It returns 7 from
+    // write() either way, which is what made this look like a hardware
+    // limitation rather than a handshake.
+    //
+    // Waiting on the version reply is the natural gate. It is the one thing the
+    // MCU always says, it proves the link is alive, and it arrives within a few
+    // milliseconds - so the microphone is on well before anything could want it.
+    if (micRequested_ || state_.version[0] == '\0') {
+        return;
+    }
+    ::write(fd_, mcu::kMicOn, sizeof(mcu::kMicOn));
+    micRequested_ = true;
 }
 
 void Tc002Mcu::close() noexcept {
     if (fd_ >= 0) {
+        // Hand the microphone back. The enable outlives this process, so
+        // leaving it on would mean a device that had once run NOTRIX kept
+        // streaming audio to whatever ran next, which is both impolite and the
+        // kind of state that makes the next person's capture lie to them - as
+        // it did to ours.
+        ::write(fd_, mcu::kMicOff, sizeof(mcu::kMicOff));
         ::close(fd_);
         fd_ = -1;
     }
     held_ = 0;
+    micRequested_ = false;
     // Everything decoded is forgotten along with the port. A percentage from
     // before a link went away is not a reading, it is a memory.
     state_ = mcu::State{};
@@ -93,6 +126,8 @@ void Tc002Mcu::poll() {
             held_ -= consumed;
         }
     }
+
+    requestMicrophone();
 }
 
 SoundLevel Tc002Mcu::level() const {

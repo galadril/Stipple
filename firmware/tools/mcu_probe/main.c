@@ -106,6 +106,14 @@ int main(int argc, char** argv) {
         printf("(version query could not be written)\n");
     }
 
+    // Optional second argument: seconds to wait before switching the
+    // microphone on. Sending it immediately after the version query did not
+    // work, and the vendor application sends it much later - so the question
+    // this answers is whether the MCU needs a gap, or something else entirely.
+    const int mic_after = (argc > 2) ? atoi(argv[2]) : -1;
+    int mic_sent = 0;
+    const uint8_t mic_on[] = {0xff, 0x55, 0x04, 0x01, 0x01, 0x01, 0x5a};
+
     uint8_t buffer[512];
     int held = 0;
 
@@ -113,6 +121,15 @@ int main(int argc, char** argv) {
     // a read timed out, so a link that never went quiet ran indefinitely.
     const long long deadline = started + (long long)seconds * 1000;
     while (now_millis() < deadline) {
+        if (mic_after >= 0 && !mic_sent &&
+            now_millis() - started >= (long long)mic_after * 1000) {
+            mic_sent = 1;
+            const ssize_t wrote = write(fd, mic_on, sizeof(mic_on));
+            printf("[%7lld] --- microphone on, write returned %d ---\n",
+                   now_millis() - started, (int)wrote);
+            fflush(stdout);
+        }
+
         uint8_t chunk[256];
         const ssize_t got = read(fd, chunk, sizeof(chunk));
         if (got <= 0) {

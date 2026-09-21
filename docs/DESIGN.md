@@ -207,7 +207,48 @@ Like every other animation, an overlay is a pure function of elapsed time
 The set stays small and physical — the things a pixel clock can suggest in a few
 pixels: rain, snow, storm, frost. Not a taxonomy of meteorological conditions.
 
-## 8. What this rules out
+## 8. Interaction
+
+The visual half of this document had no counterpart for a long time, and it
+showed: the controls were bound one at a time, until the two most obviously
+pressable buttons on the case did nothing at all. The model is ADR 0017; what
+follows is what it looks like on screen.
+
+**Each control means one thing, everywhere.** Turn the knob to move between
+things, press it to act on one, use − / + to change its value, press the middle
+button to go back, hold the knob for settings. The mode changes what a control
+applies *to*, never what it means.
+
+### Feedback is not optional
+
+Anything a control changes must be visible on the panel at the moment it
+changes. A brightness step is invisible in daylight and at night reads as the
+panel having glitched, so − / + while browsing draw a readout: the value, and a
+two-row bar across the bottom. It stays for 1200 ms — long enough to read after
+the press that caused it, short enough not to hide the clock.
+
+This is not decoration. A control with no feedback is indistinguishable from a
+broken one, which is how volume sat on those buttons doing nothing.
+
+### One setting per screen
+
+52×16 fits about eight characters. A scrolling list is a list with one visible
+row, so settings show a single entry at a time: label on the left in primary
+white, value on the right in the accent colour, and a bar underneath for
+anything with a range. Two-state settings show ON/OFF in green or orange and no
+bar — a slider that is either full or empty reads as broken.
+
+### No mode is a trap
+
+Settings close themselves after ten seconds of no input. The panel cannot say
+"you are in a menu" any other way, so a device left mid-adjustment would
+otherwise show `BRIGHT 168` until somebody touched it.
+
+For the same reason the settings screen is drawn *before* panel power is
+honoured: turning the panel off from the menu must not black out the control
+that turns it back on.
+
+## 9. What this rules out
 
 Written down because each was considered and rejected, and someone will propose
 them again:
@@ -223,7 +264,7 @@ them again:
 
 ---
 
-## 9. When adding something visual
+## 10. When adding something visual
 
 1. Does it fit one of the three vertical layouts in §2? If not, say why.
 2. Does it use the three colour roles from §3, not new colours?

@@ -9,6 +9,18 @@ namespace notrix {
 namespace input {
 
 /// What the user meant, as opposed to which switch closed (blueprint §15).
+///
+/// Two kinds live here, and the difference is ADR 0017's whole point.
+///
+/// **Context-free** actions name a specific effect: BrightnessUp always changes
+/// brightness, wherever it comes from. These are what the API and MQTT send,
+/// because a caller that is not standing in front of the device has no context
+/// to be relative to.
+///
+/// **Relative** actions — Adjust, Back, SettingsToggle — name a gesture and let
+/// the Navigator decide what it applies to. They exist because a panel with
+/// five controls cannot afford a separate button per setting, so the buttons
+/// have to mean the same thing everywhere and point at different things.
 enum class Action {
     None,
     AppPrevious,
@@ -19,6 +31,17 @@ enum class Action {
     BrightnessDown,
     VolumeUp,
     VolumeDown,
+
+    /// Change whatever is currently selected. Brightness while browsing, the
+    /// chosen setting inside settings.
+    AdjustUp,
+    AdjustDown,
+
+    /// Leave, cancel, dismiss. The only control that always goes backwards.
+    Back,
+
+    /// Enter settings, or leave them.
+    SettingsToggle,
 };
 
 /// Stable name for an action, for logs and MQTT button events. Stable is the
@@ -62,18 +85,31 @@ struct InputMapperConfig {
     int volumeStepPercent = 5;
     int brightnessStep = 16;
 
-    /// Defaults follow the case: navigation on the knob, and the − / + buttons
-    /// adjusting something. Tap changes volume, hold changes brightness — the
-    /// two most-wanted adjustments on the only two labelled controls, with the
-    /// commoner one on the shorter gesture.
+    /// One meaning per control, in every mode (ADR 0017): the knob moves
+    /// between things and acts on them, − / + adjust the thing, and the middle
+    /// button goes back.
+    ///
+    /// These replaced a set where − and + tapped *volume*, which on hardware
+    /// that reports no audio output meant the two most obviously pressable
+    /// buttons on the device did nothing at all — the same defect as a switch
+    /// for a sensor that is not fitted. Brightness is the adjustment that
+    /// always applies, so it is the one on the plain press; volume moved into
+    /// settings, where it can be hidden honestly when there is no speaker.
+    ///
+    /// Long press is deliberately the same action as short on − / + . Holding
+    /// a button to change a value faster is what people expect, and the mapper
+    /// already reports the hold; making it a *different* action would mean a
+    /// slip of the thumb changed something else.
     ///
     /// Nothing here is binding: §15 puts mappings in configuration, and these
     /// are only what an unconfigured device does.
-    ButtonBinding keyMinus{Action::VolumeDown, Action::BrightnessDown};
-    /// Useful if the third button is there, harmless if it is not.
-    ButtonBinding keyExtra{Action::AppNext, Action::NotificationDismiss};
-    ButtonBinding keyPlus{Action::VolumeUp, Action::BrightnessUp};
-    ButtonBinding rotaryPress{Action::AppAction, Action::NotificationDismiss};
+    ButtonBinding keyMinus{Action::AdjustDown, Action::AdjustDown};
+    /// The middle button. Back, and only back — it used to duplicate the knob's
+    /// AppNext, which wasted the one control free to mean something else.
+    ButtonBinding keyExtra{Action::Back, Action::Back};
+    ButtonBinding keyPlus{Action::AdjustUp, Action::AdjustUp};
+    /// Press acts on what is selected; hold is the way in and out of settings.
+    ButtonBinding rotaryPress{Action::AppAction, Action::SettingsToggle};
 };
 
 /// Turns raw hardware events into logical actions.

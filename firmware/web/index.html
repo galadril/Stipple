@@ -54,21 +54,24 @@
              the case. -->
         <div class="pad">
             <button class="btn btn-hw" data-control="left" type="button"
-                    title="Previous app">&#8634;</button>
+                    title="Move back: previous app, or previous setting">&#8634;</button>
             <button class="btn btn-hw" data-control="minus" type="button"
-                    title="Tap: volume down. Hold: dimmer.">&minus;</button>
+                    title="Turn it down: brightness, or whatever setting is open">&minus;</button>
             <button class="btn btn-hw" data-control="press" type="button"
-                    title="Tap: pause. Hold: dismiss notification.">Knob</button>
+                    title="Tap: act on it. Hold: open or close settings.">Knob</button>
             <button class="btn btn-hw" data-control="middle" type="button"
-                    title="Tap: next app. Hold: dismiss notification.">M</button>
+                    title="Back: leave settings, dismiss a notification, or return to the clock">M</button>
             <button class="btn btn-hw" data-control="plus" type="button"
-                    title="Tap: volume up. Hold: brighter.">+</button>
+                    title="Turn it up: brightness, or whatever setting is open">+</button>
             <button class="btn btn-hw" data-control="right" type="button"
-                    title="Next app">&#8635;</button>
+                    title="Move on: next app, or next setting">&#8635;</button>
         </div>
         <p class="help">
-            Click for a tap; press and hold for a long press. The knob buttons
-            turn one detent per click.
+            Each control means one thing everywhere: <strong>turn</strong> to move
+            between things, <strong>press</strong> to act on one,
+            <strong>&minus; / +</strong> to change its value, <strong>M</strong> to go
+            back, and <strong>hold the knob</strong> for settings on the panel
+            itself. Click for a tap; press and hold for a long press.
         </p>
     </div>
 
@@ -107,7 +110,7 @@
         <label for="volume">Volume</label>
         <input type="range" id="volume" min="0" max="100" data-setting="audio.volumePercent">
         <output for="volume" id="volume-out">50</output>
-        <p class="help" id="volume-help">Tap &minus; / + on the device for the same control.</p>
+        <p class="help" id="volume-help">On the device: hold the knob for settings, turn to VOL, then &minus; / +.</p>
     </div>
 </section>
 

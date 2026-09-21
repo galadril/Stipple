@@ -41,16 +41,37 @@ constexpr std::uint8_t kBattery = 0x03;
 /// Command byte carrying the charge state: 1 on external power, 0 on battery.
 constexpr std::uint8_t kCharging = 0x02;
 
-/// Command byte believed to carry a microphone level. **Never observed** — see
-/// Tc002Mcu.h for why this is still here and what would settle it.
+/// Command byte carrying the microphone level, big-endian 16-bit.
+///
+/// Arrives at roughly 22 Hz, but **only after the microphone is switched on**
+/// with kMicSwitch. That conditional is why it went missing for so long: three
+/// separate captures contained 0x02 and 0x03 and nothing else, because none of
+/// them had anything on screen that wanted audio.
 constexpr std::uint8_t kMicLevel = 0x01;
+
+/// Command byte that switches the microphone on and off. Payload 1 enables,
+/// 0 disables.
+///
+/// Observed on the wire, both values, sent by the vendor application as its
+/// visualiser came and went. This is the one command NOTRIX writes beyond the
+/// version handshake, and it clears the bar the rest of this file sets: its
+/// meaning was watched rather than guessed.
+///
+/// It is also sticky. The MCU keeps streaming until something turns it off or
+/// the device loses power, which is why the visualiser worked for a while and
+/// then stopped: the vendor application had enabled it before NOTRIX ever ran,
+/// NOTRIX inherited a microphone it never asked for, and a reboot took it away.
+constexpr std::uint8_t kMicSwitch = 0x04;
 
 /// Command byte for the version handshake.
 constexpr std::uint8_t kVersion = 0x11;
 
-/// The version query the vendor application sends, byte for byte. It is also
-/// the only thing the vendor application ever writes to this link.
+/// The version query the vendor application sends, byte for byte.
 constexpr std::uint8_t kVersionQuery[] = {0xff, 0x55, 0x11, 0x00, 0x01, 0x65};
+
+/// Turn the microphone on, and off again. Byte for byte as captured.
+constexpr std::uint8_t kMicOn[] = {0xff, 0x55, 0x04, 0x01, 0x01, 0x01, 0x5a};
+constexpr std::uint8_t kMicOff[] = {0xff, 0x55, 0x04, 0x01, 0x00, 0x01, 0x59};
 
 /// The trailing two bytes are a big-endian 16-bit sum of everything before
 /// them, headers included.
@@ -74,6 +95,35 @@ inline bool checksumValid(const std::uint8_t* frame, int length) noexcept {
     const unsigned carried = (static_cast<unsigned>(frame[length - 2]) << 8) |
                              static_cast<unsigned>(frame[length - 1]);
     return (sum & 0xffffu) == carried;
+}
+
+/// Build a frame into `out`, which must have room for kOverhead + payloadLength
+/// bytes. Returns the length written, or 0 if it would not fit.
+///
+/// The commands NOTRIX sends are byte literals lifted from captures, because a
+/// captured byte is evidence and a generated one is a belief. This exists so a
+/// test can assert the two agree - if the checksum rule is ever wrong, the
+/// literals and the encoder disagree and something fails.
+inline int encode(std::uint8_t* out, int capacity, std::uint8_t command,
+                  const std::uint8_t* payload, int payloadLength) noexcept {
+    const int total = kOverhead + payloadLength;
+    if (payloadLength < 0 || payloadLength > 255 || total > capacity) {
+        return 0;
+    }
+    out[0] = 0xff;
+    out[1] = 0x55;
+    out[2] = command;
+    out[3] = static_cast<std::uint8_t>(payloadLength);
+    for (int i = 0; i < payloadLength; ++i) {
+        out[4 + i] = payload[i];
+    }
+    unsigned sum = 0;
+    for (int i = 0; i < total - 2; ++i) {
+        sum += out[i];
+    }
+    out[total - 2] = static_cast<std::uint8_t>((sum >> 8) & 0xff);
+    out[total - 1] = static_cast<std::uint8_t>(sum & 0xff);
+    return total;
 }
 
 /// Everything the MCU has told us, and how confident we are about each part.

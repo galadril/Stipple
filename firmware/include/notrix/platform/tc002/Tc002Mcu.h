@@ -39,19 +39,31 @@ namespace tc002 {
 /// also explains a percentage that appears to jump by several points when
 /// nothing about the battery has changed.
 ///
-/// **There is no confirmed microphone command.** A constant here once claimed
-/// 0x01 carried a level and had been seen while the stock visualiser ran. No
-/// capture in this repository supports that and two contradict it: a trace of
-/// the vendor application and a listen taken while someone made noise at the
-/// device both contain 0x02 and 0x03 and nothing else. The vendor application
-/// also writes nothing to this link but the version query, so if audio must be
-/// asked for, we have not seen the asking. Until a capture taken with the
-/// stock visualiser actually on screen shows otherwise, this device reports
-/// that it cannot hear.
+/// **The microphone has to be switched on**, with command 0x04 and a payload of
+/// 1. Until then the MCU sends no audio at all, and command 0x01 - the level,
+/// a big-endian 16-bit amplitude at roughly 22 Hz - never appears.
 ///
-/// Read-only beyond the version handshake. The MCU also drives the panel's
-/// power rails, and writing commands whose meaning is a guess is not worth a
-/// clock.
+/// That conditional cost a day and an entirely wrong conclusion. Three captures
+/// were taken looking for audio: a trace of the vendor application, a 75-second
+/// listen with someone deliberately making noise, and the vendor application
+/// left on its clock face. All three contained 0x02 and 0x03 and nothing else,
+/// and the honest-looking reading was that the hardware could not hear. It was
+/// actually a fact about what had been on screen: none of the three had
+/// anything showing that wanted sound. A fourth capture, taken with the vendor
+/// visualiser actually displayed, had 451 audio frames in twenty seconds and
+/// the enable sitting in plain sight.
+///
+/// The switch is also sticky - the MCU keeps streaming until told to stop or
+/// until power is lost - which is the rest of the story. The vendor application
+/// had enabled it, NOTRIX inherited a microphone it had never asked for, the
+/// visualiser worked, and a reboot took it away with nothing in the code having
+/// changed.
+///
+/// Read-only beyond the version handshake and the microphone switch. The MCU
+/// also drives the panel's power rails, and writing commands whose meaning is a
+/// guess is not worth a clock - but 0x04 is not a guess. Both of its values were
+/// watched going out of the vendor application as its visualiser came and went,
+/// and the bytes NOTRIX sends are that capture verbatim.
 class Tc002Mcu final : public IPowerSource, public IMicrophone {
 public:
     /// The protocol constants live in McuProtocol.h, which is where the
@@ -81,7 +93,14 @@ public:
     const char* version() const noexcept { return state_.version; }
 
 private:
+    /// Ask the MCU to start streaming audio, once it has proven it is listening.
+    /// Called from poll(); safe to call repeatedly.
+    void requestMicrophone();
+
     int fd_ = -1;
+
+    /// Whether the microphone switch has been sent on this connection.
+    bool micRequested_ = false;
 
     /// Partial frames live here between polls. Bounded, per §38: a link that
     /// never produces a valid header must not be able to grow a buffer.

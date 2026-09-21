@@ -1,6 +1,6 @@
 # 0017 — One meaning per control: navigating NOTRIX from the device
 
-- **Status:** Proposed
+- **Status:** Accepted, implemented
 - **Date:** 2026-09-21
 
 ## Context
@@ -127,3 +127,28 @@ One setting per screen is the same thing without pretending to be a list.
 **Double-press for a second layer.** Blueprint §15 allows it "only if reliable",
 and it is not: detecting it means delaying every single press long enough to see
 whether a second arrives, which makes the common case feel broken.
+
+## Implemented
+
+`input::Navigator` owns the mode, the settings cursor and the idle timeout, and
+holds no reference to settings or to a platform — it decides *what is selected*,
+and `ApplicationHost` decides what changing it does. `InputMapper` was left
+producing `Action` rather than being split into gesture translation: the named
+actions (`brightnessUp`, `volumeUp`) are API and MQTT surface that a caller with
+no on-device context still needs, so the relative ones (`adjustUp`, `back`,
+`settingsToggle`) were added alongside them instead of replacing them.
+
+Two things the implementation settled that the decision above did not:
+
+**Settings render before the panel-power check.** Panel power is one of the
+settings, so honouring "off" while the menu is open would black out the only
+screen showing the control that turns it back on. The panel goes dark on leaving
+settings, which is when the user can see it happen.
+
+**Volume is hidden, not disabled.** `Navigator::setAvailable` skips it entirely
+where `IAudioOutput` is null, and the cursor moves off it if it is hidden while
+selected. A greyed-out entry would have been the same lie in a quieter voice.
+
+The simulator claims audio by default, which is how the dead bindings survived
+this long: every test that pressed those buttons had a speaker, and the device
+does not.

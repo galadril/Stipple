@@ -552,33 +552,69 @@ pulling the cable sees the number drop several points and putting it back sees
 it climb, with nothing on screen explaining why. The charge flag is the
 explanation, and the battery app now draws it.
 
-### There is no confirmed microphone
+### The microphone has to be asked for
 
-An earlier revision of this document and the `kMicLevel` constant in
-`Tc002Mcu.h` both stated that command `0x01` carries a big-endian 16-bit
-amplitude at roughly 22 Hz, "found by tracing the stock app while its audio
-visualiser ran".
+Command `0x01` carries the level: a big-endian 16-bit amplitude, roughly 22 Hz,
+a few hundred in a quiet room. **It is sent only after the microphone is
+switched on**, and the switch is command `0x04`:
 
-**No capture in this repository supports that, and two contradict it.** A
-19-second `LD_PRELOAD` trace of the vendor application and a 75-second listen
-taken while someone deliberately made noise at the device contain command `0x02`
-and command `0x03` and nothing else — 125 and 123 frames respectively, plus one
-version reply and one `0xfe` at startup. Not a single `0x01`.
+```
+->  ff 55 04 01 01 01 5a       microphone on
+->  ff 55 04 01 00 01 59       microphone off
+<-  ff 55 01 02 01 a6 01 fe    level: 0x01a6 = 422
+```
 
-The vendor application also **writes nothing to this link but the version
-query**, so if audio has to be asked for, we have not seen the asking.
+Both values of the switch were captured going out of the vendor application as
+its visualiser appeared and was navigated away from. The bytes NOTRIX sends are
+that capture verbatim, and `Tc002Mcu` sends the off frame when it closes the
+port — the enable outlives the process, and leaving it on would mean a device
+that had once run NOTRIX kept streaming audio to whatever ran next.
 
-Two things could still be true, and the difference matters:
+**The switch is sticky.** The MCU keeps streaming until something turns it off
+or the device loses power. That is the entire history of this feature: the
+vendor application enabled it, NOTRIX inherited a microphone it had never asked
+for, the visualiser worked for a while, and a reboot took it away with nothing
+in the code having changed.
 
-- The MCU streams audio only while something is on screen that wants it, and the
-  vendor trace covered startup only. Settling this needs a trace taken with the
-  stock visualiser actually showing.
-- The level does not come over this link at all, and the `0x01` layout was read
-  from the third-party port's documentation rather than observed here.
+#### How this was nearly recorded as a hardware limitation
 
-Until one of those is resolved the device reports that it cannot hear. The
-decoding for `0x01` is kept and tested, so the day a capture shows the frame the
-only change needed is in the adapter.
+Worth keeping, because the reasoning looked sound at every step and the
+conclusion was wrong.
+
+Three captures were taken looking for audio: a 19-second `LD_PRELOAD` trace of
+the vendor application, a 75-second listen with someone deliberately making
+noise at the device, and the vendor application left alone on its clock face for
+35 seconds. All three contained command `0x02` and command `0x03` and nothing
+else, and in none of them did the vendor application write anything to the link
+but the version query.
+
+The conclusion drawn was that `0x01` had never been observed, that the
+`kMicLevel` constant was belief rather than evidence, and that the device should
+report it could not hear. That was written into this document and into the code.
+
+It was contradicted by two things already in the repository. The commit that
+fixed the visualiser's auto-gain describes *"a finger snap raised the window and
+every column already on screen shrank at the same instant"* — an observation
+nobody can make without a live microphone. And the person who owns the device
+said plainly that it had worked.
+
+Every capture was true. Each was taken with something on screen that did not
+want audio, so what they measured was the absence of a reason to stream, not the
+absence of a microphone. A fourth capture, taken with the vendor visualiser
+actually displayed, had 451 audio frames in twenty seconds and the enable
+command in plain sight.
+
+The lesson is narrow and worth stating: **a capture proves what was happening
+while it ran.** Three of them agreeing proves only that the same thing was not
+happening three times. When a capture disagrees with someone who watched the
+device work, the capture is not the witness to trust.
+
+A practical footnote, because it nearly cost a fourth wrong conclusion: the
+`LD_PRELOAD` shim caps itself at 600 records to protect a 36 MB device from
+filling tmpfs. Narrowed to the MCU link with `NOTRIX_SPY_ONLY=ttyS`, that cap is
+reached in nine minutes and the log simply stops — which looked exactly like a
+device that had nothing more to say. `NOTRIX_SPY_MAX` raises it.
+
 
 Implemented as `platform::tc002::Tc002Mcu`, which reads only. The MCU also
 drives the panel's power rails, and sending commands whose meaning is a guess is

@@ -15,6 +15,7 @@
 #include "notrix/core/Log.h"
 #include "notrix/graphics/Framebuffer.h"
 #include "notrix/input/InputMapper.h"
+#include "notrix/input/Navigator.h"
 #include "notrix/json/Json.h"
 #include "notrix/mqtt/MqttService.h"
 #include "notrix/notify/Notifications.h"
@@ -139,6 +140,10 @@ public:
     /// than hard-coding a copy of the default mapping that then drifts.
     const input::InputMapper& inputMapper() const noexcept { return mapper_; }
 
+    /// Which mode the physical controls are pointed at, and what they are
+    /// pointed at inside it (ADR 0017).
+    const input::Navigator& navigator() const noexcept { return navigator_; }
+
     mqtt::MqttService& mqttService() noexcept { return mqtt_; }
     const mqtt::MqttService& mqttService() const noexcept { return mqtt_; }
     render::FrameScheduler& scheduler() noexcept { return scheduler_; }
@@ -206,7 +211,39 @@ private:
     app::Carousel carousel_;
     notify::NotificationQueue notifications_;
     asset::IconStore icons_;
+    /// Move brightness by `steps` of the configured step size, clamped, and
+    /// bring the panel back on if it was off.
+    void adjustBrightness(int steps);
+
+    /// Move volume by `steps`. Returns false when the platform has no speaker,
+    /// which is what lets settings hide the control rather than offer a dead
+    /// one (ADR 0013).
+    bool adjustVolume(int steps);
+
+    /// Apply an adjustment to whatever the navigator has selected.
+    void adjustCurrentSetting(int steps);
+
+    /// The knob press, inside settings: toggles what can be toggled.
+    void activateCurrentSetting();
+
+    /// Draw one setting, label and value, filling the panel.
+    void renderSettings(Canvas& canvas) const;
+
+    /// Draw the transient readout shown after − or + while browsing.
+    void renderAdjustment(Canvas& canvas) const;
+
+    /// How long the browsing adjustment readout stays up. Long enough to read
+    /// after the press that caused it, short enough not to hide the clock.
+    static constexpr std::uint64_t kAdjustmentReadoutMillis = 1200;
+
     input::InputMapper mapper_;
+    input::Navigator navigator_;
+
+    /// When the on-screen adjustment readout stops being drawn, or 0 when
+    /// nothing is showing. Pressing − or + while browsing has to show what
+    /// it changed: a brightness step is invisible in daylight and at night
+    /// it looks like the whole panel flickered for no reason.
+    std::uint64_t adjustmentShownUntilMillis_ = 0;
     render::FrameScheduler scheduler_;
 
     Framebuffer framebuffer_;

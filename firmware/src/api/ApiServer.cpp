@@ -352,7 +352,8 @@ Response ApiServer::handleDevice(const Request& request) {
         writer.member("audio", context_.platform->audio() != nullptr)
             .member("network", context_.platform->network() != nullptr)
             .member("reboot", context_.platform->rebooter() != nullptr)
-            .member("battery", context_.platform->power() != nullptr);
+            .member("battery", context_.platform->power() != nullptr)
+            .member("microphone", context_.platform->microphone() != nullptr);
     }
     writer.endObject();
 
@@ -374,6 +375,19 @@ Response ApiServer::handleDevice(const Request& request) {
         // what explains a percentage that moves when the cable does.
         if (status.chargingKnown) {
             writer.member("charging", status.charging);
+        }
+        writer.endObject();
+    }
+
+    // Same split as the battery, and for a sharper reason. A microphone that is
+    // present but has never delivered a sample is exactly what a TC002 looks
+    // like until it is switched on, and reporting only the capability turned
+    // that into a visualiser drawing a flat line and calling it silence.
+    if (context_.platform != nullptr && context_.platform->microphone() != nullptr) {
+        const platform::SoundLevel sound = context_.platform->microphone()->level();
+        writer.key("microphone").beginObject().member("known", sound.known);
+        if (sound.known) {
+            writer.member("amplitude", sound.amplitude);
         }
         writer.endObject();
     }

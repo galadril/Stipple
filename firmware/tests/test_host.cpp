@@ -6,6 +6,7 @@
 #include "notrix/apps/VisualizerApp.h"
 #include "notrix/asset/IconStore.h"
 #include "notrix/graphics/Canvas.h"
+#include "notrix/input/Navigator.h"
 #include "notrix/platform/simulator/SimulatorPlatform.h"
 #include "support/TestFramework.h"
 
@@ -50,6 +51,26 @@ void run(ApplicationHost& host, SimulatorPlatform& platform, std::uint64_t until
         platform.simulatedClock().advance(static_cast<std::uint64_t>(stepMillis));
         now = platform.simulatedClock().monotonicMillis();
     }
+}
+
+/// Hold the knob, which is the way into settings and back out (ADR 0017).
+void holdKnob(ApplicationHost& host, SimulatorPlatform& platform, std::uint64_t atMillis) {
+    platform.simulatedInput().pressAndRelease(RawInput::RotaryPress, atMillis, 900);
+    host.tick(atMillis + 1000);
+}
+
+/// Turn the knob until the named setting is selected, or give up rather than
+/// spin forever if it is not reachable.
+bool selectSetting(ApplicationHost& host, SimulatorPlatform& platform,
+                   notrix::input::SettingSlot slot, std::uint64_t atMillis) {
+    for (int i = 0; i < 8; ++i) {
+        if (host.navigator().current() == slot) {
+            return true;
+        }
+        platform.simulatedInput().rotate(true, atMillis + static_cast<std::uint64_t>(i) * 200u);
+        host.tick(atMillis + static_cast<std::uint64_t>(i) * 200u + 100u);
+    }
+    return host.navigator().current() == slot;
 }
 
 bool logContains(const ApplicationHost& host, const char* fragment) {
@@ -255,39 +276,92 @@ NOTRIX_TEST(Host, TimeKeepsRunningWhileTheDisplayIsOff) {
 
 // --- volume and brightness from the buttons ----------------------------------
 
-NOTRIX_TEST(Host, TappingPlusAndMinusChangesVolume) {
+NOTRIX_TEST(Host, TappingPlusAndMinusChangesBrightness) {
+    // These buttons used to tap volume. On hardware reporting no audio output
+    // that meant the two most obviously pressable controls on the device did
+    // nothing whatsoever - the same defect as a switch for a sensor that is not
+    // fitted. Brightness is the adjustment that always applies (ADR 0017).
     SimulatorPlatform platform;
     ApplicationHost host(platform, quietConfig());
     host.initialize();
 
-    const int start = static_cast<int>(host.settings().audio.volumePercent);
-    const int step = host.inputMapper().config().volumeStepPercent;
+    const int start = static_cast<int>(host.settings().display.brightness);
+    const int step = host.inputMapper().config().brightnessStep;
 
     platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
     host.tick(200);
-    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), start + step);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), start + step);
 
     platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 300, 50);
     host.tick(400);
-    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), start);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), start);
 }
 
-NOTRIX_TEST(Host, VolumeReachesTheSpeaker) {
+NOTRIX_TEST(Host, BrightnessFromTheButtonsReachesThePanel) {
+    // Changing the stored setting without telling the display would look
+    // exactly like a working control and do nothing at all.
     SimulatorPlatform platform;
     ApplicationHost host(platform, quietConfig());
-    host.settings().audio.volumePercent = 100;
-    host.initialize();  // re-reads config, so set it again below
+    host.initialize();
 
-    host.settings().audio.volumePercent = 40;
     platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
     host.tick(200);
 
-    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedAudio().volume()),
-                    static_cast<int>(notrix::config::volumeToByte(45)));
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()),
+                    static_cast<int>(host.settings().display.brightness));
 }
 
-NOTRIX_TEST(Host, VolumeStopsAtTheEnds) {
-    // Holding a button against the end of the range must not wrap around.
+NOTRIX_TEST(Host, VolumeReachesTheSpeakerThroughSettings) {
+    // Volume is no longer on a button; it lives in settings, where a device
+    // with no speaker can decline to offer it at all. The plumbing still has to
+    // work, so this drives the real path: hold the knob, turn to VOL, press +.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().audio.volumePercent = 40;
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+    NOTRIX_REQUIRE(selectSetting(host, platform, notrix::input::SettingSlot::Volume, 2000));
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 4000, 50);
+    host.tick(4100);
+
+    const int step = host.inputMapper().config().volumeStepPercent;
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 40 + step);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedAudio().volume()),
+                    static_cast<int>(notrix::config::volumeToByte(
+                        static_cast<std::uint8_t>(40 + step))));
+}
+
+NOTRIX_TEST(Host, ADeviceWithNoSpeakerDoesNotOfferVolume) {
+    // ADR 0013 on a panel this size: the honest way to show an absent
+    // capability is not to offer the control, rather than to offer one that
+    // silently does nothing. This is the defect that put volume on the buttons
+    // and left them dead.
+    // The simulator claims audio by default, which is how the old dead
+    // bindings survived: every test that pressed those buttons had a speaker,
+    // and the device does not.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = false;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+
+    NOTRIX_CHECK_FALSE(host.navigator().available(notrix::input::SettingSlot::Volume));
+    NOTRIX_CHECK_FALSE(selectSetting(host, platform, notrix::input::SettingSlot::Volume, 2000));
+}
+
+NOTRIX_TEST(Host, BrightnessStopsAtTheEnds) {
+    // Holding a button against the end of the range must not wrap around: a
+    // panel that goes from fully dark to fully bright on one more press reads
+    // as a fault.
     SimulatorPlatform platform;
     ApplicationHost host(platform, quietConfig());
     host.initialize();
@@ -297,14 +371,14 @@ NOTRIX_TEST(Host, VolumeStopsAtTheEnds) {
             RawInput::KeyMinus, static_cast<std::uint64_t>(i) * 100u + 100u, 50);
         host.tick(static_cast<std::uint64_t>(i) * 100u + 180u);
     }
-    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 0);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), 0);
 
     for (int i = 0; i < 40; ++i) {
         platform.simulatedInput().pressAndRelease(
             RawInput::KeyPlus, 10000u + static_cast<std::uint64_t>(i) * 100u, 50);
         host.tick(10000u + static_cast<std::uint64_t>(i) * 100u + 80u);
     }
-    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 100);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), 255);
 }
 
 NOTRIX_TEST(Host, HoldingPlusAndMinusChangesBrightness) {
@@ -1139,4 +1213,129 @@ NOTRIX_TEST(Host, AdjustingVolumeDoesNotReconfigureTheBroker) {
     NOTRIX_CHECK_FALSE(logContains(host, "MQTT"));
     NOTRIX_CHECK_FALSE(logContains(host, "safe mode"));
     NOTRIX_CHECK_EQ(host.logger().count(), before);
+}
+
+// --- navigating the device itself (ADR 0017) ---------------------------------
+
+NOTRIX_TEST(Host, TurningThePanelOffInSettingsDoesNotTrapTheUser) {
+    // Panel power is one of the settings, so honouring "off" while the menu is
+    // open would black out the only screen showing the control that turns it
+    // back on - a trap with no way out except finding a browser.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+    NOTRIX_REQUIRE(selectSetting(host, platform, notrix::input::SettingSlot::Power, 2000));
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 4000, 50);
+    host.tick(4100);
+    NOTRIX_CHECK_FALSE(host.settings().display.power);
+
+    // Still readable, because the menu is what is on screen.
+    run(host, platform, 4400);
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
+
+    // And + puts it back, from the same screen.
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 4500, 50);
+    host.tick(4600);
+    NOTRIX_CHECK(host.settings().display.power);
+}
+
+NOTRIX_TEST(Host, TheKnobMovesBetweenAppsOutsideSettingsAndSettingsInside) {
+    // The one rule the whole model rests on: a control means the same thing
+    // everywhere, and only what it points at changes.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    const std::string before = host.carousel().active()->id;
+
+    platform.simulatedInput().rotate(true, 500);
+    host.tick(600);
+    NOTRIX_CHECK(host.carousel().active()->id != before);
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+
+    const std::string parked = host.carousel().active()->id;
+    const notrix::input::SettingSlot start = host.navigator().current();
+
+    platform.simulatedInput().rotate(true, 2000);
+    host.tick(2100);
+
+    // The cursor moved; the carousel did not.
+    NOTRIX_CHECK(host.navigator().current() != start);
+    NOTRIX_CHECK_EQ(host.carousel().active()->id, parked);
+}
+
+NOTRIX_TEST(Host, BackLeavesSettingsBeforeAnythingElse) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMiddle, 2000, 50);
+    host.tick(2100);
+    NOTRIX_CHECK_FALSE(host.navigator().inSettings());
+}
+
+NOTRIX_TEST(Host, BackReturnsToTheClockWhenThereIsNothingToLeave) {
+    // The last step of "back", and the one that makes it predictable: wherever
+    // you are, pressing it enough times lands on the clock.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    NOTRIX_REQUIRE(host.carousel().activate(ApplicationHost::kBatteryAppId, 300));
+    NOTRIX_REQUIRE(host.carousel().active()->id != std::string(ApplicationHost::kClockAppId));
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMiddle, 500, 50);
+    host.tick(600);
+
+    NOTRIX_CHECK_EQ(host.carousel().active()->id, std::string(ApplicationHost::kClockAppId));
+}
+
+NOTRIX_TEST(Host, SettingsCloseThemselvesIfTheUserWalksAway) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+
+    run(host, platform, 2000 + notrix::input::Navigator::kIdleExitMillis, 100);
+    NOTRIX_CHECK_FALSE(host.navigator().inSettings());
+    NOTRIX_CHECK(logContains(host, "settings closed after idle"));
+}
+
+NOTRIX_TEST(Host, AdjustingBrightnessWhileBrowsingShowsWhatItChanged) {
+    // A brightness step is invisible in daylight and at night reads as the
+    // panel having glitched. A control with no feedback is indistinguishable
+    // from a broken one, which is how volume sat on these buttons doing
+    // nothing without anyone noticing.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+
+    const Framebuffer quiet = host.frame();
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 600, 50);
+    host.tick(700);
+    run(host, platform, 800);
+
+    NOTRIX_CHECK(host.frame() != quiet);
 }

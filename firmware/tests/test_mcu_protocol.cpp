@@ -103,32 +103,78 @@ NOTRIX_TEST(McuProtocol, TheVersionReplyIsReadAsAscii) {
     NOTRIX_CHECK_EQ(std::string(state.version), std::string("V1.0.17"));
 }
 
-NOTRIX_TEST(McuProtocol, NoCaptureEverDeliveredAMicrophoneLevel) {
-    // The whole reason the visualiser draws NO MIC on this hardware. Two
-    // captures — the vendor application, and 75 seconds with someone making
-    // noise at the device — contain 0x02 and 0x03 and nothing else. If a mic
-    // frame is ever found, this test is the one that should be deleted, and
-    // deleting it should require having seen the frame.
+NOTRIX_TEST(McuProtocol, TheMicrophoneSaysNothingUntilItIsSwitchedOn) {
+    // The reason three separate captures found no audio. The MCU streams levels
+    // only after kMicSwitch, and none of those captures had anything on screen
+    // that wanted sound - so "no microphone frame exists" looked like a fact
+    // about the hardware when it was a fact about what we had been watching.
     State state;
     for (const auto* frame : {&kStartup, &kBattery90, &kChargingOn, &kVersionReply}) {
         feed(state, *frame);
     }
-    NOTRIX_CHECK(!state.micKnown);
+    NOTRIX_CHECK_FALSE(state.micKnown);
 }
 
-NOTRIX_TEST(McuProtocol, AMicrophoneFrameWouldBeDecodedIfItArrived) {
-    // Decoding is kept even though nothing sends it, so that the day a capture
-    // shows one, the only change needed is in the adapter's advertisement.
-    std::vector<std::uint8_t> mic = {0xff, 0x55, 0x01, 0x02, 0x7d, 0x00, 0x00, 0x00};
-    unsigned sum = 0;
-    for (std::size_t i = 0; i + 2 < mic.size(); ++i) { sum += mic[i]; }
-    mic[6] = static_cast<std::uint8_t>((sum >> 8) & 0xff);
-    mic[7] = static_cast<std::uint8_t>(sum & 0xff);
+NOTRIX_TEST(McuProtocol, AMicrophoneLevelIsBigEndianAmplitude) {
+    // Captured from the vendor application with its visualiser on screen.
+    // 0x01a6 is 422 - a quiet room, which is what the room was.
+    const std::vector<std::uint8_t> level = {0xff, 0x55, 0x01, 0x02, 0x01, 0xa6, 0x01, 0xfe};
+    NOTRIX_CHECK(checksumValid(level.data(), static_cast<int>(level.size())));
 
     State state;
-    feed(state, mic);
+    feed(state, level);
     NOTRIX_CHECK(state.micKnown);
-    NOTRIX_CHECK_EQ(state.micAmplitude, 32000);
+    NOTRIX_CHECK_EQ(state.micAmplitude, 422);
+}
+
+NOTRIX_TEST(McuProtocol, TheMicrophoneSwitchMatchesWhatWasCaptured) {
+    // kMicOn and kMicOff are byte literals lifted from the wire, because a
+    // captured byte is evidence and a generated one is a belief. This is what
+    // stops the two drifting: if the checksum rule were wrong, the literals and
+    // the encoder would disagree here.
+    const std::uint8_t on = 0x01;
+    const std::uint8_t off = 0x00;
+
+    std::uint8_t built[8] = {};
+    int length = notrix::platform::tc002::mcu::encode(
+        built, sizeof(built), notrix::platform::tc002::mcu::kMicSwitch, &on, 1);
+    NOTRIX_CHECK_EQ(length, static_cast<int>(sizeof(notrix::platform::tc002::mcu::kMicOn)));
+    for (int i = 0; i < length; ++i) {
+        NOTRIX_CHECK_EQ(static_cast<int>(built[i]),
+                        static_cast<int>(notrix::platform::tc002::mcu::kMicOn[i]));
+    }
+
+    length = notrix::platform::tc002::mcu::encode(
+        built, sizeof(built), notrix::platform::tc002::mcu::kMicSwitch, &off, 1);
+    NOTRIX_CHECK_EQ(length, static_cast<int>(sizeof(notrix::platform::tc002::mcu::kMicOff)));
+    for (int i = 0; i < length; ++i) {
+        NOTRIX_CHECK_EQ(static_cast<int>(built[i]),
+                        static_cast<int>(notrix::platform::tc002::mcu::kMicOff[i]));
+    }
+
+    // And both are frames the decoder would accept, which the device has to be
+    // able to assume about anything we put on a link it also listens to.
+    NOTRIX_CHECK(checksumValid(notrix::platform::tc002::mcu::kMicOn,
+                               static_cast<int>(sizeof(notrix::platform::tc002::mcu::kMicOn))));
+    NOTRIX_CHECK(checksumValid(notrix::platform::tc002::mcu::kMicOff,
+                               static_cast<int>(sizeof(notrix::platform::tc002::mcu::kMicOff))));
+}
+
+NOTRIX_TEST(McuProtocol, TheVersionQueryLiteralAgreesWithTheEncoder) {
+    std::uint8_t built[8] = {};
+    const int length = notrix::platform::tc002::mcu::encode(
+        built, sizeof(built), notrix::platform::tc002::mcu::kVersion, nullptr, 0);
+    NOTRIX_CHECK_EQ(length, static_cast<int>(sizeof(notrix::platform::tc002::mcu::kVersionQuery)));
+    for (int i = 0; i < length; ++i) {
+        NOTRIX_CHECK_EQ(static_cast<int>(built[i]),
+                        static_cast<int>(notrix::platform::tc002::mcu::kVersionQuery[i]));
+    }
+}
+
+NOTRIX_TEST(McuProtocol, EncodingRefusesWhatWillNotFit) {
+    std::uint8_t tiny[4] = {};
+    const std::uint8_t payload = 1;
+    NOTRIX_CHECK_EQ(notrix::platform::tc002::mcu::encode(tiny, sizeof(tiny), 0x04, &payload, 1), 0);
 }
 
 NOTRIX_TEST(McuProtocol, FramesSplitAcrossReadsAreReassembled) {

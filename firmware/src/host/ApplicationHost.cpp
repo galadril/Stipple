@@ -183,11 +183,14 @@ bool ApplicationHost::initialize() {
         logger_.warn(startedAt, "safe mode: MQTT not started");
     }
 
+    // Volume is only offered where something can make a sound. On a 52x16
+    // panel the honest way to show an absent capability is to leave the control
+    // out, not to list one that does nothing (ADR 0013) - which is exactly what
+    // the old default bindings did by putting volume on the − / + taps of a
+    // device with no speaker.
+    navigator_.setAvailable(input::SettingSlot::Volume, platform_.audio() != nullptr);
     if (platform_.audio() == nullptr) {
-        // Said out loud because the default button mapping puts volume on the
-        // − / + taps: without a speaker those presses do nothing, and a silent
-        // no-op reads as broken hardware.
-        logger_.info(startedAt, "no audio output; volume controls will do nothing");
+        logger_.info(startedAt, "no audio output; volume is not offered in settings");
     }
 
     splashDetail_ = apps::splashDetail(kVersion, platform_.network());
@@ -333,14 +336,29 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
         // one. One detent, one app, however fast the wrist. Acceleration stays
         // where it earns its place, on brightness and volume below.
         case input::Action::AppNext:
+            // The knob means "move between things" in both modes; only the
+            // things differ (ADR 0017). Inside settings that is the cursor.
+            if (navigator_.inSettings()) {
+                navigator_.moveCursor(1, lastTickMillis_);
+                break;
+            }
             transitionDirection_ = render::TransitionDirection::Forward;
             carousel_.next(lastTickMillis_);
             break;
         case input::Action::AppPrevious:
+            if (navigator_.inSettings()) {
+                navigator_.moveCursor(-1, lastTickMillis_);
+                break;
+            }
             transitionDirection_ = render::TransitionDirection::Backward;
             carousel_.previous(lastTickMillis_);
             break;
         case input::Action::AppAction:
+            if (navigator_.inSettings()) {
+                activateCurrentSetting();
+                navigator_.noteActivity(lastTickMillis_);
+                break;
+            }
             carousel_.setPaused(!carousel_.paused());
             break;
         case input::Action::NotificationDismiss:
@@ -348,40 +366,55 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
                 carousel_.setPaused(!carousel_.paused());
             }
             break;
-        case input::Action::BrightnessUp:
-        case input::Action::BrightnessDown: {
-            const int step = mapper_.config().brightnessStep;
-            const int delta = action.action == input::Action::BrightnessUp ? step : -step;
-            int level = static_cast<int>(settings_.display.brightness) + delta * action.repeat;
-            level = level < 0 ? 0 : (level > 255 ? 255 : level);
-            settings_.display.brightness = static_cast<std::uint8_t>(level);
-            platform_.display().setBrightness(settings_.display.brightness);
-
-            // Turning the panel up is also the obvious way to ask for it back
-            // after switching it off, and leaving it dark would look like the
-            // button had failed.
-            if (level > 0) {
-                settings_.display.power = true;
-            }
-            break;
-        }
-        case input::Action::VolumeUp:
-        case input::Action::VolumeDown: {
-            // Silently ignored when the platform has no speaker: an absent
-            // capability is reported at boot rather than faked here (ADR 0013).
-            if (platform_.audio() == nullptr) {
+        case input::Action::Back:
+            // Always backwards, wherever it arrives from. Leaving settings
+            // first, then dismissing a notification, then returning to the
+            // clock - each step is one the user can see having happened, which
+            // is what stops a "back" button feeling like a coin toss.
+            if (navigator_.inSettings()) {
+                navigator_.exitSettings();
                 break;
             }
-            // Percent, because that is how a volume control reads to a person,
-            // converted once at the edge where the hardware wants 0-255.
-            const int step = mapper_.config().volumeStepPercent;
-            const int delta = action.action == input::Action::VolumeUp ? step : -step;
-            int percent = static_cast<int>(settings_.audio.volumePercent) + delta * action.repeat;
-            percent = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
-            settings_.audio.volumePercent = static_cast<std::uint8_t>(percent);
-            platform_.audio()->setVolume(config::volumeToByte(settings_.audio.volumePercent));
+            if (notifications_.dismissActive(lastTickMillis_)) {
+                break;
+            }
+            if (carousel_.activate(kClockAppId, lastTickMillis_)) {
+                transitionDirection_ = render::TransitionDirection::Backward;
+            }
+            break;
+        case input::Action::SettingsToggle:
+            navigator_.toggleSettings(lastTickMillis_);
+            break;
+        case input::Action::AdjustUp:
+        case input::Action::AdjustDown: {
+            const int direction = action.action == input::Action::AdjustUp ? 1 : -1;
+            const int steps = direction * action.repeat;
+            if (navigator_.inSettings()) {
+                adjustCurrentSetting(steps);
+                navigator_.noteActivity(lastTickMillis_);
+                break;
+            }
+            // Browsing: the thing being adjusted is the panel itself.
+            adjustBrightness(steps);
+            // Shown on screen because a brightness step is invisible in
+            // daylight and at night reads as the panel having glitched. A
+            // control with no feedback is indistinguishable from a broken one,
+            // which is what put volume on these buttons for so long without
+            // anyone noticing it did nothing.
+            adjustmentShownUntilMillis_ = lastTickMillis_ + kAdjustmentReadoutMillis;
             break;
         }
+        case input::Action::BrightnessUp:
+        case input::Action::BrightnessDown:
+            // Named rather than relative, so an API or MQTT caller with no
+            // on-device context still gets exactly what it asked for.
+            adjustBrightness((action.action == input::Action::BrightnessUp ? 1 : -1) *
+                             action.repeat);
+            break;
+        case input::Action::VolumeUp:
+        case input::Action::VolumeDown:
+            adjustVolume((action.action == input::Action::VolumeUp ? 1 : -1) * action.repeat);
+            break;
         case input::Action::None:
             break;
     }
@@ -400,6 +433,223 @@ void ApplicationHost::pumpInput(std::uint64_t nowMillis) {
     while (platform_.input().poll(event)) {
         handleInput(event);
     }
+}
+
+// --- adjustment ---------------------------------------------------------------
+
+void ApplicationHost::adjustBrightness(int steps) {
+    const int step = mapper_.config().brightnessStep;
+    int level = static_cast<int>(settings_.display.brightness) + step * steps;
+    level = level < 0 ? 0 : (level > 255 ? 255 : level);
+    settings_.display.brightness = static_cast<std::uint8_t>(level);
+    platform_.display().setBrightness(settings_.display.brightness);
+
+    // Turning the panel up is also the obvious way to ask for it back after
+    // switching it off, and leaving it dark would look like the button had
+    // failed.
+    if (level > 0) {
+        settings_.display.power = true;
+    }
+}
+
+bool ApplicationHost::adjustVolume(int steps) {
+    // Refused rather than faked when the platform has no speaker: an absent
+    // capability is reported at boot, not papered over here (ADR 0013). The
+    // return value is what lets settings hide the control entirely instead of
+    // offering one that does nothing.
+    if (platform_.audio() == nullptr) {
+        return false;
+    }
+    // Percent, because that is how a volume control reads to a person,
+    // converted once at the edge where the hardware wants 0-255.
+    const int step = mapper_.config().volumeStepPercent;
+    int percent = static_cast<int>(settings_.audio.volumePercent) + step * steps;
+    percent = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+    settings_.audio.volumePercent = static_cast<std::uint8_t>(percent);
+    platform_.audio()->setVolume(config::volumeToByte(settings_.audio.volumePercent));
+    return true;
+}
+
+void ApplicationHost::adjustCurrentSetting(int steps) {
+    if (steps == 0) {
+        return;
+    }
+    switch (navigator_.current()) {
+        case input::SettingSlot::Brightness:
+            adjustBrightness(steps);
+            break;
+        case input::SettingSlot::Power:
+            // A two-state value has no "more": either direction means the state
+            // the direction points at. Pressing + on a panel that is already on
+            // does nothing, which is the honest answer.
+            settings_.display.power = steps > 0;
+            break;
+        case input::SettingSlot::Overlay: {
+            const int count = render::kOverlayCount;
+            int index = 0;
+            const render::Overlay active = render::overlayFromName(settings_.display.overlay);
+            for (int i = 0; i < count; ++i) {
+                if (render::overlayAt(i) == active) {
+                    index = i;
+                    break;
+                }
+            }
+            // Wraps, because a list of five on a panel that shows one at a time
+            // should not have ends a user can get stuck against.
+            index = ((index + steps) % count + count) % count;
+            settings_.display.overlay = render::overlayName(render::overlayAt(index));
+            break;
+        }
+        case input::SettingSlot::Volume:
+            adjustVolume(steps);
+            break;
+        case input::SettingSlot::Count:
+            break;
+    }
+}
+
+void ApplicationHost::activateCurrentSetting() {
+    // The knob press "acts on the thing". For a toggle that means flipping it;
+    // for a value there is nothing to act on, and doing something anyway - a
+    // reset, a jump to a default - would be a hidden destructive gesture on the
+    // control people press most.
+    if (navigator_.current() == input::SettingSlot::Power) {
+        settings_.display.power = !settings_.display.power;
+    }
+}
+
+// --- the settings screen ------------------------------------------------------
+
+namespace {
+
+/// Write a non-negative integer into `out`, returning the length. Avoids
+/// snprintf in the render path, which blueprint §38 keeps allocation-free.
+int writeNumber(char* out, int capacity, int value) noexcept {
+    if (capacity < 2) {
+        return 0;
+    }
+    if (value <= 0) {
+        out[0] = '0';
+        out[1] = '\0';
+        return 1;
+    }
+    char reversed[12];
+    int digits = 0;
+    while (value > 0 && digits < static_cast<int>(sizeof(reversed))) {
+        reversed[digits++] = static_cast<char>('0' + value % 10);
+        value /= 10;
+    }
+    if (digits >= capacity) {
+        digits = capacity - 1;
+    }
+    for (int i = 0; i < digits; ++i) {
+        out[i] = reversed[digits - 1 - i];
+    }
+    out[digits] = '\0';
+    return digits;
+}
+
+/// A bar across the bottom two rows. On 52x16 a number alone is accurate and
+/// unreadable at arm's length; the bar is what makes "more" and "less" legible
+/// without reading anything.
+void drawBar(Canvas& canvas, int permille, Rgb filled, Rgb track) {
+    constexpr int kTop = Framebuffer::kHeight - 3;
+    canvas.fillRect(Rect{0, kTop, Framebuffer::kWidth, 2}, track);
+    if (permille < 0) { permille = 0; }
+    if (permille > 1000) { permille = 1000; }
+    const int width = (permille * Framebuffer::kWidth) / 1000;
+    if (width > 0) {
+        canvas.fillRect(Rect{0, kTop, width, 2}, filled);
+    }
+}
+
+}  // namespace
+
+void ApplicationHost::renderSettings(Canvas& canvas) const {
+    const input::SettingSlot slot = navigator_.current();
+
+    text::TextStyle label;
+    label.font = &text::font5x7();
+    label.color = colors::kWhite;
+    label.hAlign = text::HAlign::Left;
+    label.vAlign = text::VAlign::Top;
+    text::draw(canvas, input::settingLabel(slot), Rect{1, 1, 30, 8}, label);
+
+    char value[8] = {};
+    int permille = -1;
+    Rgb accent = colors::kCyan;
+
+    switch (slot) {
+        case input::SettingSlot::Brightness: {
+            const int level = static_cast<int>(settings_.display.brightness);
+            writeNumber(value, sizeof(value), level);
+            permille = (level * 1000) / 255;
+            break;
+        }
+        case input::SettingSlot::Power:
+            // "ON"/"OFF" rather than a bar: a two-state value drawn as a bar
+            // that is either full or empty reads as a broken slider.
+            value[0] = settings_.display.power ? 'O' : 'O';
+            value[1] = settings_.display.power ? 'N' : 'F';
+            value[2] = settings_.display.power ? '\0' : 'F';
+            accent = settings_.display.power ? colors::kGreen : colors::kOrange;
+            break;
+        case input::SettingSlot::Overlay: {
+            const char* name = render::overlayName(
+                render::overlayFromName(settings_.display.overlay));
+            int at = 0;
+            // Upper-cased into the fixed buffer: the font has one case, and the
+            // stored names are lower-case because config files are read by
+            // people too.
+            for (; name[at] != '\0' && at < static_cast<int>(sizeof(value)) - 1; ++at) {
+                const char c = name[at];
+                value[at] = (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
+            }
+            value[at] = '\0';
+            break;
+        }
+        case input::SettingSlot::Volume: {
+            const int percent = static_cast<int>(settings_.audio.volumePercent);
+            writeNumber(value, sizeof(value), percent);
+            permille = percent * 10;
+            break;
+        }
+        case input::SettingSlot::Count:
+            break;
+    }
+
+    text::TextStyle reading = label;
+    reading.color = accent;
+    reading.hAlign = text::HAlign::Right;
+    text::draw(canvas, value, Rect{20, 1, Framebuffer::kWidth - 21, 8}, reading);
+
+    if (permille >= 0) {
+        drawBar(canvas, permille, accent, rgb(30, 30, 30));
+    }
+}
+
+void ApplicationHost::renderAdjustment(Canvas& canvas) const {
+    // Brightness is the only thing − / + adjust while browsing, so the readout
+    // says so rather than showing a bare number that could be anything.
+    const int level = static_cast<int>(settings_.display.brightness);
+
+    // Painted over whatever the app drew, not blended with it: this is a
+    // momentary interruption and half-visible digits would be worse than none.
+    canvas.fillRect(Rect{0, Framebuffer::kHeight - 6, Framebuffer::kWidth, 6},
+                    colors::kBlack);
+
+    char value[8] = {};
+    writeNumber(value, sizeof(value), level);
+
+    text::TextStyle style;
+    style.font = &text::font5x7();
+    style.color = colors::kWhite;
+    style.hAlign = text::HAlign::Right;
+    style.vAlign = text::VAlign::Top;
+    text::draw(canvas, value, Rect{Framebuffer::kWidth - 22, Framebuffer::kHeight - 6, 20, 5},
+               style);
+
+    drawBar(canvas, (level * 1000) / 255, colors::kWhite, rgb(30, 30, 30));
 }
 
 // --- the loop ----------------------------------------------------------------
@@ -541,6 +791,13 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         mqtt_.tick(nowMillis);
     }
 
+    // Settings cannot outlive the user's attention: someone who walks away
+    // mid-adjustment would otherwise leave a clock showing "BRIGHT 168".
+    if (navigator_.tick(nowMillis)) {
+        logger_.info(nowMillis, "settings closed after idle");
+        scheduler_.invalidate();
+    }
+
     if (scheduler_.beginFrame(nowMillis)) {
         const std::uint64_t startedAt = platform_.clock().monotonicMillis();
 
@@ -549,12 +806,22 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         // Over the app, under the transition. Additive, so it only lights
         // pixels the app left dark - a raindrop passes behind the digits
         // rather than through them (DESIGN.md section 7).
-        if (settings_.display.power && !splashActive_) {
+        if (settings_.display.power && !splashActive_ && !navigator_.inSettings()) {
             const render::Overlay overlay =
                 render::overlayFromName(settings_.display.overlay);
             if (overlay != render::Overlay::None) {
                 render::drawOverlay(framebuffer_, overlay, nowMillis);
             }
+        }
+
+        // The transient readout after − or + while browsing. Composited here
+        // rather than inside renderFrame because every branch of that function
+        // returns as soon as it has drawn, and a readout that only appeared
+        // over some apps would be worse than none.
+        if (adjustmentShownUntilMillis_ > nowMillis && !navigator_.inSettings() &&
+            settings_.display.power && !splashActive_) {
+            Canvas readout(framebuffer_);
+            renderAdjustment(readout);
         }
 
         // Composited after rendering, never during it. renderFrame only ever
@@ -668,6 +935,17 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
 
     Canvas canvas(framebuffer_);
     canvas.clear();
+
+    // Settings come before the power check, deliberately.
+    //
+    // Panel power is one of the settings, so honouring "off" while the menu is
+    // open would black out the only screen showing the control that turns it
+    // back on - a trap with no way out except the web UI. The panel goes dark
+    // when settings are left, which is also when the user can see it happen.
+    if (navigator_.inSettings()) {
+        renderSettings(canvas);
+        return;
+    }
 
     // Display off. The panel is cleared and still presented, so it goes properly
     // dark rather than freezing on whatever was last drawn. Safe mode is checked
