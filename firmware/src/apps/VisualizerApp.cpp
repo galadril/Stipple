@@ -67,11 +67,19 @@ VisualizerStyleKind visualizerStyleFromName(std::string_view name) noexcept {
     if (name == "trace") {
         return VisualizerStyleKind::Trace;
     }
-    return VisualizerStyleKind::Meter;
+    if (name == "meter") {
+        return VisualizerStyleKind::Meter;
+    }
+    return VisualizerStyleKind::Wave;
 }
 
 const char* visualizerStyleName(VisualizerStyleKind kind) noexcept {
-    return kind == VisualizerStyleKind::Trace ? "trace" : "meter";
+    switch (kind) {
+        case VisualizerStyleKind::Trace: return "trace";
+        case VisualizerStyleKind::Meter: return "meter";
+        case VisualizerStyleKind::Wave:  break;
+    }
+    return "wave";
 }
 
 void Visualizer::push(int amplitude) noexcept {
@@ -147,6 +155,121 @@ int Visualizer::currentPermille() const noexcept {
     return levels_[newest];
 }
 
+
+namespace {
+
+/// sin(2*pi*i/64) scaled by 1000.
+///
+/// A table rather than <cmath>, for the reason every other number in this file
+/// is an integer: this runs per column, per frame, on a Cortex-A7, and the
+/// render path is the one place that should never surprise anybody.
+constexpr int kSineSteps = 64;
+constexpr int kSine[kSineSteps] = {
+        0,    98,   195,   290,   383,   471,   556,   634,
+      707,   773,   831,   882,   924,   957,   981,   995,
+     1000,   995,   981,   957,   924,   882,   831,   773,
+      707,   634,   556,   471,   383,   290,   195,    98,
+        0,   -98,  -195,  -290,  -383,  -471,  -556,  -634,
+     -707,  -773,  -831,  -882,  -924,  -957,  -981,  -995,
+    -1000,  -995,  -981,  -957,  -924,  -882,  -831,  -773,
+     -707,  -634,  -556,  -471,  -383,  -290,  -195,   -98,
+};
+
+/// How much of a cycle fits across the panel, in sixty-fourths per column.
+///
+/// 52 columns at 2 gives a little over one and a half cycles - enough to read
+/// as a wave rather than as a slope, without the crests crowding together at
+/// this width.
+constexpr int kWaveStepPerColumn = 2;
+
+/// Milliseconds for the wave to travel one full cycle when the room is quiet.
+/// Slow on purpose: idle motion should be something you notice only if you
+/// look at it.
+constexpr int kWavePeriodMillis = 2600;
+
+/// How much faster it travels at full volume, in thousandths. A loud room
+/// should look busier, which is most of what "playful" means here.
+constexpr int kWaveSpeedUpPermille = 1600;
+
+/// The shallowest the wave ever gets, in rows.
+///
+/// Not zero, and not one. A flat line is what this app draws when it cannot
+/// hear at all, and the two states should not look the same - so silence
+/// ripples and deafness is flat. One row was too subtle to read as either: at
+/// this amplitude integer rounding flattens every column except the crests,
+/// so a quiet room rendered as two straight lines.
+constexpr int kWaveIdleRows = 2;
+
+/// A travelling wave whose height follows the room.
+///
+/// Asked for after the meter, and it answers a different want: the meter is
+/// honest and still, this one is alive. Both draw the same single number, and
+/// neither pretends to be a waveform - there are no audio samples on this
+/// device to draw, only a loudness envelope about twenty times a second.
+void renderWave(Canvas& canvas, int permille, std::uint64_t nowMillis,
+                const VisualizerStyle& style) {
+    constexpr int kCentre = Framebuffer::kHeight / 2 - 1;
+    // One row is kept below the centre line for the mirror, so the crest can
+    // reach the top row without the trough falling off the bottom.
+    constexpr int kMaxRows = Framebuffer::kHeight / 2 - 1;
+
+    int rows = kWaveIdleRows + ((permille * (kMaxRows - kWaveIdleRows)) / 1000);
+    if (rows > kMaxRows) {
+        rows = kMaxRows;
+    }
+
+    // Faster when loud. Integer throughout: period shrinks as level rises.
+    const int speedPermille = 1000 + (permille * (kWaveSpeedUpPermille - 1000)) / 1000;
+    const int periodMillis = (kWavePeriodMillis * 1000) / (speedPermille > 0 ? speedPermille : 1000);
+    const int phase = periodMillis > 0
+                          ? static_cast<int>((nowMillis % static_cast<std::uint64_t>(periodMillis)) *
+                                             static_cast<std::uint64_t>(kSineSteps) /
+                                             static_cast<std::uint64_t>(periodMillis))
+                          : 0;
+
+    int previousY = -1;
+    for (int column = 0; column < Framebuffer::kWidth; ++column) {
+        const int index = (phase + column * kWaveStepPerColumn) % kSineSteps;
+        const int offset = (kSine[index] * rows) / 1000;
+        int y = kCentre - offset;
+        if (y < 0) { y = 0; }
+        if (y >= Framebuffer::kHeight) { y = Framebuffer::kHeight - 1; }
+
+        // Coloured by how far this point is from the centre, so a loud wave
+        // has hot crests and a quiet one stays cool - the same rule the other
+        // two styles use, applied to height rather than to level.
+        const int reach = offset < 0 ? -offset : offset;
+        const int reachPermille = kMaxRows > 0 ? (reach * 1000) / kMaxRows : 0;
+        const Rgb colour =
+            reachPermille >= style.peakPermille
+                ? style.peak
+                : mix(style.quiet, style.loud, (reachPermille * 1000) / style.peakPermille);
+
+        // Join to the previous column. Without this the curve breaks into
+        // dashes wherever it is steep, which at 16 rows is most of a loud one.
+        if (previousY >= 0) {
+            const int from = previousY < y ? previousY : y;
+            const int to = previousY < y ? y : previousY;
+            for (int fill = from; fill <= to; ++fill) {
+                canvas.pixel(column, fill, colour);
+            }
+        } else {
+            canvas.pixel(column, y, colour);
+        }
+
+        // The mirror, one row below the centre, dimmer. It costs nothing and
+        // turns a line into something that reads as a signal.
+        const int mirrorY = kCentre + 1 + offset;
+        if (mirrorY >= 0 && mirrorY < Framebuffer::kHeight) {
+            canvas.pixel(column, mirrorY, mix(style.baseline, colour, 550));
+        }
+
+        previousY = y;
+    }
+}
+
+}  // namespace
+
 /// The meter: a block rising from the bottom, with a peak marker above it.
 ///
 /// Asked for by the person living with the device, and right for the room it
@@ -199,7 +322,12 @@ void renderMeter(Canvas& canvas, int permille, int peak, const VisualizerStyle& 
 
 }  // namespace
 
-void Visualizer::render(Canvas& canvas, const VisualizerStyle& style) const {
+void Visualizer::render(Canvas& canvas, const VisualizerStyle& style,
+                        std::uint64_t nowMillis) const {
+    if (style.kind == VisualizerStyleKind::Wave) {
+        renderWave(canvas, currentPermille(), nowMillis, style);
+        return;
+    }
     if (style.kind == VisualizerStyleKind::Meter) {
         renderMeter(canvas, currentPermille(), peakHold_, style);
         return;

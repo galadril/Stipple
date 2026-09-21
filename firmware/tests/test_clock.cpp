@@ -790,9 +790,105 @@ NOTRIX_TEST(Visualizer, AnUnknownStyleNameFallsBackRatherThanFailing) {
 
     NOTRIX_CHECK(visualizerStyleFromName("trace") == VisualizerStyleKind::Trace);
     NOTRIX_CHECK(visualizerStyleFromName("meter") == VisualizerStyleKind::Meter);
-    // A config written by a newer build must still load.
-    NOTRIX_CHECK(visualizerStyleFromName("spectrum") == VisualizerStyleKind::Meter);
+    NOTRIX_CHECK(visualizerStyleFromName("wave") == VisualizerStyleKind::Wave);
+    // A config written by a newer build must still load, landing on whatever
+    // the current default is rather than failing.
+    NOTRIX_CHECK(visualizerStyleFromName("spectrum") == VisualizerStyleKind::Wave);
 
     NOTRIX_CHECK_EQ(std::string(visualizerStyleName(VisualizerStyleKind::Trace)), std::string("trace"));
     NOTRIX_CHECK_EQ(std::string(visualizerStyleName(VisualizerStyleKind::Meter)), std::string("meter"));
+    NOTRIX_CHECK_EQ(std::string(visualizerStyleName(VisualizerStyleKind::Wave)), std::string("wave"));
+}
+
+NOTRIX_TEST(Visualizer, TheWaveTravelsOverTime) {
+    notrix::apps::VisualizerStyle wave;  // the default
+
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 40; ++i) { viz.push(400); }
+    viz.push(8000);
+
+    notrix::Framebuffer first;
+    notrix::Canvas firstCanvas(first);
+    viz.render(firstCanvas, wave, 0);
+
+    notrix::Framebuffer later;
+    notrix::Canvas laterCanvas(later);
+    viz.render(laterCanvas, wave, 650);
+
+    NOTRIX_CHECK(first != later);
+}
+
+NOTRIX_TEST(Visualizer, TheWaveRipplesInSilenceButGoesFlatWithNoMicrophone) {
+    // The two states must not look the same. A device that cannot hear draws
+    // NO MIC; a quiet room draws a shallow wave, because an app that looks
+    // switched off whenever nobody is talking reads as broken.
+    notrix::apps::VisualizerStyle wave;
+
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 60; ++i) { viz.push(420); }
+
+    notrix::Framebuffer frame;
+    notrix::Canvas canvas(frame);
+    viz.render(canvas, wave, 0);
+
+    int lit = 0;
+    for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+            if (frame.at(x, y) != colors::kBlack) { ++lit; }
+        }
+    }
+    NOTRIX_CHECK(lit > 0);
+
+    // And it still moves when the room is quiet, so the panel looks awake.
+    notrix::Framebuffer later;
+    notrix::Canvas laterCanvas(later);
+    viz.render(laterCanvas, wave, 900);
+    NOTRIX_CHECK(frame != later);
+}
+
+NOTRIX_TEST(Visualizer, ALouderRoomMakesATallerWave) {
+    notrix::apps::VisualizerStyle wave;
+
+    // Against silence rather than against a second loud value: auto-gain
+    // deliberately brings any sustained level up to full height, so two loud
+    // rooms look alike and that is the feature, not a bug.
+    auto reach = [&](int loudness) {
+        notrix::apps::Visualizer viz;
+        for (int i = 0; i < 40; ++i) { viz.push(400); }
+        for (int i = 0; i < 4; ++i) { viz.push(400 + loudness); }
+
+        notrix::Framebuffer frame;
+        notrix::Canvas canvas(frame);
+        viz.render(canvas, wave, 0);
+
+        int top = notrix::Framebuffer::kHeight;
+        for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+            for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+                if (frame.at(x, y) != colors::kBlack && y < top) { top = y; }
+            }
+        }
+        return top;
+    };
+
+    // A taller wave reaches a smaller row number.
+    NOTRIX_CHECK(reach(20000) < reach(0));
+}
+
+NOTRIX_TEST(Visualizer, TheWaveStaysOnThePanel) {
+    // Integer trig and a mirror below the centre: the crest and the trough
+    // both have to land inside 16 rows at every amplitude and every phase.
+    notrix::apps::VisualizerStyle wave;
+
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 40; ++i) { viz.push(0); }
+
+    for (int loudness = 0; loudness <= 32000; loudness += 4000) {
+        viz.push(loudness);
+        for (std::uint64_t t = 0; t < 3000; t += 137) {
+            notrix::Framebuffer frame;
+            notrix::Canvas canvas(frame);
+            viz.render(canvas, wave, t);  // Canvas clips, so this asserts no crash
+            NOTRIX_CHECK(frame.at(0, 0) == frame.at(0, 0));
+        }
+    }
 }

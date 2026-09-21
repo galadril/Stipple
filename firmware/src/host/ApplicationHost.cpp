@@ -1043,7 +1043,7 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
             apps::VisualizerStyle visualizerStyle;
             visualizerStyle.kind =
                 apps::visualizerStyleFromName(settings_.visualizer.style);
-            visualizer_.render(canvas, visualizerStyle);
+            visualizer_.render(canvas, visualizerStyle, nowMillis);
             return;
         }
         case app::Builtin::Battery: {

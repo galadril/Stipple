@@ -18,6 +18,15 @@ namespace apps {
 /// Both are honest about the same single number - what differs is whether the
 /// panel shows the last few seconds or only now.
 enum class VisualizerStyleKind : std::uint8_t {
+    /// A travelling wave whose height follows the room. Playful, and the only
+    /// one of the three that is alive when nothing is happening - it keeps a
+    /// shallow ripple rather than flattening, so the app looks awake.
+    ///
+    /// The wave is decoration and the height is the measurement. Worth being
+    /// plain about: this hardware reports a loudness envelope about twenty
+    /// times a second, not audio samples, so nothing here is the waveform of
+    /// the sound in the room. The amplitude is real; the shape is a shape.
+    Wave,
     /// A level meter rising from the bottom, with a peak marker that hangs and
     /// falls. Nothing scrolls, so the panel is calm when the room is; a clock
     /// on a shelf should not be moving constantly.
@@ -36,7 +45,7 @@ VisualizerStyleKind visualizerStyleFromName(std::string_view name) noexcept;
 const char* visualizerStyleName(VisualizerStyleKind kind) noexcept;
 
 struct VisualizerStyle {
-    VisualizerStyleKind kind = VisualizerStyleKind::Meter;
+    VisualizerStyleKind kind = VisualizerStyleKind::Wave;
 
     /// Quiet, loud, and peak. The bar is coloured by how loud *that column*
     /// was, not by where it sits, so a burst stays red as it scrolls away and
@@ -88,7 +97,11 @@ public:
     /// listening rather than drawing a flatline that looks like silence.
     bool hasSamples() const noexcept { return filled_ > 0; }
 
-    void render(Canvas& canvas, const VisualizerStyle& style = VisualizerStyle{}) const;
+    /// `nowMillis` drives animation for the styles that have any. Passed in
+    /// rather than read from a clock so a test can render a chosen moment, and
+    /// so the wave's speed is independent of the frame rate.
+    void render(Canvas& canvas, const VisualizerStyle& style = VisualizerStyle{},
+                std::uint64_t nowMillis = 0) const;
 
     /// The gain window currently in use, for diagnostics and tests.
     int ceiling() const noexcept { return ceiling_; }
