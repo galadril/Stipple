@@ -232,6 +232,12 @@ private:
     /// Draw the transient readout shown after − or + while browsing.
     void renderAdjustment(Canvas& canvas) const;
 
+    /// The confirmation beep played when volume changes. A short mid tone:
+    /// high enough to carry from a small speaker, short enough that holding
+    /// the button does not turn into an alarm.
+    static constexpr int kVolumeFeedbackHz = 1000;
+    static constexpr int kVolumeFeedbackMillis = 60;
+
     /// How often the visualiser takes a column, in milliseconds.
     ///
     /// 52 columns at 100 ms is a little over five seconds of history on

@@ -195,6 +195,11 @@ int main(int argc, char** argv) {
         // battery app's source on the same single thread as everything else.
         platform.mcu().poll();
 
+        // Audio is fed here for the same reason the MCU is drained here: on
+        // the application loop, a frame at a time, never on a thread and never
+        // for longer than one frame's worth of work (blueprint §16).
+        platform.audio_out().tick();
+
         // The broker lives on the same thread as everything else, so nothing
         // arrives while a frame is half-rendered. MqttService owns reconnect
         // policy; this only pumps the socket.

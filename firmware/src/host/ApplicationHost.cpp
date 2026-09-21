@@ -467,6 +467,18 @@ bool ApplicationHost::adjustVolume(int steps) {
     percent = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
     settings_.audio.volumePercent = static_cast<std::uint8_t>(percent);
     platform_.audio()->setVolume(config::volumeToByte(settings_.audio.volumePercent));
+
+    // A short beep at the new level.
+    //
+    // Setting a volume you cannot hear is guesswork, and on a panel that shows
+    // one number at a time the number is the only feedback there would be.
+    // Every device with a volume control does this, for the same reason.
+    //
+    // Skipped at zero: a confirmation beep for "silence" is a contradiction,
+    // and it is the one setting where the absence of sound is the feedback.
+    if (percent > 0) {
+        platform_.audio()->playTone(kVolumeFeedbackHz, kVolumeFeedbackMillis);
+    }
     return true;
 }
 

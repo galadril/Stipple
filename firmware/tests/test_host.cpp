@@ -1394,3 +1394,50 @@ NOTRIX_TEST(Host, AdjustingBrightnessWhileBrowsingShowsWhatItChanged) {
 
     NOTRIX_CHECK(host.frame() != quiet);
 }
+
+NOTRIX_TEST(Host, ChangingVolumePlaysTheNewLevel) {
+    // Setting a volume you cannot hear is guesswork, and on a panel showing one
+    // number at a time the number is the only other feedback there would be.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    host.settings().audio.volumePercent = 40;
+    platform.simulatedAudio().clear();
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(selectSetting(host, platform, notrix::input::SettingSlot::Volume, 2000));
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 4000, 50);
+    host.tick(4100);
+
+    NOTRIX_CHECK(!platform.simulatedAudio().requests().empty());
+    NOTRIX_CHECK(platform.simulatedAudio().requests().front().isTone);
+}
+
+NOTRIX_TEST(Host, TurningVolumeDownToSilenceDoesNotBeep) {
+    // A confirmation beep for "silence" is a contradiction, and zero is the one
+    // setting where the absence of sound is itself the feedback.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    const int step = host.inputMapper().config().volumeStepPercent;
+    host.settings().audio.volumePercent = static_cast<std::uint8_t>(step);
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(selectSetting(host, platform, notrix::input::SettingSlot::Volume, 2000));
+    platform.simulatedAudio().clear();
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 4000, 50);
+    host.tick(4100);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 0);
+    NOTRIX_CHECK(platform.simulatedAudio().requests().empty());
+}

@@ -33,6 +33,7 @@ add_library(notrix_core
     src/input/Navigator.cpp
     src/json/Json.cpp
     src/scene/Scene.cpp
+    src/audio/Tone.cpp
     src/core/Base64.cpp
     src/core/Checksum.cpp
     src/core/Log.cpp
@@ -103,6 +104,7 @@ add_library(notrix::platform_simulator ALIAS notrix_platform_simulator)
 # violation a link error rather than a review comment.
 if(NOTRIX_DEVICE_BUILD)
     add_library(notrix_platform_tc002
+        src/platform/tc002/Tc002Audio.cpp
         src/platform/tc002/Tc002Display.cpp
         src/platform/tc002/Tc002HttpServer.cpp
         src/platform/tc002/Tc002Input.cpp
@@ -111,7 +113,7 @@ if(NOTRIX_DEVICE_BUILD)
         src/platform/tc002/Tc002Platform.cpp
     )
 
-    target_link_libraries(notrix_platform_tc002 PUBLIC notrix_core notrix_warnings)
+    target_link_libraries(notrix_platform_tc002 PUBLIC notrix_core notrix_warnings ${CMAKE_DL_LIBS})
 
     add_library(notrix::platform_tc002 ALIAS notrix_platform_tc002)
 endif()
@@ -156,6 +158,22 @@ if(NOTRIX_DEVICE_BUILD)
     target_link_libraries(notrix_hal_probe PRIVATE ${CMAKE_DL_LIBS} notrix_warnings)
 endif()
 
+# Asks the SigmaStar audio-out library what it is configured for. Read-only:
+# it sets nothing and plays nothing. Dynamic for the same reason as the HAL
+# probe - it dlopens a vendor library, which a static binary cannot do - so it
+# needs the bullseye toolchain.
+#
+# notrix_warnings is deliberately not linked: it carries -Wold-style-cast and
+# friends, which GCC reports as "valid for C++ but not for C", and the device
+# preset turns warnings into errors.
+if(NOTRIX_DEVICE_BUILD)
+    enable_language(C)
+    add_executable(notrix_audio_probe tools/audio_probe/main.c)
+    target_compile_options(notrix_audio_probe PRIVATE
+        -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
+    target_link_libraries(notrix_audio_probe PRIVATE ${CMAKE_DL_LIBS})
+endif()
+
 # The last unknown in the display protocol: channel order.
 #
 # The spidev capture settled the device node, the SPI mode, the 3072-byte frame
@@ -187,7 +205,25 @@ if(NOTRIX_DEVICE_BUILD)
         notrix_core
         notrix_platform_tc002
         notrix_warnings)
-    target_link_options(notrix_device PRIVATE -static)
+
+    # Dynamic, because the speaker is only reachable through a vendor library.
+    #
+    # Static linking was the right first answer: it removed every question
+    # about which glibc the device carries, and those questions cost days
+    # elsewhere. They are now answered - the device has 2.30, and the bullseye
+    # toolchain in tooling/cross/ produces executables it accepts.
+    #
+    # What static cannot do is dlopen, and /lib/libmi_ao.so is the only route
+    # to the speaker: there is no ALSA on this device and the vendor
+    # application reaches it the same way. A static binary would mean a device
+    # that can never make a sound.
+    #
+    # The cost is that notrix_device now depends on libraries that live on the
+    # device. That is a real dependency and it is on the device's own runtime,
+    # which is present on every unit that can run the stock application at all.
+    if(NOTRIX_DEVICE_STATIC)
+        target_link_options(notrix_device PRIVATE -static)
+    endif()
 endif()
 
 # NOTRIX core rendering on the real panel.

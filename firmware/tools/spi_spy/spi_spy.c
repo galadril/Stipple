@@ -285,9 +285,25 @@ int ioctl(int fd, unsigned long request, ...) {
         // spidev's ioctls carry magic 'k'. The direction, size and number are
         // all encoded in the request, and printing them raw avoids guessing at
         // which kernel's headers this device was built with.
+        const unsigned long size = (request >> 16) & 0x3FFF;
+        const unsigned long dir = (request >> 30) & 0x3;
         note("IOCTL fd=%d req=0x%08lx magic=%c nr=%lu size=%lu dir=%lu\n",
              fd, request, (char)((request >> 8) & 0xFF), (request & 0xFF),
-             (request >> 16) & 0x3FFF, (request >> 30) & 0x3);
+             size, dir);
+
+        // The payload, not just the request number.
+        //
+        // Knowing that MI_AO_SetPubAttr marshals a 56-byte struct says
+        // nothing about what is *in* it, and the whole reason to watch a
+        // vendor library is to avoid guessing at a layout and then writing
+        // the guess into a driver. These are bytes the device is known to
+        // accept.
+        //
+        // Bounded by the size the request itself declares, so a malformed
+        // request cannot walk off the end of whatever the caller passed.
+        if (argument != NULL && (dir & 1) != 0 && size > 0 && size <= MAX_BYTES) {
+            dump("  ARG", fd, (const unsigned char*)argument, (size_t)size);
+        }
         inside = 0;
     }
 

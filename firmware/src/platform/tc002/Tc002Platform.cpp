@@ -267,6 +267,12 @@ bool Tc002Platform::open() {
     // Optional: a clock with no battery reading is still a clock, so a failure
     // here reports absence rather than refusing to start.
     mcu_.open();
+
+    // Best effort, like the MCU. A device whose vendor audio library will
+    // not load is still a clock; it just reports no speaker, and every
+    // control that would have needed one disappears with it rather than
+    // going quiet (ADR 0013).
+    audio_.open();
     return true;
 }
 

@@ -10,6 +10,7 @@
 #include "notrix/platform/tc002/Tc002Display.h"
 #include "notrix/platform/tc002/Tc002HttpServer.h"
 #include "notrix/platform/tc002/Tc002Input.h"
+#include "notrix/platform/tc002/Tc002Audio.h"
 #include "notrix/platform/tc002/Tc002Mcu.h"
 #include "notrix/platform/tc002/Tc002MqttClient.h"
 
@@ -128,6 +129,11 @@ public:
     /// Same link, same poll: the MCU carries both battery and microphone.
     IMicrophone* microphone() override { return mcu_.isOpen() ? &mcu_ : nullptr; }
 
+    /// Non-null only once the vendor audio library has loaded and accepted a
+    /// configuration. A build that cannot dlopen - a static one - reports no
+    /// speaker rather than accepting sounds it will never make (ADR 0013).
+    IAudioOutput* audio() override { return audio_.isOpen() ? &audio_ : nullptr; }
+
     /// Non-null once start() has been called on it. Reported through the
     /// interface so core sees a transport appear exactly when one exists.
     IHttpServer* httpServer() override {
@@ -143,6 +149,11 @@ public:
     /// Concrete, because the MCU is polled from the loop like the transport.
     Tc002Mcu& mcu() noexcept { return mcu_; }
 
+    /// Concrete, because audio is fed from the loop a frame at a time rather
+    /// than queued: §16 says it must never block rendering, and a second of
+    /// sound is a hundred and twenty frames.
+    Tc002Audio& audio_out() noexcept { return audio_; }
+
     /// Concrete, because the transport is polled rather than threaded and
     /// IHttpServer has no poll() — see Tc002HttpServer for why.
     Tc002HttpServer& http() noexcept { return http_; }
@@ -154,6 +165,7 @@ private:
     Tc002Storage storage_;
     Tc002Network network_;
     Tc002Mcu mcu_;
+    Tc002Audio audio_;
     Tc002MqttClient mqtt_;
     Tc002HttpServer http_;
 };
