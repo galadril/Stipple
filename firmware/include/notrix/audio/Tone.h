@@ -25,7 +25,13 @@ public:
 
     /// Start a tone. Replaces whatever was playing: a device that queued beeps
     /// would fall behind the thing it is beeping about.
-    void start(int frequencyHz, int durationMillis) noexcept;
+    ///
+    /// `gainPermille` scales this one sound relative to the volume setting,
+    /// for sounds that should not be as loud as a deliberate beep. A clock
+    /// tick is the case it exists for: at the same level as a volume
+    /// confirmation it would be unbearable once a second, and turning the
+    /// whole device down instead would make everything else inaudible.
+    void start(int frequencyHz, int durationMillis, int gainPermille = 1000) noexcept;
 
     /// Stop immediately.
     void stop() noexcept { remaining_ = 0; }
@@ -60,6 +66,9 @@ private:
     std::uint32_t phaseStep_ = 0;
 
     int volumePercent_ = 60;
+
+    /// Per-sound scale, 0-1000. Reset by every start().
+    int gainPermille_ = 1000;
 
     /// Peak sample value at full volume.
     ///

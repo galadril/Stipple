@@ -24,11 +24,14 @@ constexpr int kSine[kSineSteps] = {
 
 }  // namespace
 
-void ToneGenerator::start(int frequencyHz, int durationMillis) noexcept {
+void ToneGenerator::start(int frequencyHz, int durationMillis,
+                          int gainPermille) noexcept {
     if (frequencyHz <= 0 || durationMillis <= 0 || sampleRate_ <= 0) {
         stop();
         return;
     }
+
+    gainPermille_ = gainPermille < 0 ? 0 : (gainPermille > 1000 ? 1000 : gainPermille);
 
     // Clamped rather than refused. A caller asking for 20 kHz on a 16 kHz
     // device has made a mistake, but silence is a worse answer than the
@@ -64,7 +67,7 @@ int ToneGenerator::fill(std::int16_t* samples, int count) noexcept {
     }
 
     const int written = remaining_ < count ? remaining_ : count;
-    const int level = (kAmplitude * volumePercent_) / 100;
+    const int level = ((kAmplitude * volumePercent_) / 100) * gainPermille_ / 1000;
 
     // Never longer than a quarter of the tone, so a very short beep still
     // fades rather than becoming one long ramp with no note in the middle.

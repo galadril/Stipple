@@ -1482,3 +1482,141 @@ NOTRIX_TEST(Host, TurningVolumeDownToSilenceDoesNotBeep) {
     NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 0);
     NOTRIX_CHECK(platform.simulatedAudio().requests().empty());
 }
+
+// --- sounds the device makes on its own behalf -------------------------------
+
+NOTRIX_TEST(Host, ANotificationAnnouncesItselfOnce) {
+    // Once, not once per frame. The sound marks an event arriving, and a
+    // notification that holds the panel for five seconds is one event.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+    platform.simulatedAudio().clear();
+
+    notrix::notify::Notification alert;
+    alert.id = "test";
+    alert.text = "HELLO";
+    host.notifications().push(alert, platform.simulatedClock().monotonicMillis());
+
+    run(host, platform, 2000);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedAudio().requests().size()), 1);
+    NOTRIX_CHECK_EQ(platform.simulatedAudio().requests().front().sound, std::string("chime"));
+}
+
+NOTRIX_TEST(Host, ANotificationCanNameItsOwnSound) {
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+    platform.simulatedAudio().clear();
+
+    notrix::notify::Notification alert;
+    alert.id = "test";
+    alert.text = "UP";
+    alert.sound = "alert";
+    host.notifications().push(alert, platform.simulatedClock().monotonicMillis());
+
+    run(host, platform, 2000);
+
+    NOTRIX_REQUIRE(!platform.simulatedAudio().requests().empty());
+    NOTRIX_CHECK_EQ(platform.simulatedAudio().requests().front().sound, std::string("alert"));
+}
+
+NOTRIX_TEST(Host, NotificationsCanBeSilent) {
+    // "none" is a real choice, and the reason the setting is a string rather
+    // than a bool: a clock in a bedroom should be able to say nothing.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().notifications.sound = "none";
+    run(host, platform, 200);
+    platform.simulatedAudio().clear();
+
+    notrix::notify::Notification alert;
+    alert.id = "quiet";
+    alert.text = "SHH";
+    host.notifications().push(alert, platform.simulatedClock().monotonicMillis());
+    run(host, platform, 2000);
+
+    NOTRIX_CHECK(platform.simulatedAudio().requests().empty());
+}
+
+NOTRIX_TEST(Host, TheClockTicksOnlyWhenAskedTo) {
+    // Off by default, and not out of timidity: a sound a device makes once a
+    // second without being asked is the easiest way to make somebody unplug it.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    platform.simulatedClock().setWallClock(1'700'000'000);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+    platform.simulatedAudio().clear();
+
+    NOTRIX_CHECK_FALSE(host.settings().clock.tick);
+
+    for (int i = 0; i < 5; ++i) {
+        platform.simulatedClock().setWallClock(1'700'000'000 + i);
+        run(host, platform, 1000 + static_cast<std::uint64_t>(i) * 200u);
+    }
+    NOTRIX_CHECK(platform.simulatedAudio().requests().empty());
+}
+
+NOTRIX_TEST(Host, WhenAskedTheClockAlternatesTickAndTock) {
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    platform.simulatedClock().setWallClock(1'700'000'000);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().clock.tick = true;
+    run(host, platform, 500);
+    platform.simulatedAudio().clear();
+
+    for (int i = 1; i <= 4; ++i) {
+        platform.simulatedClock().setWallClock(1'700'000'000 + i);
+        run(host, platform, 500 + static_cast<std::uint64_t>(i) * 200u);
+    }
+
+    const auto& played = platform.simulatedAudio().requests();
+    NOTRIX_REQUIRE(played.size() >= 2);
+    // Alternating, so a second sounds like a second rather than a repeated blip.
+    for (std::size_t i = 1; i < played.size(); ++i) {
+        NOTRIX_CHECK(played[i].sound != played[i - 1].sound);
+    }
+}
+
+NOTRIX_TEST(Host, TheClockDoesNotTickOverANotification) {
+    // Ticking under an alarm is being annoying for nobody's benefit.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    platform.simulatedClock().setWallClock(1'700'000'000);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().clock.tick = true;
+    host.settings().notifications.sound = "none";
+    run(host, platform, 500);
+
+    notrix::notify::Notification alert;
+    alert.id = "hold";
+    alert.text = "BUSY";
+    alert.hold = true;
+    host.notifications().push(alert, platform.simulatedClock().monotonicMillis());
+    run(host, platform, 700);
+    platform.simulatedAudio().clear();
+
+    for (int i = 1; i <= 4; ++i) {
+        platform.simulatedClock().setWallClock(1'700'000'000 + i);
+        run(host, platform, 700 + static_cast<std::uint64_t>(i) * 200u);
+    }
+    NOTRIX_CHECK(platform.simulatedAudio().requests().empty());
+}

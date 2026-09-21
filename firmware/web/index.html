@@ -207,6 +207,16 @@
             <select id="utcOffsetSeconds" data-setting="clock.utcOffsetSeconds"></select>
         </div>
     </div>
+    <div class="field">
+        <label class="check">
+            <input type="checkbox" id="clock-tick" data-setting="clock.tick">
+            Audible tick
+        </label>
+        <p class="help" id="clock-tick-help">
+            A quiet tick and tock once a second, only while the clock is on
+            screen. Off by default.
+        </p>
+    </div>
 </section>
 
 <section class="panel" id="panel-apps">
@@ -229,6 +239,21 @@
 </section>
 
 <section class="panel" id="panel-notify">
+    <h2>Sound</h2>
+    <div class="field">
+        <label for="notify-sound">Notification sound</label>
+        <select id="notify-sound" data-setting="notifications.sound">
+            <option value="none">Silent</option>
+            <option value="beep">Beep</option>
+            <option value="chime">Chime</option>
+            <option value="alert">Alert</option>
+        </select>
+        <p class="help" id="notify-sound-help">
+            Played when a notification appears, unless it asks for a different
+            one.
+        </p>
+    </div>
+
     <h2>Send a notification</h2>
     <div class="field">
         <label for="notify-text">Text</label>

@@ -541,6 +541,82 @@ void ApplicationHost::activateCurrentSetting() {
     // toggle.
 }
 
+// --- sounds the device makes on its own behalf -------------------------------
+
+void ApplicationHost::announceNotification() {
+    const notify::Notification* alert = notifications_.active();
+    if (alert == nullptr) {
+        // Forgotten deliberately: if the same notification is shown again
+        // later it is a new event to the person in the room, and should sound
+        // like one.
+        announcedSequence_ = 0;
+        return;
+    }
+    if (alert->sequence == announcedSequence_) {
+        return;  // already announced; this is the same one still on screen
+    }
+    announcedSequence_ = alert->sequence;
+
+    platform::IAudioOutput* speaker = platform_.audio();
+    if (speaker == nullptr) {
+        return;  // no speaker: silently, because absence is reported at boot
+    }
+
+    // A notification may name its own sound; otherwise the configured default
+    // applies. "none" is a real choice and the reason this is a string rather
+    // than a bool - a clock in a bedroom should be able to say nothing.
+    const std::string& sound =
+        alert->sound.empty() ? settings_.notifications.sound : alert->sound;
+    if (sound.empty() || sound == "none") {
+        return;
+    }
+    if (!speaker->playSound(sound)) {
+        // Named a sound this platform does not have. Worth a line in the log
+        // rather than silence: the caller believes it asked for something.
+        logger_.warn(lastTickMillis_, "unknown notification sound");
+    }
+}
+
+void ApplicationHost::tickTheClock() {
+    if (!settings_.clock.tick || splashActive_) {
+        return;
+    }
+
+    platform::IAudioOutput* speaker = platform_.audio();
+    if (speaker == nullptr) {
+        return;
+    }
+
+    // Only while the clock is actually on screen, and never over a
+    // notification. A device that ticks from inside a drawer, or under an
+    // alarm, is a device being annoying for no one's benefit.
+    const app::App* active = carousel_.active();
+    if (active == nullptr || active->builtin != app::Builtin::Clock ||
+        notifications_.active() != nullptr || !settings_.display.power) {
+        return;
+    }
+
+    const platform::ISystemClock& clock = platform_.clock();
+    if (!clock.wallClockValid()) {
+        return;  // nothing to tick in time with
+    }
+
+    const std::int64_t second = clock.unixSeconds();
+    if (second == lastTickedSecond_) {
+        return;
+    }
+    const bool first = lastTickedSecond_ == kNoSecond;
+    lastTickedSecond_ = second;
+    if (first) {
+        return;  // do not tick for the second we happened to arrive in
+    }
+
+    // Tick and tock alternate, so a second sounds like a second rather than
+    // like a repeated blip. Driven by the clock itself rather than a counter,
+    // so a skipped frame cannot swap them permanently.
+    speaker->playSound((second & 1) == 0 ? "tick" : "tock");
+}
+
 // --- the settings screen ------------------------------------------------------
 
 namespace {
@@ -804,6 +880,9 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
             carouselMoved = carousel_.tick(nowMillis);
         }
         const bool notificationsMoved = notifications_.tick(nowMillis);
+
+        announceNotification();
+        tickTheClock();
 
         // Only the redrawing stops. Without this a dark panel would re-render
         // black at the full frame rate, which is the one thing an off switch is

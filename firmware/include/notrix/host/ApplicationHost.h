@@ -226,6 +226,12 @@ private:
     /// The knob press, inside settings: toggles what can be toggled.
     void activateCurrentSetting();
 
+    /// Play a notification's sound, once, when it first appears.
+    void announceNotification();
+
+    /// The optional once-a-second clock tick.
+    void tickTheClock();
+
     /// Draw one setting, label and value, filling the panel.
     void renderSettings(Canvas& canvas) const;
 
@@ -272,6 +278,14 @@ private:
     /// changed" and not "what", and − / + reach two different things depending
     /// on whether this device has a speaker.
     bool adjustmentIsVolume_ = false;
+
+    /// Sequence of the notification already announced, so a sound plays once
+    /// when it appears rather than on every frame it is showing.
+    std::uint32_t announcedSequence_ = 0;
+
+    /// Wall-clock second the last tick was played for.
+    static constexpr std::int64_t kNoSecond = -1;
+    std::int64_t lastTickedSecond_ = kNoSecond;
     render::FrameScheduler scheduler_;
 
     Framebuffer framebuffer_;

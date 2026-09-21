@@ -131,11 +131,29 @@ struct ClockSettings {
 
     /// Colon blink period in milliseconds; 0 holds it lit.
     std::uint32_t blinkPeriodMillis = 1000;
+
+    /// An audible tick, once a second, while the clock is on screen.
+    ///
+    /// Off by default, and that is not timidity: a sound a device makes once a
+    /// second without being asked is the single easiest way to make somebody
+    /// unplug it. Someone who wants a ticking clock will go and find this;
+    /// nobody who does not want one should have to.
+    ///
+    /// Silently ignored where there is no speaker, like every other sound.
+    bool tick = false;
 };
 
 /// The audio visualiser's own settings. The first app to have any, and the
 /// shape the rest should follow: one struct per app, named for the app, rather
 /// than a flat pile of fields on Config.
+/// Sounds the device makes on its own behalf.
+struct NotificationSettings {
+    /// Played when a notification appears and does not name its own sound.
+    /// "none" keeps the device silent, which is what a clock in a bedroom
+    /// wants. By name, for the same reason every other choice here is.
+    std::string sound = "chime";
+};
+
 struct VisualizerSettings {
     /// "meter" or "trace", by name for the same reason the clock face is: an
     /// enum ordinal in a config file is unreadable, and renumbering it silently
@@ -152,6 +170,7 @@ struct Config {
     MqttSettings mqtt;
     AppSettings apps;
     ClockSettings clock;
+    NotificationSettings notifications;
     VisualizerSettings visualizer;
 };
 

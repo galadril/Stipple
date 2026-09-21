@@ -294,8 +294,15 @@
             // A device without a speaker should say so rather than offer a
             // volume slider that silently does nothing.
             if (can.audio === false) {
+                // Everything that needs a speaker says so in the same place
+                // and the same way, rather than one control going quiet and
+                // the rest pretending.
                 $('volume').disabled = true;
                 $('volume-help').textContent = 'This device has no speaker.';
+                $('notify-sound').disabled = true;
+                $('notify-sound-help').textContent = 'This device has no speaker.';
+                $('clock-tick').disabled = true;
+                $('clock-tick-help').textContent = 'This device has no speaker.';
             }
             if (can.reboot === false) {
                 $('reboot').disabled = true;

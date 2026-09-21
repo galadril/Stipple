@@ -186,6 +186,12 @@ std::string buildBody(const Config& config) {
     appendEscaped(body, config.clock.dateYear);
     body += ",\"blinkPeriodMillis\":";
     body += std::to_string(config.clock.blinkPeriodMillis);
+    body += ",\"tick\":";
+    body += config.clock.tick ? "true" : "false";
+    body += '}';
+
+    body += ",\"notifications\":{\"sound\":";
+    appendEscaped(body, config.notifications.sound);
     body += '}';
 
     body += ",\"visualizer\":{\"style\":";
@@ -312,6 +318,10 @@ bool ConfigStore::deserialize(std::string_view payload,
         apps["defaultDurationSeconds"].toInt(parsed.apps.defaultDurationSeconds));
     parsed.apps.transitions = apps["transitions"].toBool(parsed.apps.transitions);
 
+    const json::Value notifications = body["notifications"];
+    parsed.notifications.sound =
+        notifications["sound"].toString(parsed.notifications.sound);
+
     const json::Value visualizer = body["visualizer"];
     parsed.visualizer.style = visualizer["style"].toString(parsed.visualizer.style);
 
@@ -322,6 +332,7 @@ bool ConfigStore::deserialize(std::string_view payload,
     parsed.clock.theme = clock["theme"].toString(parsed.clock.theme);
     parsed.clock.leadingZero = clock["leadingZero"].toBool(parsed.clock.leadingZero);
     parsed.clock.showAmPm = clock["showAmPm"].toBool(parsed.clock.showAmPm);
+    parsed.clock.tick = clock["tick"].toBool(parsed.clock.tick);
 
     // A colour that will not parse keeps the default rather than failing the
     // load. Configuration recovery exists so one bad field cannot cost the user

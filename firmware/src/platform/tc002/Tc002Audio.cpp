@@ -185,6 +185,17 @@ bool Tc002Audio::playSound(std::string_view name) {
         tone_.start(1320, 180);
     } else if (name == "alert") {
         tone_.start(660, 400);
+    } else if (name == "tick") {
+        // Short and quiet, and deliberately not as loud as anything a button
+        // does. This plays once a second for as long as the clock is on
+        // screen, and the difference between charming and maddening is
+        // entirely in how far under the rest of the device it sits.
+        tone_.start(2200, 10, 180);
+    } else if (name == "tock") {
+        // A shade lower, so a second sounds like a second rather than like a
+        // repeated blip. Real clocks do this because the escapement is not
+        // symmetric; here it is on purpose.
+        tone_.start(1800, 10, 180);
     } else {
         return false;
     }

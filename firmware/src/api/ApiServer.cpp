@@ -129,6 +129,11 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .member("dateSeparator", settings.clock.dateSeparator)
         .member("dateYear", settings.clock.dateYear)
         .member("blinkPeriodMillis", static_cast<int>(settings.clock.blinkPeriodMillis))
+        .member("tick", settings.clock.tick)
+        .endObject()
+        .key("notifications")
+        .beginObject()
+        .member("sound", settings.notifications.sound)
         .endObject()
         .key("visualizer")
         .beginObject()
@@ -1169,6 +1174,12 @@ Response ApiServer::handleSettings(const Request& request) {
         }
     }
 
+    if (const json::Value notifications = root["notifications"]; notifications.isObject()) {
+        if (const json::Value sound = notifications["sound"]; sound.isString()) {
+            updated.notifications.sound = sound.toString();
+        }
+    }
+
     if (const json::Value visualizer = root["visualizer"]; visualizer.isObject()) {
         if (const json::Value style = visualizer["style"]; style.isString()) {
             // Only accept names that round-trip, for the same reason the clock
@@ -1185,6 +1196,9 @@ Response ApiServer::handleSettings(const Request& request) {
     if (const json::Value clock = root["clock"]; clock.isObject()) {
         if (const json::Value twentyFour = clock["twentyFourHour"]; twentyFour.isBoolean()) {
             updated.clock.twentyFourHour = twentyFour.toBool(true);
+        }
+        if (const json::Value tick = clock["tick"]; tick.isBoolean()) {
+            updated.clock.tick = tick.toBool(false);
         }
         if (const json::Value theme = clock["theme"]; theme.isString()) {
             // Only accept names that round-trip. Falling back silently would
