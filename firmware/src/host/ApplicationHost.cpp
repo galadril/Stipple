@@ -716,7 +716,18 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
             apps::renderClock(canvas, platform_.clock(), clockStyle());
             return;
         case app::Builtin::Visualizer: {
-            if (platform_.microphone() == nullptr) {
+            // A present IMicrophone is not the same as a working one, and on
+            // the TC002 the difference is the whole bug: the adapter offers
+            // itself as a microphone as soon as the MCU serial port opens,
+            // then never receives an audio frame. The pointer check passed,
+            // no sample was ever pushed, and the app drew its baseline - a
+            // flat line that reads as a silent room rather than as a device
+            // that cannot hear.
+            //
+            // Asking whether anything has actually been heard covers both
+            // cases honestly. ADR 0013 is about exactly this: absence should
+            // be visible, not dressed up as a plausible value.
+            if (platform_.microphone() == nullptr || !visualizer_.hasSamples()) {
                 apps::renderNoMicrophone(canvas, colors::kWhite);
                 return;
             }

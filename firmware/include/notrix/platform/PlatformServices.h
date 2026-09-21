@@ -61,6 +61,20 @@ struct BatteryStatus {
     /// two answer different questions: the percentage is what a user wants, and
     /// the voltage is what tells you whether to believe it.
     int millivolts = 0;
+
+    /// False means this platform cannot tell whether it is charging, which is
+    /// not the same as knowing it is not. Kept separate from `charging` for
+    /// the same reason `known` is separate from `percent`.
+    bool chargingKnown = false;
+
+    /// True while external power is connected.
+    ///
+    /// Worth reporting on its own, and also the explanation for a percentage
+    /// that appears to jump: a voltage-derived gauge sags under load and
+    /// recovers when the cable goes back in. Measured on a TC002, the same
+    /// cell read 3158 mV plugged and 3114 mV unplugged - enough to move the
+    /// reported charge by several percent without anything having changed.
+    bool charging = false;
 };
 
 /// Battery state.

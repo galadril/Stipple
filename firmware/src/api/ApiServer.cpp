@@ -369,6 +369,12 @@ Response ApiServer::handleDevice(const Request& request) {
             // cannot.
             writer.member("millivolts", status.millivolts);
         }
+        // Reported independently of `known`: a platform can know it is on
+        // external power without having a charge reading yet, and the flag is
+        // what explains a percentage that moves when the cable does.
+        if (status.chargingKnown) {
+            writer.member("charging", status.charging);
+        }
         writer.endObject();
     }
 

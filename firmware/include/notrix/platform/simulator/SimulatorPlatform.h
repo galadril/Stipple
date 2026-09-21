@@ -160,6 +160,13 @@ public:
     }
     void forget() { status_ = BatteryStatus{}; }
 
+    /// Drive the charge state independently of the percentage, so a test can
+    /// reproduce a device that knows it is plugged in but has no reading yet.
+    void setCharging(bool charging) {
+        status_.chargingKnown = true;
+        status_.charging = charging;
+    }
+
 private:
     BatteryStatus status_;
 };

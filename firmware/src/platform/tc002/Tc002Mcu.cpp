@@ -10,18 +10,6 @@
 namespace notrix {
 namespace platform {
 namespace tc002 {
-namespace {
-
-constexpr std::uint8_t kHeader0 = 0xff;
-constexpr std::uint8_t kHeader1 = 0x55;
-
-/// header(2) + cmd(1) + len(1) + payload(len) + trailer(2)
-constexpr int kOverhead = 6;
-
-/// The version query the vendor application sends, byte for byte.
-constexpr std::uint8_t kVersionQuery[] = {0xff, 0x55, 0x11, 0x00, 0x01, 0x65};
-
-}  // namespace
 
 Tc002Mcu::~Tc002Mcu() { close(); }
 
@@ -57,7 +45,7 @@ bool Tc002Mcu::open(const char* devicePath) {
     // Asking the version is how we know the link works at all. Nothing depends
     // on the answer, but a device that cannot answer it is one whose telemetry
     // should not be trusted either.
-    ::write(fd_, kVersionQuery, sizeof(kVersionQuery));
+    ::write(fd_, mcu::kVersionQuery, sizeof(mcu::kVersionQuery));
     return true;
 }
 
@@ -67,45 +55,9 @@ void Tc002Mcu::close() noexcept {
         fd_ = -1;
     }
     held_ = 0;
-    batteryKnown_ = false;
-    micKnown_ = false;
-}
-
-void Tc002Mcu::consume(const std::uint8_t* frame, int length) noexcept {
-    const std::uint8_t command = frame[2];
-    const int payloadLength = frame[3];
-    const std::uint8_t* payload = frame + 4;
-
-    if (command == kTelemetry && payloadLength >= 3) {
-        const std::uint8_t raw = payload[0];
-        // Anything outside 0-100 is not a percentage, so the whole frame is
-        // discarded rather than clamped: clamping 200 to 100 would invent a
-        // full battery, and a frame with a nonsense percentage is not a frame
-        // whose voltage should be trusted either.
-        if (raw <= 100) {
-            batteryPercent_ = static_cast<int>(raw);
-            batteryMillivolts_ = (static_cast<int>(payload[1]) << 8) |
-                                 static_cast<int>(payload[2]);
-            batteryKnown_ = true;
-        }
-        return;
-    }
-
-    if (command == kMicLevel && payloadLength >= 2) {
-        micAmplitude_ = (static_cast<int>(payload[0]) << 8) | static_cast<int>(payload[1]);
-        micKnown_ = true;
-        return;
-    }
-
-    if (command == kVersion && payloadLength > 0) {
-        const int copy = payloadLength < static_cast<int>(sizeof(version_)) - 1
-                             ? payloadLength
-                             : static_cast<int>(sizeof(version_)) - 1;
-        std::memcpy(version_, payload, static_cast<std::size_t>(copy));
-        version_[copy] = '\0';
-    }
-
-    (void)length;
+    // Everything decoded is forgotten along with the port. A percentage from
+    // before a link went away is not a reading, it is a memory.
+    state_ = mcu::State{};
 }
 
 void Tc002Mcu::poll() {
@@ -133,39 +85,30 @@ void Tc002Mcu::poll() {
         std::memcpy(buffer_ + held_, chunk, static_cast<std::size_t>(got));
         held_ += static_cast<int>(got);
 
-        int at = 0;
-        while (at + 4 <= held_) {
-            if (buffer_[at] != kHeader0 || buffer_[at + 1] != kHeader1) {
-                ++at;
-                continue;
-            }
-            const int total = kOverhead + buffer_[at + 3];
-            if (at + total > held_) {
-                break;  // the rest is still on the wire
-            }
-            consume(buffer_ + at, total);
-            at += total;
-        }
-
-        if (at > 0) {
-            std::memmove(buffer_, buffer_ + at, static_cast<std::size_t>(held_ - at));
-            held_ -= at;
+        const int consumed =
+            mcu::walk(state_, buffer_, held_, static_cast<int>(sizeof(buffer_)));
+        if (consumed > 0) {
+            std::memmove(buffer_, buffer_ + consumed,
+                         static_cast<std::size_t>(held_ - consumed));
+            held_ -= consumed;
         }
     }
 }
 
 SoundLevel Tc002Mcu::level() const {
     SoundLevel sound;
-    sound.known = micKnown_;
-    sound.amplitude = micAmplitude_;
+    sound.known = state_.micKnown;
+    sound.amplitude = state_.micAmplitude;
     return sound;
 }
 
 BatteryStatus Tc002Mcu::battery() const {
     BatteryStatus status;
-    status.known = batteryKnown_;
-    status.percent = batteryPercent_;
-    status.millivolts = batteryMillivolts_;
+    status.known = state_.batteryKnown;
+    status.percent = state_.percent;
+    status.millivolts = state_.millivolts;
+    status.chargingKnown = state_.chargingKnown;
+    status.charging = state_.charging;
     return status;
 }
 

@@ -446,6 +446,33 @@ NOTRIX_TEST(Battery, ChargeChangesWhatIsDrawn) {
     NOTRIX_CHECK(render(3) != render(0));
 }
 
+NOTRIX_TEST(Battery, ChargingLooksDifferentFromDischargingAtTheSamePercent) {
+    // Measured on a TC002: the same cell reads ~3160 mV on the cable and
+    // ~3115 mV off it, which moves the MCU's voltage-derived percentage by
+    // several points. Without a charge indicator that looks like the gauge
+    // inventing numbers; with one it reads as a battery under load, which is
+    // what it is.
+    auto render = [](bool chargingKnown, bool charging) {
+        notrix::platform::BatteryStatus status;
+        status.known = true;
+        status.percent = 80;
+        status.chargingKnown = chargingKnown;
+        status.charging = charging;
+        Framebuffer frame;
+        Canvas canvas(frame);
+        notrix::apps::renderBattery(canvas, status, notrix::apps::BatteryStyle{});
+        return frame;
+    };
+
+    NOTRIX_CHECK(render(true, true) != render(true, false));
+
+    // A platform that cannot tell must look like one that is not charging,
+    // never like one that is: an invented bolt is the same class of lie as an
+    // invented percentage.
+    NOTRIX_CHECK(render(false, false) == render(true, false));
+    NOTRIX_CHECK(render(false, true) == render(true, false));
+}
+
 NOTRIX_TEST(Battery, OutOfRangeChargeIsClampedNotWrapped) {
     auto render = [](int percent) {
         notrix::platform::BatteryStatus status;

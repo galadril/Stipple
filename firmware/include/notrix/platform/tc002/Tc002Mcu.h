@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "notrix/platform/PlatformServices.h"
+#include "notrix/platform/tc002/McuProtocol.h"
 
 namespace notrix {
 namespace platform {
@@ -14,15 +15,10 @@ namespace tc002 {
 /// There is no /sys/class/power_supply, no hwmon and no IIO on the TC002 — all
 /// three were checked. The MCU is it.
 ///
-/// Protocol, decoded from a capture of the vendor application and confirmed by
-/// asking the MCU ourselves:
-///
-///     ff 55 <cmd> <len> <payload[len]> <trailer[2]>
-///
-///     -> ff 55 11 00 01 65                     ask the version
-///     <- ff 55 11 07 56 31 2e 30 2e 31 37 ..   "V1.0.17" in ASCII
-///     <- ff 55 03 03 5a 0c 4e 02 0e            telemetry, pushed unprompted
-///     <- ff 55 02 01 01 01 58                  a flag, always 1 so far
+/// This class owns the serial port and nothing else. What the bytes mean lives
+/// in McuProtocol.h, where it can be tested on the host; a wire format decoded
+/// from captures is exactly the code that should not be trapped inside a file
+/// only the device can compile.
 ///
 /// **Command 0x03 is battery**, and its three payload bytes are:
 ///
@@ -35,31 +31,36 @@ namespace tc002 {
 /// The layout above is the third-party port's, read for the field mapping
 /// only - a fact about Ulanzi's MCU, not their expression of it.
 ///
-/// It also settles bytes 1 and 2, which had been written off as an undecoded
-/// fast-moving value. 0c 54 is 3156 mV, 0c 4e is 3150 mV, 0c 49 is 3145 mV:
-/// one cell wobbling by a few millivolts, not a second sensor.
+/// **Command 0x02 is the charge state**, which had been dismissed here as "a
+/// flag, always 1". It is always 1 when every capture is taken over USB. A
+/// 75-second capture with the cable deliberately pulled settles it: 01, then
+/// 00 the moment it came out, then 01 again on reconnect — and the reported
+/// voltage sagged from ~3160 mV to ~3115 mV across exactly that window, which
+/// also explains a percentage that appears to jump by several points when
+/// nothing about the battery has changed.
+///
+/// **There is no confirmed microphone command.** A constant here once claimed
+/// 0x01 carried a level and had been seen while the stock visualiser ran. No
+/// capture in this repository supports that and two contradict it: a trace of
+/// the vendor application and a listen taken while someone made noise at the
+/// device both contain 0x02 and 0x03 and nothing else. The vendor application
+/// also writes nothing to this link but the version query, so if audio must be
+/// asked for, we have not seen the asking. Until a capture taken with the
+/// stock visualiser actually on screen shows otherwise, this device reports
+/// that it cannot hear.
 ///
 /// Read-only beyond the version handshake. The MCU also drives the panel's
 /// power rails, and writing commands whose meaning is a guess is not worth a
 /// clock.
 class Tc002Mcu final : public IPowerSource, public IMicrophone {
 public:
-    /// Command byte carrying the microphone level.
-    ///
-    /// Found by tracing the stock app while its audio visualiser ran: this
-    /// frame arrives at roughly 22 Hz and appears nowhere else, which is
-    /// why it had never been seen. The payload is a big-endian 16-bit
-    /// amplitude - a quiet room reads a few hundred, a clap reaches 32000.
-    ///
-    /// This is the whole microphone. There is no capture device, no
-    /// libmi_ai.so, and nothing new opens when the visualiser starts: the
-    /// level comes over the MCU link or not at all.
-    static constexpr std::uint8_t kMicLevel = 0x01;
-
-    /// Command byte carrying periodic telemetry.
-    static constexpr std::uint8_t kTelemetry = 0x03;
-    /// Command byte for the version handshake.
-    static constexpr std::uint8_t kVersion = 0x11;
+    /// The protocol constants live in McuProtocol.h, which is where the
+    /// decoding they belong to is. Re-exported here because callers and tests
+    /// reach for them on this class.
+    static constexpr std::uint8_t kMicLevel = mcu::kMicLevel;
+    static constexpr std::uint8_t kCharging = mcu::kCharging;
+    static constexpr std::uint8_t kTelemetry = mcu::kBattery;
+    static constexpr std::uint8_t kVersion = mcu::kVersion;
 
     ~Tc002Mcu() override;
 
@@ -77,26 +78,26 @@ public:
     SoundLevel level() const override;
 
     /// MCU firmware string, once it has answered. Empty until then.
-    const char* version() const noexcept { return version_; }
+    const char* version() const noexcept { return state_.version; }
 
 private:
-    void consume(const std::uint8_t* frame, int length) noexcept;
-
     int fd_ = -1;
 
     /// Partial frames live here between polls. Bounded, per §38: a link that
     /// never produces a valid header must not be able to grow a buffer.
-    std::uint8_t buffer_[256] = {};
+    ///
+    /// Sized past mcu::kMaxFrame on purpose. The length field is one byte, so
+    /// the longest legal frame is 261 — a 256-byte buffer could not hold one,
+    /// and the walker would have had to treat a perfectly valid long frame as
+    /// undecodable. Nothing observed comes close to this, which is exactly why
+    /// the ceiling should come from the protocol rather than from a round
+    /// number.
+    std::uint8_t buffer_[mcu::kMaxFrame + 64] = {};
     int held_ = 0;
 
-    char version_[16] = {};
-
-    int batteryPercent_ = 0;
-    int batteryMillivolts_ = 0;
-
-    int micAmplitude_ = 0;
-    bool micKnown_ = false;
-    bool batteryKnown_ = false;
+    /// Everything decoded so far. This class owns the port; McuProtocol owns
+    /// what the bytes mean.
+    mcu::State state_;
 };
 
 }  // namespace tc002

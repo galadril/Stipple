@@ -503,8 +503,16 @@ ff 55 <cmd> <len> <payload[len]> <trailer[2]>          at 1500000 baud
 ->  ff 55 11 00 01 65                                  ask the version
 <-  ff 55 11 07 56 31 2e 30 2e 31 37 02 e7             "V1.0.17" in ASCII
 <-  ff 55 03 03 5a 0c 4e 02 0e                         telemetry, pushed unprompted
-<-  ff 55 02 01 01 01 58                               a flag, always 01 so far
+<-  ff 55 02 01 01 01 58                               charge state: 01 = on the cable
 ```
+
+**The trailing two bytes are a checksum**: a big-endian 16-bit sum of every
+byte before them, headers included. It holds on every frame captured —
+`ff+55+11+00 = 0x0165` and the query ends `01 65`; `ff+55+02+01+01 = 0x0158`
+and `01 58`; `ff+55+03+03+5a+0c+43 = 0x0203` and `02 03`. It is verified rather
+than skipped, because a 1.5 Mbaud link with no flow control can drop a byte and
+the cost of not checking is a battery percentage assembled from whatever
+followed a corrupted header.
 
 The version handshake is what makes the rest trustworthy: the MCU answered
 `V1.0.17`, which matches the version the stock firmware reports, so the port
@@ -518,10 +526,59 @@ settings and the framing are both right rather than merely plausible.
 - Nothing else on this device can report charge, and the MCU is documented as
   the place it comes from.
 
-Byte 1 has been constant at `0x0c` (12). Byte 2 drifts between roughly 70 and 78
-within *seconds* — far too fast for temperature, and this hardware has no
-temperature sensor anyway. **Both are deliberately left undecoded.** Naming them
-would be inventing meaning, and a battery app is worth having without them.
+Bytes 1 and 2 are **cell voltage in millivolts, big-endian**. They had been
+written off here as an undecoded fast-moving value, on the grounds that nothing
+drifts that quickly; a cell under a varying load does. `0c 43` is 3139 mV and
+`0c 4e` is 3150 mV — one cell wobbling by a few millivolts, not a second sensor.
+
+### Command `0x02` is the charge state
+
+Dismissed in an earlier revision of this document as "a flag, always 01". It is
+always 01 when every capture is taken over USB, which every capture was.
+
+A 75-second capture taken with the cable deliberately pulled settles it. The
+payload held `01`, went to `00` within a second of the cable coming out, stayed
+there for twelve seconds, and returned to `01` on reconnect:
+
+| Time | `0x02` | Voltage | Percent |
+|---|---|---|---|
+| 0–43.3 s | `01` | 3158–3163 mV | 90 |
+| 43.3 s | `00` — unplugged | falls to 3111–3122 mV | sags to 88 |
+| 55.8 s | `01` — replugged | 3158–3163 mV | back to 90 |
+
+This also explains a battery app that looked broken. The MCU's percentage is
+voltage-derived, so it sags under load and recovers on the cable — a user
+pulling the cable sees the number drop several points and putting it back sees
+it climb, with nothing on screen explaining why. The charge flag is the
+explanation, and the battery app now draws it.
+
+### There is no confirmed microphone
+
+An earlier revision of this document and the `kMicLevel` constant in
+`Tc002Mcu.h` both stated that command `0x01` carries a big-endian 16-bit
+amplitude at roughly 22 Hz, "found by tracing the stock app while its audio
+visualiser ran".
+
+**No capture in this repository supports that, and two contradict it.** A
+19-second `LD_PRELOAD` trace of the vendor application and a 75-second listen
+taken while someone deliberately made noise at the device contain command `0x02`
+and command `0x03` and nothing else — 125 and 123 frames respectively, plus one
+version reply and one `0xfe` at startup. Not a single `0x01`.
+
+The vendor application also **writes nothing to this link but the version
+query**, so if audio has to be asked for, we have not seen the asking.
+
+Two things could still be true, and the difference matters:
+
+- The MCU streams audio only while something is on screen that wants it, and the
+  vendor trace covered startup only. Settling this needs a trace taken with the
+  stock visualiser actually showing.
+- The level does not come over this link at all, and the `0x01` layout was read
+  from the third-party port's documentation rather than observed here.
+
+Until one of those is resolved the device reports that it cannot hear. The
+decoding for `0x01` is kept and tested, so the day a capture shows the frame the
+only change needed is in the adapter.
 
 Implemented as `platform::tc002::Tc002Mcu`, which reads only. The MCU also
 drives the panel's power rails, and sending commands whose meaning is a guess is

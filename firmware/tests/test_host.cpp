@@ -3,7 +3,9 @@
 
 #include <string>
 
+#include "notrix/apps/VisualizerApp.h"
 #include "notrix/asset/IconStore.h"
+#include "notrix/graphics/Canvas.h"
 #include "notrix/platform/simulator/SimulatorPlatform.h"
 #include "support/TestFramework.h"
 
@@ -1030,4 +1032,69 @@ NOTRIX_TEST(Host, OneDetentMovesExactlyOneApp) {
     const notrix::app::App* landed = host.carousel().active();
     NOTRIX_CHECK(landed != nullptr);
     NOTRIX_CHECK_EQ(landed->id, startId);
+}
+
+NOTRIX_TEST(Host, AMicrophoneThatNeverDeliversSaysSoRatherThanDrawingSilence) {
+    // The exact shape of the TC002 bug. The adapter offers itself as an
+    // IMicrophone the moment its serial port opens, then never receives an
+    // audio frame. The old render path checked only the pointer, so the app
+    // drew its baseline: a flat line across the middle of the panel, which
+    // reads as a silent room rather than as a device that cannot hear.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.microphone = true;  // present...
+    SimulatorPlatform platform(capabilities);
+    // ...but never told to hear anything, which is what the device does.
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    NOTRIX_REQUIRE(host.carousel().activate(ApplicationHost::kVisualizerAppId,
+                                            platform.simulatedClock().monotonicMillis()));
+    run(host, platform, 400);
+
+    // What a flat line would look like: the baseline spans the full width and
+    // is two rows tall, and nothing else is drawn.
+    const int flatline = Framebuffer::kWidth * 2;
+    NOTRIX_CHECK(countLit(host.frame()) != flatline);
+
+    // And what it should look like instead.
+    Framebuffer expected;
+    notrix::Canvas canvas(expected);
+    notrix::apps::renderNoMicrophone(canvas, colors::kWhite);
+    for (int y = 0; y < Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            NOTRIX_CHECK(host.frame().at(x, y) == expected.at(x, y));
+        }
+    }
+}
+
+NOTRIX_TEST(Host, TheVisualizerDrawsSoundOnceItActuallyHearsSomething) {
+    // The other half: the honesty check must not have broken the working case.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.microphone = true;
+    SimulatorPlatform platform(capabilities);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    NOTRIX_REQUIRE(host.carousel().activate(ApplicationHost::kVisualizerAppId,
+                                            platform.simulatedClock().monotonicMillis()));
+
+    platform.simulatedMicrophone().hear(12000);
+    run(host, platform, 600);
+
+    Framebuffer noMic;
+    notrix::Canvas canvas(noMic);
+    notrix::apps::renderNoMicrophone(canvas, colors::kWhite);
+
+    bool differs = false;
+    for (int y = 0; y < Framebuffer::kHeight && !differs; ++y) {
+        for (int x = 0; x < Framebuffer::kWidth && !differs; ++x) {
+            differs = host.frame().at(x, y) != noMic.at(x, y);
+        }
+    }
+    NOTRIX_CHECK(differs);
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
 }

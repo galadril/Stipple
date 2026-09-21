@@ -5,6 +5,8 @@
 #include "notrix/graphics/Framebuffer.h"
 #include "notrix/text/Text.h"
 
+#include <cstdint>
+
 namespace notrix {
 namespace apps {
 namespace {
@@ -16,6 +18,32 @@ constexpr int kCellWidth = 15;
 constexpr int kCellHeight = 8;
 constexpr int kTerminalWidth = 2;
 constexpr int kTerminalHeight = 4;
+
+/// A lightning bolt, 3 wide and 6 tall, one bit per pixel from the top row down.
+///
+/// Drawn rather than written because "CHG" would not fit beside a cell and a
+/// number on 52 columns, and because a bolt is read at a glance from across a
+/// room, which is the distance this device is usually looked at from.
+constexpr std::uint8_t kBolt[6] = {
+    0b011,
+    0b011,
+    0b111,
+    0b110,
+    0b110,
+    0b100,
+};
+
+/// Drawn over the fill, in a colour that reads against both the healthy and the
+/// low fill, so the charge state is legible at 5% as well as at 95%.
+void drawBolt(Canvas& canvas, int left, int top, Rgb color) {
+    for (int row = 0; row < 6; ++row) {
+        for (int column = 0; column < 3; ++column) {
+            if ((kBolt[row] >> (2 - column)) & 1) {
+                canvas.pixel(left + column, top + row, color);
+            }
+        }
+    }
+}
 
 }  // namespace
 
@@ -61,6 +89,14 @@ void renderBattery(Canvas& canvas,
     if (filled > 0) {
         canvas.fillRect(Rect{left + 2, top + 2, filled, kCellHeight - 4},
                         percent <= style.lowPercent ? style.low : style.healthy);
+    }
+
+    // Over the fill, centred in the cell. A charging battery and a discharging
+    // one at the same percentage are otherwise identical, which is what made a
+    // gauge that sags under load look like a bug: the number moved and nothing
+    // on screen explained why.
+    if (status.chargingKnown && status.charging) {
+        drawBolt(canvas, left + (kCellWidth - 3) / 2, top + 1, style.charging);
     }
 
     if (!style.showPercent) {

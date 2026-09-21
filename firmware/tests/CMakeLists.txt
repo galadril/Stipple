@@ -25,6 +25,7 @@ add_executable(notrix_tests
     test_web.cpp
     test_mqtt.cpp
     test_rotary_decoder.cpp
+    test_mcu_protocol.cpp
 )
 
 target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
