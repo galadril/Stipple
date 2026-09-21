@@ -1,0 +1,80 @@
+listening for 30 seconds
+
+
+
+  press -, press +, press the knob, turn the knob each way
+
+  (if a control prints nothing, it is not wired to these nodes)
+
+
+
+event68/knob  EV_ABS  code=0    value=11       (first)
+
+event68/knob  EV_ABS  code=0    value=13       delta=+2
+
+event68/knob  EV_ABS  code=0    value=11       delta=-2
+
+event68/knob  EV_ABS  code=0    value=8        delta=-3
+
+event68/knob  EV_ABS  code=0    value=1        delta=-7
+
+event68/knob  EV_ABS  code=0    value=13       delta=+12
+
+event68/knob  EV_ABS  code=0    value=11       delta=-2
+
+event68/knob  EV_ABS  code=0    value=8        delta=-3
+
+event68/knob  EV_ABS  code=0    value=1        delta=-7
+
+event68/knob  EV_ABS  code=0    value=13       delta=+12
+
+event68/knob  EV_ABS  code=0    value=11       delta=-2
+
+event68/knob  EV_ABS  code=0    value=8        delta=-3
+
+event68/knob  EV_ABS  code=0    value=1        delta=-7
+
+event68/knob  EV_ABS  code=0    value=13       delta=+12
+
+event68/knob  EV_ABS  code=0    value=11       delta=-2
+
+event68/knob  EV_ABS  code=0    value=8        delta=-3
+
+event68/knob  EV_ABS  code=0    value=1        delta=-7
+
+event68/knob  EV_ABS  code=0    value=8        delta=+7
+
+event68/knob  EV_ABS  code=0    value=1        delta=-7
+
+event68/knob  EV_ABS  code=0    value=13       delta=+12
+
+event68/knob  EV_ABS  code=0    value=11       delta=-2
+
+event68/knob  EV_ABS  code=0    value=8        delta=-3
+
+event68/knob  EV_ABS  code=0    value=1        delta=-7
+
+event68/knob  EV_ABS  code=0    value=8        delta=+7
+
+event68/knob  EV_ABS  code=0    value=1        delta=-7
+
+event68/knob  EV_ABS  code=0    value=8        delta=+7
+
+event68/knob  EV_ABS  code=0    value=1        delta=-7
+
+event68/knob  EV_ABS  code=0    value=13       delta=+12
+
+event68/knob  EV_ABS  code=0    value=11       delta=-2
+
+event68/knob  EV_ABS  code=0    value=13       delta=+2
+
+event68/knob  EV_ABS  code=0    value=11       delta=-2
+
+event68/knob  EV_ABS  code=0    value=13       delta=+2
+
+event68/knob  EV_ABS  code=0    value=11       delta=-2
+
+
+
+done
+
