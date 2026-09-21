@@ -58,3 +58,7 @@ knob-capture.txt
 
 # Vendor binaries pulled for platform analysis. Ulanzi's, not ours.
 build/vendor-analysis/
+
+# Ad-hoc device capture scratch files.
+knob*.txt
+probe-out.txt
