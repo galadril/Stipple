@@ -150,8 +150,9 @@ NOTRIX_TEST(Navigator, TheCursorDoesNotMoveWhileBrowsing) {
 }
 
 NOTRIX_TEST(Navigator, EverySettingHasALabelThatFitsThePanel) {
-    // 52 columns at 5px a character plus spacing leaves room for about eight,
-    // and the value has to share the row.
+    // 52 columns at 6px a character leaves room for eight. The label gets a
+    // line to itself, so eight is the real budget rather than eight shared
+    // with a value - which is what produced "BRIGH" on the panel.
     for (int i = 0; i < static_cast<int>(SettingSlot::Count); ++i) {
         const char* label = settingLabel(static_cast<SettingSlot>(i));
         NOTRIX_REQUIRE(label != nullptr);

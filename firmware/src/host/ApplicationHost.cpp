@@ -553,19 +553,33 @@ int writeNumber(char* out, int capacity, int value) noexcept {
 /// unreadable at arm's length; the bar is what makes "more" and "less" legible
 /// without reading anything.
 void drawBar(Canvas& canvas, int permille, Rgb filled, Rgb track) {
-    constexpr int kTop = Framebuffer::kHeight - 3;
-    canvas.fillRect(Rect{0, kTop, Framebuffer::kWidth, 2}, track);
+    // One row, on the last row. Two rows would eat into the value line, and on
+    // a panel this size the bar is the coarse reading anyway - the number
+    // above it is the precise one.
+    constexpr int kTop = Framebuffer::kHeight - 1;
+    canvas.fillRect(Rect{0, kTop, Framebuffer::kWidth, 1}, track);
     if (permille < 0) { permille = 0; }
     if (permille > 1000) { permille = 1000; }
     const int width = (permille * Framebuffer::kWidth) / 1000;
     if (width > 0) {
-        canvas.fillRect(Rect{0, kTop, width, 2}, filled);
+        canvas.fillRect(Rect{0, kTop, width, 1}, filled);
     }
 }
 
 }  // namespace
 
 void ApplicationHost::renderSettings(Canvas& canvas) const {
+    // Two lines, not one.
+    //
+    // The first attempt put the label and the value side by side and the panel
+    // showed "BRIGH": at 6 px a character, 52 columns hold eight characters,
+    // and "BRIGHT" plus "184" is nine. The fix is not a shorter word - naming a
+    // setting "BRT" to fit a layout is the layout winning an argument it should
+    // not be in - it is to stop asking one row to hold both.
+    //
+    // Label on the top line, value on the second, bar on the last row. Each
+    // line now has the full width, so every setting name fits at its real
+    // length and a three-digit value has room beside nothing.
     const input::SettingSlot slot = navigator_.current();
 
     text::TextStyle label;
@@ -573,9 +587,9 @@ void ApplicationHost::renderSettings(Canvas& canvas) const {
     label.color = colors::kWhite;
     label.hAlign = text::HAlign::Left;
     label.vAlign = text::VAlign::Top;
-    text::draw(canvas, input::settingLabel(slot), Rect{1, 1, 30, 8}, label);
+    text::draw(canvas, input::settingLabel(slot), Rect{1, 0, Framebuffer::kWidth - 2, 7}, label);
 
-    char value[8] = {};
+    char value[10] = {};
     int permille = -1;
     Rgb accent = colors::kCyan;
 
@@ -587,30 +601,37 @@ void ApplicationHost::renderSettings(Canvas& canvas) const {
             break;
         }
         case input::SettingSlot::Power:
-            // "ON"/"OFF" rather than a bar: a two-state value drawn as a bar
-            // that is either full or empty reads as a broken slider.
-            value[0] = settings_.display.power ? 'O' : 'O';
-            value[1] = settings_.display.power ? 'N' : 'F';
-            value[2] = settings_.display.power ? '\0' : 'F';
+            // ON/OFF rather than a bar: a two-state value drawn as a bar that
+            // is either full or empty reads as a broken slider.
+            value[0] = 'O';
+            if (settings_.display.power) {
+                value[1] = 'N';
+            } else {
+                value[1] = 'F';
+                value[2] = 'F';
+            }
             accent = settings_.display.power ? colors::kGreen : colors::kOrange;
             break;
         case input::SettingSlot::Overlay: {
-            const char* name = render::overlayName(
-                render::overlayFromName(settings_.display.overlay));
+            const char* name =
+                render::overlayName(render::overlayFromName(settings_.display.overlay));
             int at = 0;
             // Upper-cased into the fixed buffer: the font has one case, and the
             // stored names are lower-case because config files are read by
             // people too.
-            for (; name[at] != '\0' && at < static_cast<int>(sizeof(value)) - 1; ++at) {
+            for (; name[at] != 0 && at < static_cast<int>(sizeof(value)) - 1; ++at) {
                 const char c = name[at];
                 value[at] = (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
             }
-            value[at] = '\0';
             break;
         }
         case input::SettingSlot::Volume: {
             const int percent = static_cast<int>(settings_.audio.volumePercent);
-            writeNumber(value, sizeof(value), percent);
+            const int digits = writeNumber(value, sizeof(value), percent);
+            if (digits > 0 && digits < static_cast<int>(sizeof(value)) - 1) {
+                value[digits] = '%';
+                value[digits + 1] = 0;
+            }
             permille = percent * 10;
             break;
         }
@@ -620,8 +641,7 @@ void ApplicationHost::renderSettings(Canvas& canvas) const {
 
     text::TextStyle reading = label;
     reading.color = accent;
-    reading.hAlign = text::HAlign::Right;
-    text::draw(canvas, value, Rect{20, 1, Framebuffer::kWidth - 21, 8}, reading);
+    text::draw(canvas, value, Rect{1, 8, Framebuffer::kWidth - 2, 7}, reading);
 
     if (permille >= 0) {
         drawBar(canvas, permille, accent, rgb(30, 30, 30));

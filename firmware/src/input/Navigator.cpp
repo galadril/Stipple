@@ -15,10 +15,14 @@ SettingSlot slotAt(int index) noexcept { return static_cast<SettingSlot>(index);
 
 const char* settingLabel(SettingSlot slot) noexcept {
     switch (slot) {
+        // Full words. They fit because the settings screen gives the label a
+        // line of its own - an earlier layout shared one row with the value
+        // and showed "BRIGH", and the wrong fix would have been to rename the
+        // setting to suit the row.
         case SettingSlot::Brightness: return "BRIGHT";
         case SettingSlot::Power:      return "PANEL";
-        case SettingSlot::Overlay:    return "OVER";
-        case SettingSlot::Volume:     return "VOL";
+        case SettingSlot::Overlay:    return "OVERLAY";
+        case SettingSlot::Volume:     return "VOLUME";
         case SettingSlot::Count:      break;
     }
     return "";
