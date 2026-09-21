@@ -369,22 +369,7 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
         case input::Action::VolumeDown: {
             // Silently ignored when the platform has no speaker: an absent
             // capability is reported at boot rather than faked here (ADR 0013).
-            mqtt::ServiceContext mqttContext;
-    mqttContext.client = platform_.mqtt();
-    mqttContext.api = &apiServer_;
-    mqttContext.settings = &settings_;
-    mqttContext.logger = &logger_;
-    mqtt_.setContext(mqttContext);
-    if (bootMode_ == BootMode::Normal) {
-        mqtt_.configure(lastTickMillis_);
-    } else {
-        // Safe mode stays off the network entirely. Whatever put the device here
-        // might be reachable from a broker, and a boot loop that republishes
-        // retained state each time is worse than a quiet one.
-        logger_.warn(lastTickMillis_, "safe mode: MQTT not started");
-    }
-
-    if (platform_.audio() == nullptr) {
+            if (platform_.audio() == nullptr) {
                 break;
             }
             // Percent, because that is how a volume control reads to a person,

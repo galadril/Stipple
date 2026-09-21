@@ -1098,3 +1098,45 @@ NOTRIX_TEST(Host, TheVisualizerDrawsSoundOnceItActuallyHearsSomething) {
     NOTRIX_CHECK(differs);
     NOTRIX_CHECK(countLit(host.frame()) > 0);
 }
+
+NOTRIX_TEST(Host, AdjustingVolumeDoesNotReconfigureTheBroker) {
+    // A copy of initialize()'s MQTT setup had been spliced into the volume
+    // handler. It compiled, because every line of it is a legal statement
+    // inside a case block, and no test pressed a volume key while a broker was
+    // configured - so every tap of the minus and plus buttons quietly re-ran
+    // setContext and configure, and in safe mode wrote "safe mode: MQTT not
+    // started" to the ring log on each one.
+    //
+    // This pins the boundary rather than the symptom: handling an input event
+    // is not a configuration event, whatever the action turns out to be.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    const int before = host.logger().count();
+
+    for (int i = 0; i < 8; ++i) {
+        InputEvent down;
+        down.source = RawInput::KeyPlus;
+        down.phase = ButtonPhase::Down;
+        down.timestampMillis = platform.simulatedClock().monotonicMillis();
+        host.handleInput(down);
+        platform.simulatedClock().advance(40);
+
+        InputEvent up;
+        up.source = RawInput::KeyPlus;
+        up.phase = ButtonPhase::Up;
+        up.timestampMillis = platform.simulatedClock().monotonicMillis();
+        host.handleInput(up);
+        platform.simulatedClock().advance(40);
+    }
+
+    // Whatever the button is bound to, pressing it must not talk to MQTT.
+    NOTRIX_CHECK_FALSE(logContains(host, "MQTT"));
+    NOTRIX_CHECK_FALSE(logContains(host, "safe mode"));
+    NOTRIX_CHECK_EQ(host.logger().count(), before);
+}
