@@ -321,17 +321,24 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
     }
 
     switch (action.action) {
+        // action.repeat is deliberately ignored for navigation.
+        //
+        // InputMapper accelerates detents that arrive within 120 ms, up to 5x,
+        // which is right for a continuous value and wrong for a short list. On
+        // a device with three apps, any ordinary turn of the knob jumped two to
+        // five of them and landed somewhere that looked arbitrary - the carousel
+        // "weirdly moving between apps".
+        //
+        // Nobody spins a knob to skip apps; they turn it to look at the next
+        // one. One detent, one app, however fast the wrist. Acceleration stays
+        // where it earns its place, on brightness and volume below.
         case input::Action::AppNext:
             transitionDirection_ = render::TransitionDirection::Forward;
-            for (int i = 0; i < action.repeat; ++i) {
-                carousel_.next(lastTickMillis_);
-            }
+            carousel_.next(lastTickMillis_);
             break;
         case input::Action::AppPrevious:
             transitionDirection_ = render::TransitionDirection::Backward;
-            for (int i = 0; i < action.repeat; ++i) {
-                carousel_.previous(lastTickMillis_);
-            }
+            carousel_.previous(lastTickMillis_);
             break;
         case input::Action::AppAction:
             carousel_.setPaused(!carousel_.paused());

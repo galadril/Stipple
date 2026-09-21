@@ -164,6 +164,22 @@ private:
     BatteryStatus status_;
 };
 
+/// A microphone a test drives. Silent until told otherwise, and unknown until
+/// the capability is switched on - the two states a visualiser must tell apart.
+class SimulatorMicrophone : public IMicrophone {
+public:
+    SoundLevel level() const override { return level_; }
+
+    void hear(int amplitude) {
+        level_.known = true;
+        level_.amplitude = amplitude;
+    }
+    void deafen() { level_ = SoundLevel{}; }
+
+private:
+    SoundLevel level_;
+};
+
 /// Reports whatever status the test sets.
 class SimulatorNetwork : public INetworkManager {
 public:
@@ -252,6 +268,8 @@ struct SimulatorCapabilities {
     /// Off by default: most panels are mains-only, and a simulator that always
     /// claimed a battery would hide the nullptr path from every test.
     bool power = false;
+    /// Off by default for the same reason.
+    bool microphone = false;
 };
 
 /// Complete simulator implementation of the §53 platform boundary.
@@ -271,6 +289,9 @@ public:
     INetworkManager* network() override { return capabilities_.network ? &network_ : nullptr; }
     IRebooter* rebooter() override { return capabilities_.rebooter ? &rebooter_ : nullptr; }
     IPowerSource* power() override { return capabilities_.power ? &power_ : nullptr; }
+    IMicrophone* microphone() override {
+        return capabilities_.microphone ? &microphone_ : nullptr;
+    }
     IMqttClient* mqtt() override { return capabilities_.mqtt ? &mqtt_ : nullptr; }
 
     // Concrete accessors for tests and the emulator shell, which need the
@@ -283,6 +304,7 @@ public:
     SimulatorNetwork& simulatedNetwork() { return network_; }
     SimulatorRebooter& simulatedRebooter() { return rebooter_; }
     SimulatorPower& simulatedPower() { return power_; }
+    SimulatorMicrophone& simulatedMicrophone() { return microphone_; }
     SimulatorMqtt& simulatedMqtt() { return mqtt_; }
 
 private:
@@ -294,6 +316,7 @@ private:
     SimulatorAudio audio_;
     SimulatorNetwork network_;
     SimulatorPower power_;
+    SimulatorMicrophone microphone_;
     SimulatorMqtt mqtt_;
     SimulatorRebooter rebooter_;
 };

@@ -21,6 +21,12 @@ constexpr int kMinCeiling = 400;
 /// seconds rather than a minute.
 constexpr int kDecayPermille = 988;
 
+/// How far the window moves toward a louder sample, in thousandths. Not all
+/// the way: a single finger snap that set the scale outright would make the
+/// next few seconds of ordinary sound read as silence, which is exactly the
+/// complaint this replaced.
+constexpr int kAttackPermille = 250;
+
 /// Blend two colours by a 0-1000 weight. Integer only: this runs per column,
 /// per frame, on a Cortex-A7.
 Rgb mix(Rgb from, Rgb to, int permille) noexcept {
@@ -42,29 +48,45 @@ void Visualizer::push(int amplitude) noexcept {
         amplitude = 32767;
     }
 
-    samples_[head_] = static_cast<std::uint16_t>(amplitude);
+    // Scaled against the window as it stands *before* this sample moves it.
+    //
+    // Two consequences, both wanted. A sudden loud sound is drawn at full
+    // height on the frame it arrives, which is what "it should show when it
+    // hears something" means. And because the result is stored rather than
+    // recomputed later, raising the window afterwards cannot reach back and
+    // shrink it.
+    int permille = ceiling_ > 0 ? (amplitude * 1000) / ceiling_ : 0;
+    if (permille > 1000) {
+        permille = 1000;
+    }
+
+    levels_[head_] = static_cast<std::uint16_t>(permille);
     head_ = (head_ + 1) % kColumns;
     if (filled_ < kColumns) {
         ++filled_;
     }
 
-    // Rise instantly, fall slowly. A clap must not clip on the frame it
-    // arrives, and the window must not slam shut the moment it ends.
     if (amplitude > ceiling_) {
-        ceiling_ = amplitude;
+        // Toward the peak rather than onto it. Landing on it exactly would let
+        // a single snap set the scale for the next several seconds, so
+        // everything after it reads as silence.
+        ceiling_ += ((amplitude - ceiling_) * kAttackPermille) / 1000;
     } else {
         ceiling_ = (ceiling_ * kDecayPermille) / 1000;
         if (ceiling_ < kMinCeiling) {
             ceiling_ = kMinCeiling;
         }
     }
+    if (ceiling_ > 32767) {
+        ceiling_ = 32767;
+    }
 }
 
 void Visualizer::render(Canvas& canvas, const VisualizerStyle& style) const {
     const int centre = kHalf - 1;
 
-    // The baseline is drawn first and always, so silence looks like silence
-    // rather than like a dead panel.
+    // Drawn first and always, so silence looks like silence rather than like a
+    // dead panel.
     canvas.fillRect(Rect{0, centre, Framebuffer::kWidth, 2}, style.baseline);
 
     if (filled_ == 0) {
@@ -79,21 +101,14 @@ void Visualizer::render(Canvas& canvas, const VisualizerStyle& style) const {
             continue;
         }
         const int index = ((head_ - 1 - age) % kColumns + kColumns) % kColumns;
-        const int amplitude = samples_[index];
-
-        // Scaled against the decaying window rather than against 32767, which
-        // is what makes a normal room fill the panel at all.
-        int permille = ceiling_ > 0 ? (amplitude * 1000) / ceiling_ : 0;
-        if (permille > 1000) {
-            permille = 1000;
-        }
+        const int permille = levels_[index];
 
         int height = (permille * kHalf) / 1000;
 
         // Any sound at all lights something. A column that rounded to zero
         // would be indistinguishable from silence, and at this size that is
         // most of the quiet end of the range.
-        if (height == 0 && amplitude > 0) {
+        if (height == 0 && permille > 0) {
             height = 1;
         }
         if (height > kHalf) {
@@ -103,9 +118,10 @@ void Visualizer::render(Canvas& canvas, const VisualizerStyle& style) const {
         // Coloured by this column's own level, so the shape of a sound stays
         // readable as it scrolls away rather than being recoloured by whatever
         // is happening now.
-        const Rgb colour = permille >= style.peakPermille
-                               ? style.peak
-                               : mix(style.quiet, style.loud, (permille * 1000) / style.peakPermille);
+        const Rgb colour =
+            permille >= style.peakPermille
+                ? style.peak
+                : mix(style.quiet, style.loud, (permille * 1000) / style.peakPermille);
 
         for (int i = 0; i < height; ++i) {
             canvas.pixel(column, centre - i, colour);

@@ -545,14 +545,38 @@ NOTRIX_TEST(Visualizer, AutoGainOpensUpForAQuietRoom) {
     NOTRIX_CHECK(tallest > notrix::Framebuffer::kHeight / 2);
 }
 
-NOTRIX_TEST(Visualizer, AClapDoesNotClipTheFramesAroundIt) {
-    // Gain rises instantly and falls slowly, so a spike is drawn at full height
-    // on the frame it arrives rather than after the window has caught up.
+NOTRIX_TEST(Visualizer, ASuddenSoundIsDrawnAtOnceAndDoesNotFlattenTheRest) {
+    // Both halves of the fix, in one test.
+    //
+    // The spike must be drawn full height on the frame it arrives - "it should
+    // show when it hears something" - which works because a column is scaled
+    // against the window as it stood *before* that sample moved it.
+    //
+    // And the columns already on screen must not change. Storing raw
+    // amplitudes and rescaling the history at render time is what made a
+    // finger snap look like the trace resetting.
     notrix::apps::Visualizer viz;
     for (int i = 0; i < 40; ++i) { viz.push(600); }
-    viz.push(32000);
 
-    NOTRIX_CHECK(viz.ceiling() >= 32000);
+    const Framebuffer before = renderViz(viz);
+    viz.push(32000);
+    const Framebuffer after = renderViz(viz);
+
+    // The newest column is on the right and reaches the top.
+    NOTRIX_CHECK(after.at(Framebuffer::kWidth - 1, 0) != colors::kBlack);
+
+    // Everything older is untouched: identical but for the one new column,
+    // which has shifted the history left by exactly one.
+    for (int x = 0; x < Framebuffer::kWidth - 1; ++x) {
+        for (int y = 0; y < Framebuffer::kHeight; ++y) {
+            NOTRIX_CHECK_EQ(after.at(x, y), before.at(x + 1, y));
+        }
+    }
+
+    // The window rises toward the peak without landing on it, so the next few
+    // seconds of ordinary sound are still legible.
+    NOTRIX_CHECK(viz.ceiling() > 600);
+    NOTRIX_CHECK(viz.ceiling() < 32000);
 }
 
 NOTRIX_TEST(Visualizer, HistoryScrollsAndIsBounded) {

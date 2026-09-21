@@ -61,13 +61,25 @@ public:
     int ceiling() const noexcept { return ceiling_; }
 
 private:
-    /// Ring buffer, oldest overwritten. No allocation, bounded by construction.
-    std::uint16_t samples_[kColumns] = {};
+    /// Ring buffer of *already scaled* levels, 0-1000, oldest overwritten.
+    ///
+    /// Scaled at capture rather than at render, and that is the whole fix for
+    /// the behaviour this originally had: storing raw amplitudes and dividing
+    /// the history by the current window meant one finger snap raised the
+    /// window and shrank every column already on screen. The trace appeared to
+    /// reset at the exact moment it should have reacted.
+    ///
+    /// A column is now decided once, from the window as it stood when that
+    /// sound happened, and never changes again. What is on screen is a record,
+    /// not a recomputation.
+    std::uint16_t levels_[kColumns] = {};
     int head_ = 0;
     int filled_ = 0;
 
-    /// Decaying peak. Starts low so a quiet room is legible immediately, and
-    /// rises instantly to any louder sample so a clap never clips.
+    /// Decaying peak. Starts low so a quiet room is legible immediately,
+    /// rises part-way toward a louder sample rather than onto it, and falls
+    /// slowly. Landing exactly on a peak would let one snap set the scale for
+    /// the next several seconds.
     int ceiling_ = 600;
 };
 

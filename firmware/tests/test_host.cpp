@@ -991,3 +991,43 @@ NOTRIX_TEST(Host, BatteryIsOnlyInstalledWhereOneCanBeReported) {
     with.initialize();
     NOTRIX_CHECK(with.apps().find("battery") != nullptr);
 }
+
+NOTRIX_TEST(Host, OneDetentMovesExactlyOneApp) {
+    // Rotary acceleration multiplies fast detents up to 5x, which is right for
+    // brightness and wrong for a carousel. With three apps installed it made an
+    // ordinary turn jump two to five of them and land somewhere that looked
+    // random.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    capabilities.microphone = true;
+    SimulatorPlatform platform(capabilities);
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    // clock + visualizer + battery
+    NOTRIX_CHECK_EQ(host.apps().count(), 3);
+
+    const notrix::app::App* first = host.carousel().active();
+    NOTRIX_CHECK(first != nullptr);
+    const std::string startId = first->id;
+
+    // Three detents in quick succession - well inside the 120 ms acceleration
+    // window, so the mapper will report a repeat above one.
+    for (int i = 0; i < 3; ++i) {
+        InputEvent tick;
+        tick.source = RawInput::RotaryRight;
+        tick.phase = ButtonPhase::Tick;
+        tick.timestampMillis = platform.simulatedClock().monotonicMillis();
+        host.handleInput(tick);
+        platform.simulatedClock().advance(20);
+    }
+
+    // Three detents, three apps forward. With two system apps installed that
+    // is exactly one full lap back to where it started.
+    const notrix::app::App* landed = host.carousel().active();
+    NOTRIX_CHECK(landed != nullptr);
+    NOTRIX_CHECK_EQ(landed->id, startId);
+}
