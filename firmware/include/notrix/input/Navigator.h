@@ -28,9 +28,16 @@ enum class Mode : std::uint8_t {
 ///
 /// The order is the order they appear. It is explicit for the same reason app
 /// ordering is: derived order is order nobody chose.
+/// Note there is deliberately no panel on/off here.
+///
+/// It exists in the settings model and over the API, where it makes sense: a
+/// browser or an automation can blank the panel and can plainly still be used
+/// afterwards. On the panel itself it is circular - the control lives on the
+/// only surface it switches off, so using it hides the way back. Turning
+/// brightness up already restores a blank panel, which is the gesture someone
+/// reaches for anyway.
 enum class SettingSlot : std::uint8_t {
     Brightness,
-    Power,
     Overlay,
     Volume,
     Count,
@@ -100,7 +107,7 @@ private:
     SettingSlot current_ = SettingSlot::Brightness;
     std::uint64_t lastActivityMillis_ = 0;
 
-    bool available_[static_cast<int>(SettingSlot::Count)] = {true, true, true, true};
+    bool available_[static_cast<int>(SettingSlot::Count)] = {true, true, true};
 };
 
 }  // namespace input

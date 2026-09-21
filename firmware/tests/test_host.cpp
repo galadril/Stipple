@@ -1217,10 +1217,14 @@ NOTRIX_TEST(Host, AdjustingVolumeDoesNotReconfigureTheBroker) {
 
 // --- navigating the device itself (ADR 0017) ---------------------------------
 
-NOTRIX_TEST(Host, TurningThePanelOffInSettingsDoesNotTrapTheUser) {
-    // Panel power is one of the settings, so honouring "off" while the menu is
-    // open would black out the only screen showing the control that turns it
-    // back on - a trap with no way out except finding a browser.
+NOTRIX_TEST(Host, ThePanelSwitchIsNotOfferedOnThePanel) {
+    // It is circular: the control lives on the only surface it switches off,
+    // so using it hides the way back. It stays in the settings model and over
+    // the API, where a browser can blank the panel and plainly still be used.
+    //
+    // Turning brightness up already revives a blank panel, which is the
+    // gesture someone reaches for anyway - that is the recovery path, and the
+    // test below it pins it.
     SimulatorPlatform platform;
     ApplicationHost host(platform, quietConfig());
     host.initialize();
@@ -1228,20 +1232,71 @@ NOTRIX_TEST(Host, TurningThePanelOffInSettingsDoesNotTrapTheUser) {
 
     holdKnob(host, platform, 1000);
     NOTRIX_REQUIRE(host.navigator().inSettings());
-    NOTRIX_REQUIRE(selectSetting(host, platform, notrix::input::SettingSlot::Power, 2000));
 
-    platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 4000, 50);
-    host.tick(4100);
-    NOTRIX_CHECK_FALSE(host.settings().display.power);
+    const bool powerBefore = host.settings().display.power;
+    for (int i = 0; i < 12; ++i) {
+        platform.simulatedInput().rotate(true, 2000 + static_cast<std::uint64_t>(i) * 200u);
+        host.tick(2000 + static_cast<std::uint64_t>(i) * 200u + 100u);
+        platform.simulatedInput().pressAndRelease(
+            RawInput::KeyMinus, 2100 + static_cast<std::uint64_t>(i) * 200u, 50);
+        host.tick(2100 + static_cast<std::uint64_t>(i) * 200u + 100u);
+    }
+    // Nothing reachable from the knob can have switched the panel off.
+    NOTRIX_CHECK_EQ(host.settings().display.power, powerBefore);
+}
 
-    // Still readable, because the menu is what is on screen.
-    run(host, platform, 4400);
-    NOTRIX_CHECK(countLit(host.frame()) > 0);
+NOTRIX_TEST(Host, TurningBrightnessUpRevivesABlankedPanel) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
 
-    // And + puts it back, from the same screen.
-    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 4500, 50);
-    host.tick(4600);
+    host.settings().display.power = false;
+    host.settings().display.brightness = 0;
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 1000, 50);
+    host.tick(1100);
+
     NOTRIX_CHECK(host.settings().display.power);
+    NOTRIX_CHECK(host.settings().display.brightness > 0);
+}
+
+NOTRIX_TEST(Host, TheCarouselDoesNotAdvanceWhileSettingsAreOpen) {
+    // It used to. Every few seconds the timer moved the carousel underneath
+    // the menu, which started a transition and slid the settings screen
+    // sideways like an app - so settings read as a page in the rotation rather
+    // than a mode on top of it. Leaving also landed on whatever app the timer
+    // had reached rather than the one the user left.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+
+    const std::string parked = host.carousel().active()->id;
+
+    // Well past any app's dwell time, with activity so settings stay open.
+    for (int i = 0; i < 12; ++i) {
+        const std::uint64_t at = 2000 + static_cast<std::uint64_t>(i) * 3000u;
+        run(host, platform, at, 100);
+        platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, at, 50);
+        host.tick(at + 50);
+    }
+
+    NOTRIX_CHECK_EQ(host.carousel().active()->id, parked);
+
+    // And leaving puts the user back where they were, with a full turn ahead
+    // of the app rather than an instant jump to the next one.
+    const std::uint64_t leaveAt = platform.simulatedClock().monotonicMillis() + 100;
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMiddle, leaveAt, 50);
+    host.tick(leaveAt + 60);
+    run(host, platform, leaveAt + 500);
+    NOTRIX_CHECK_FALSE(host.navigator().inSettings());
+    NOTRIX_CHECK_EQ(host.carousel().active()->id, parked);
 }
 
 NOTRIX_TEST(Host, TheKnobMovesBetweenAppsOutsideSettingsAndSettingsInside) {

@@ -133,6 +133,17 @@ struct ClockSettings {
     std::uint32_t blinkPeriodMillis = 1000;
 };
 
+/// The audio visualiser's own settings. The first app to have any, and the
+/// shape the rest should follow: one struct per app, named for the app, rather
+/// than a flat pile of fields on Config.
+struct VisualizerSettings {
+    /// "meter" or "trace", by name for the same reason the clock face is: an
+    /// enum ordinal in a config file is unreadable, and renumbering it silently
+    /// changes what a device does. An unrecognised value falls back to the
+    /// default rather than failing the load.
+    std::string style = "meter";
+};
+
 struct Config {
     int schemaVersion = kCurrentSchemaVersion;
     std::string deviceName = "notrix";
@@ -141,6 +152,7 @@ struct Config {
     MqttSettings mqtt;
     AppSettings apps;
     ClockSettings clock;
+    VisualizerSettings visualizer;
 };
 
 enum class LoadStatus : std::uint8_t {

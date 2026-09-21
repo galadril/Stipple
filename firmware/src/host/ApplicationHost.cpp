@@ -478,12 +478,6 @@ void ApplicationHost::adjustCurrentSetting(int steps) {
         case input::SettingSlot::Brightness:
             adjustBrightness(steps);
             break;
-        case input::SettingSlot::Power:
-            // A two-state value has no "more": either direction means the state
-            // the direction points at. Pressing + on a panel that is already on
-            // does nothing, which is the honest answer.
-            settings_.display.power = steps > 0;
-            break;
         case input::SettingSlot::Overlay: {
             const int count = render::kOverlayCount;
             int index = 0;
@@ -509,13 +503,14 @@ void ApplicationHost::adjustCurrentSetting(int steps) {
 }
 
 void ApplicationHost::activateCurrentSetting() {
-    // The knob press "acts on the thing". For a toggle that means flipping it;
-    // for a value there is nothing to act on, and doing something anyway - a
-    // reset, a jump to a default - would be a hidden destructive gesture on the
-    // control people press most.
-    if (navigator_.current() == input::SettingSlot::Power) {
-        settings_.display.power = !settings_.display.power;
-    }
+    // Nothing yet, and deliberately nothing.
+    //
+    // The knob press "acts on the thing". Every setting reachable from the
+    // panel is a value that − / + already adjust, so there is nothing here to
+    // act on - and inventing something for the press to do, a reset or a jump
+    // to a default, would put a hidden destructive gesture on the control
+    // people press most. This exists for the first setting that is genuinely a
+    // toggle.
 }
 
 // --- the settings screen ------------------------------------------------------
@@ -600,18 +595,6 @@ void ApplicationHost::renderSettings(Canvas& canvas) const {
             permille = (level * 1000) / 255;
             break;
         }
-        case input::SettingSlot::Power:
-            // ON/OFF rather than a bar: a two-state value drawn as a bar that
-            // is either full or empty reads as a broken slider.
-            value[0] = 'O';
-            if (settings_.display.power) {
-                value[1] = 'N';
-            } else {
-                value[1] = 'F';
-                value[2] = 'F';
-            }
-            accent = settings_.display.power ? colors::kGreen : colors::kOrange;
-            break;
         case input::SettingSlot::Overlay: {
             const char* name =
                 render::overlayName(render::overlayFromName(settings_.display.overlay));
@@ -728,11 +711,54 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         if (platform::IMicrophone* microphone = platform_.microphone()) {
             const platform::SoundLevel sound = microphone->level();
             if (sound.known) {
-                visualizer_.push(sound.amplitude);
+                // One column per kVisualizerSampleMillis, not one per frame.
+                //
+                // Pushing every tick scrolled the trace at the frame rate: 52
+                // columns crossed the panel in under two seconds, which reads
+                // as frantic rather than as a room. It also stuttered, because
+                // the microphone reports at about 22 Hz and a faster loop just
+                // duplicated the last reading.
+                //
+                // The peak between pushes is kept rather than the latest
+                // reading, so slowing the trace down cannot swallow a handclap
+                // that happened between two columns.
+                if (sound.amplitude > visualizerPeak_) {
+                    visualizerPeak_ = sound.amplitude;
+                }
+                if (nowMillis - lastVisualizerPushMillis_ >= kVisualizerSampleMillis) {
+                    visualizer_.push(visualizerPeak_);
+                    visualizerPeak_ = 0;
+                    lastVisualizerPushMillis_ = nowMillis;
+                }
             }
         }
 
-        const bool carouselMoved = carousel_.tick(nowMillis);
+        // Frozen while settings are open.
+        //
+        // Without this the carousel kept advancing underneath the menu, which
+        // did two visible things and one confusing one: every few seconds a
+        // transition started and slid the settings screen sideways like an app,
+        // and leaving settings landed on whatever app the timer had reached
+        // rather than the one the user left. Between them it read as though
+        // settings were a page in the rotation, which is precisely what it is
+        // not - it is a mode on top of the rotation, and a mode that keeps
+        // moving is not a mode.
+        // Time in a menu is not time on screen.
+        //
+        // Held still every tick rather than reset on the way out, so no exit
+        // path can forget - and held for one tick *after* leaving too, because
+        // input is processed earlier in this same tick. Without that, the tick
+        // that closes settings is also the first tick that counts dwell, and
+        // it counts every millisecond since the last one.
+        const bool inSettings = navigator_.inSettings();
+        bool carouselMoved = false;
+        if (inSettings || wasInSettings_) {
+            carousel_.restartDwell(nowMillis);
+        }
+        wasInSettings_ = inSettings;
+        if (!inSettings) {
+            carouselMoved = carousel_.tick(nowMillis);
+        }
         const bool notificationsMoved = notifications_.tick(nowMillis);
 
         // Only the redrawing stops. Without this a dark panel would re-render
@@ -1014,7 +1040,10 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
                 apps::renderNoMicrophone(canvas, colors::kWhite);
                 return;
             }
-            visualizer_.render(canvas);
+            apps::VisualizerStyle visualizerStyle;
+            visualizerStyle.kind =
+                apps::visualizerStyleFromName(settings_.visualizer.style);
+            visualizer_.render(canvas, visualizerStyle);
             return;
         }
         case app::Builtin::Battery: {

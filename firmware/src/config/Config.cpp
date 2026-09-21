@@ -188,6 +188,10 @@ std::string buildBody(const Config& config) {
     body += std::to_string(config.clock.blinkPeriodMillis);
     body += '}';
 
+    body += ",\"visualizer\":{\"style\":";
+    appendEscaped(body, config.visualizer.style);
+    body += '}';
+
     body += '}';
     return body;
 }
@@ -307,6 +311,9 @@ bool ConfigStore::deserialize(std::string_view payload,
     parsed.apps.defaultDurationSeconds = clampDuration(
         apps["defaultDurationSeconds"].toInt(parsed.apps.defaultDurationSeconds));
     parsed.apps.transitions = apps["transitions"].toBool(parsed.apps.transitions);
+
+    const json::Value visualizer = body["visualizer"];
+    parsed.visualizer.style = visualizer["style"].toString(parsed.visualizer.style);
 
     const json::Value clock = body["clock"];
     parsed.clock.twentyFourHour = clock["twentyFourHour"].toBool(parsed.clock.twentyFourHour);

@@ -20,7 +20,6 @@ const char* settingLabel(SettingSlot slot) noexcept {
         // and showed "BRIGH", and the wrong fix would have been to rename the
         // setting to suit the row.
         case SettingSlot::Brightness: return "BRIGHT";
-        case SettingSlot::Power:      return "PANEL";
         case SettingSlot::Overlay:    return "OVERLAY";
         case SettingSlot::Volume:     return "VOLUME";
         case SettingSlot::Count:      break;

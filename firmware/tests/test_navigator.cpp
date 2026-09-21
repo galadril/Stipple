@@ -39,7 +39,7 @@ NOTRIX_TEST(Navigator, EnteringAlwaysStartsAtTheTop) {
     Navigator navigator;
 
     navigator.toggleSettings(1000);
-    navigator.moveCursor(2, 1100);
+    navigator.moveCursor(1, 1100);
     NOTRIX_CHECK(navigator.current() != SettingSlot::Brightness);
 
     navigator.toggleSettings(1200);
@@ -81,8 +81,9 @@ NOTRIX_TEST(Navigator, HidingWhatTheCursorIsOnMovesIt) {
     // the knob appears to skip a step.
     Navigator navigator;
     navigator.toggleSettings(0);
-    navigator.moveCursor(3, 100);
-    NOTRIX_REQUIRE(navigator.current() == SettingSlot::Volume);
+    while (navigator.current() != SettingSlot::Volume) {
+        navigator.moveCursor(1, 100);
+    }
 
     navigator.setAvailable(SettingSlot::Volume, false);
     NOTRIX_CHECK(navigator.current() != SettingSlot::Volume);

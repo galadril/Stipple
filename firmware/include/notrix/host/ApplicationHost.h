@@ -232,12 +232,29 @@ private:
     /// Draw the transient readout shown after − or + while browsing.
     void renderAdjustment(Canvas& canvas) const;
 
+    /// How often the visualiser takes a column, in milliseconds.
+    ///
+    /// 52 columns at 100 ms is a little over five seconds of history on
+    /// screen - slow enough to watch, long enough that a phrase of music has
+    /// a shape. Independent of the frame rate on purpose: the trace should
+    /// look the same whether the panel is managing 20 FPS or 40.
+    static constexpr std::uint64_t kVisualizerSampleMillis = 100;
+
+    /// Loudest reading since the last column was taken, so slowing the trace
+    /// down cannot swallow a transient.
+    int visualizerPeak_ = 0;
+    std::uint64_t lastVisualizerPushMillis_ = 0;
+
     /// How long the browsing adjustment readout stays up. Long enough to read
     /// after the press that caused it, short enough not to hide the clock.
     static constexpr std::uint64_t kAdjustmentReadoutMillis = 1200;
 
     input::InputMapper mapper_;
     input::Navigator navigator_;
+
+    /// Whether settings were open on the previous tick, so the tick that closes
+    /// them does not immediately bill the carousel for the time spent inside.
+    bool wasInSettings_ = false;
 
     /// When the on-screen adjustment readout stops being drawn, or 0 when
     /// nothing is showing. Pressing − or + while browsing has to show what

@@ -11,6 +11,7 @@
 #include "notrix/asset/IconStore.h"
 #include "notrix/app/Carousel.h"
 #include "notrix/apps/ClockApp.h"
+#include "notrix/apps/VisualizerApp.h"
 #include "notrix/config/Config.h"
 #include "notrix/core/Log.h"
 #include "notrix/core/Version.h"
@@ -128,6 +129,10 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .member("dateSeparator", settings.clock.dateSeparator)
         .member("dateYear", settings.clock.dateYear)
         .member("blinkPeriodMillis", static_cast<int>(settings.clock.blinkPeriodMillis))
+        .endObject()
+        .key("visualizer")
+        .beginObject()
+        .member("style", settings.visualizer.style)
         .endObject()
         .endObject();
 }
@@ -1161,6 +1166,19 @@ Response ApiServer::handleSettings(const Request& request) {
         }
         if (const json::Value transitions = apps["transitions"]; transitions.isBoolean()) {
             updated.apps.transitions = transitions.toBool(true);
+        }
+    }
+
+    if (const json::Value visualizer = root["visualizer"]; visualizer.isObject()) {
+        if (const json::Value style = visualizer["style"]; style.isString()) {
+            // Only accept names that round-trip, for the same reason the clock
+            // face does: falling back silently would leave a client believing
+            // it had selected something it had not.
+            const std::string name = style.toString();
+            if (apps::visualizerStyleName(apps::visualizerStyleFromName(name)) != name) {
+                return unprocessable("'visualizer.style' is not a known style");
+            }
+            updated.visualizer.style = name;
         }
     }
 
