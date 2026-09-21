@@ -68,6 +68,7 @@ void Tc002Mcu::close() noexcept {
     }
     held_ = 0;
     batteryKnown_ = false;
+    micKnown_ = false;
 }
 
 void Tc002Mcu::consume(const std::uint8_t* frame, int length) noexcept {
@@ -75,14 +76,24 @@ void Tc002Mcu::consume(const std::uint8_t* frame, int length) noexcept {
     const int payloadLength = frame[3];
     const std::uint8_t* payload = frame + 4;
 
-    if (command == kTelemetry && payloadLength >= 1) {
+    if (command == kTelemetry && payloadLength >= 3) {
         const std::uint8_t raw = payload[0];
-        // Anything outside 0-100 is not a percentage, so it is discarded rather
-        // than clamped: clamping 200 to 100 would invent a full battery.
+        // Anything outside 0-100 is not a percentage, so the whole frame is
+        // discarded rather than clamped: clamping 200 to 100 would invent a
+        // full battery, and a frame with a nonsense percentage is not a frame
+        // whose voltage should be trusted either.
         if (raw <= 100) {
             batteryPercent_ = static_cast<int>(raw);
+            batteryMillivolts_ = (static_cast<int>(payload[1]) << 8) |
+                                 static_cast<int>(payload[2]);
             batteryKnown_ = true;
         }
+        return;
+    }
+
+    if (command == kMicLevel && payloadLength >= 2) {
+        micAmplitude_ = (static_cast<int>(payload[0]) << 8) | static_cast<int>(payload[1]);
+        micKnown_ = true;
         return;
     }
 
@@ -143,10 +154,18 @@ void Tc002Mcu::poll() {
     }
 }
 
+SoundLevel Tc002Mcu::level() const {
+    SoundLevel sound;
+    sound.known = micKnown_;
+    sound.amplitude = micAmplitude_;
+    return sound;
+}
+
 BatteryStatus Tc002Mcu::battery() const {
     BatteryStatus status;
     status.known = batteryKnown_;
     status.percent = batteryPercent_;
+    status.millivolts = batteryMillivolts_;
     return status;
 }
 

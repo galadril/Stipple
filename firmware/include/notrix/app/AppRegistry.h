@@ -31,6 +31,7 @@ enum class Builtin : std::uint8_t {
     None,         ///< renders `sceneJson`
     Clock,
     Battery,
+    Visualizer,
     TestPattern,
 };
 

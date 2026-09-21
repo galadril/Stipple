@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/render/FrameScheduler.h"
+#include "notrix/render/Overlay.h"
 #include "notrix/render/Transition.h"
 
 #include "support/TestFramework.h"
@@ -318,4 +319,119 @@ NOTRIX_TEST(Transition, NamesRoundTrip) {
         NOTRIX_CHECK(transitionStyleFromName(transitionStyleName(style)) == style);
     }
     NOTRIX_CHECK(transitionStyleFromName("nonsense") == TransitionStyle::None);
+}
+
+
+// --- overlays ----------------------------------------------------------------
+
+NOTRIX_TEST(Overlay, NeverOverwritesWhatTheAppDrew) {
+    // The one rule that makes overlays safe (DESIGN.md section 7). Without it,
+    // sparseness and colour choice are good intentions and one unlucky
+    // raindrop lands on the stroke of a digit.
+    using namespace notrix::render;
+
+    for (int i = 0; i < kOverlayCount; ++i) {
+        const Overlay overlay = overlayAt(i);
+        for (std::uint64_t t = 0; t < 4000; t += 137) {
+            notrix::Framebuffer frame;
+            frame.fill(notrix::rgb(255, 255, 255));
+
+            drawOverlay(frame, overlay, t);
+
+            for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+                for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+                    NOTRIX_CHECK(frame.at(x, y) == notrix::rgb(255, 255, 255));
+                }
+            }
+        }
+    }
+}
+
+NOTRIX_TEST(Overlay, StaysOutOfTheRowsTypeLivesIn) {
+    // Rows 4-10 are where a single centred line of text sits. An overlay that
+    // wandered in would be drawing on the time even while obeying the additive
+    // rule, because the gaps inside glyphs are black.
+    using namespace notrix::render;
+
+    for (int i = 1; i < kOverlayCount; ++i) {
+        for (std::uint64_t t = 0; t < 8000; t += 91) {
+            notrix::Framebuffer frame;
+            drawOverlay(frame, overlayAt(i), t);
+
+            for (int y = 4; y <= 10; ++y) {
+                for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+                    NOTRIX_CHECK(frame.at(x, y) == notrix::colors::kBlack);
+                }
+            }
+        }
+    }
+}
+
+NOTRIX_TEST(Overlay, IsSparseRatherThanACurtain) {
+    // "A few falling columns, not a curtain." Measured against the rows an
+    // overlay is actually allowed to use, so the centre-band rule does not
+    // flatter the number.
+    using namespace notrix::render;
+    const int usable = notrix::Framebuffer::kWidth * (notrix::Framebuffer::kHeight - 7);
+
+    for (int i = 1; i < kOverlayCount; ++i) {
+        for (std::uint64_t t = 0; t < 8000; t += 211) {
+            notrix::Framebuffer frame;
+            drawOverlay(frame, overlayAt(i), t);
+
+            int lit = 0;
+            for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+                for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+                    if (frame.at(x, y) != notrix::colors::kBlack) { ++lit; }
+                }
+            }
+            NOTRIX_CHECK(lit * 2 < usable);
+        }
+    }
+}
+
+NOTRIX_TEST(Overlay, IsAPureFunctionOfTime) {
+    // Same instant, same pixels - which is what makes any of this testable and
+    // what stops the emulator and the device drifting apart.
+    using namespace notrix::render;
+
+    for (int i = 1; i < kOverlayCount; ++i) {
+        notrix::Framebuffer a;
+        notrix::Framebuffer b;
+        drawOverlay(a, overlayAt(i), 4321);
+        drawOverlay(b, overlayAt(i), 4321);
+        NOTRIX_CHECK(a == b);
+    }
+}
+
+NOTRIX_TEST(Overlay, ActuallyMoves) {
+    // The mirror of the test above: pure does not mean static. A frozen
+    // overlay would pass every other check here.
+    using namespace notrix::render;
+
+    for (int i = 1; i < kOverlayCount; ++i) {
+        notrix::Framebuffer early;
+        notrix::Framebuffer later;
+        drawOverlay(early, overlayAt(i), 0);
+        drawOverlay(later, overlayAt(i), 1500);
+        NOTRIX_CHECK(early != later);
+    }
+}
+
+NOTRIX_TEST(Overlay, NoneDrawsNothing) {
+    using namespace notrix::render;
+    notrix::Framebuffer frame;
+    drawOverlay(frame, Overlay::None, 1234);
+
+    const notrix::Framebuffer blank;
+    NOTRIX_CHECK(frame == blank);
+}
+
+NOTRIX_TEST(Overlay, NamesRoundTrip) {
+    using namespace notrix::render;
+    for (int i = 0; i < kOverlayCount; ++i) {
+        const Overlay overlay = overlayAt(i);
+        NOTRIX_CHECK(overlayFromName(overlayName(overlay)) == overlay);
+    }
+    NOTRIX_CHECK(overlayFromName("hurricane") == Overlay::None);
 }

@@ -2,6 +2,8 @@
 #include "notrix/host/ApplicationHost.h"
 
 #include "notrix/apps/BatteryApp.h"
+#include "notrix/render/Overlay.h"
+#include "notrix/apps/VisualizerApp.h"
 
 #include "notrix/api/JsonWriter.h"
 #include "notrix/core/Version.h"
@@ -212,6 +214,19 @@ void ApplicationHost::installBuiltins() {
     // Registering it unconditionally would put a permanent "NO BATT" card in
     // the rotation of every mains-only panel, which is the carousel equivalent
     // of a switch that does nothing.
+    // Same rule as the battery app: installed only where the hardware can
+    // actually feed it. A visualiser permanently showing NO MIC is a card in
+    // the rotation that exists to apologise.
+    if (platform_.microphone() != nullptr) {
+        app::App visualizer;
+        visualizer.id = std::string(kVisualizerAppId);
+        visualizer.name = "Visualizer";
+        visualizer.source = app::AppSource::System;
+        visualizer.builtin = app::Builtin::Visualizer;
+        visualizer.durationSeconds = 0;
+        registry_.put(std::move(visualizer));
+    }
+
     if (platform_.power() != nullptr) {
         app::App battery;
         battery.id = std::string(kBatteryAppId);
@@ -445,6 +460,16 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         // Timekeeping continues while the panel is off — apps still rotate and
         // notifications still expire — so switching it back on shows the present
         // moment rather than a resumed backlog.
+        // Sampled every tick regardless of which app is showing, so switching
+        // to the visualiser mid-sound shows what just happened rather than
+        // starting from an empty panel.
+        if (platform::IMicrophone* microphone = platform_.microphone()) {
+            const platform::SoundLevel sound = microphone->level();
+            if (sound.known) {
+                visualizer_.push(sound.amplitude);
+            }
+        }
+
         const bool carouselMoved = carousel_.tick(nowMillis);
         const bool notificationsMoved = notifications_.tick(nowMillis);
 
@@ -470,12 +495,22 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
                 scheduler_.invalidate();
             }
 
+            // Weather moves, so dirty tracking must not freeze it. Checked at
+            // the frame interval rather than every tick, since that is the
+            // fastest it could usefully change anyway.
+            if (settings_.display.overlay != "none") {
+                scheduler_.invalidate();
+            }
+
             // Anything time-varying has to say so, or dirty tracking would leave
             // it frozen between content changes.
             if (notifications_.active() != nullptr) {
                 scheduler_.invalidate();
             } else if (const app::App* active = carousel_.active()) {
                 if (active->builtin == app::Builtin::TestPattern) {
+                    scheduler_.invalidate();
+                } else if (active->builtin == app::Builtin::Visualizer) {
+                    // Sound does not wait for a redraw to be due.
                     scheduler_.invalidate();
                 } else if (active->builtin == app::Builtin::Battery) {
                     // Once a second is ample for a value that moves a percent
@@ -518,6 +553,17 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         const std::uint64_t startedAt = platform_.clock().monotonicMillis();
 
         renderFrame(nowMillis);
+
+        // Over the app, under the transition. Additive, so it only lights
+        // pixels the app left dark - a raindrop passes behind the digits
+        // rather than through them (DESIGN.md section 7).
+        if (settings_.display.power && !splashActive_) {
+            const render::Overlay overlay =
+                render::overlayFromName(settings_.display.overlay);
+            if (overlay != render::Overlay::None) {
+                render::drawOverlay(framebuffer_, overlay, nowMillis);
+            }
+        }
 
         // Composited after rendering, never during it. renderFrame only ever
         // draws the app that is active now; the outgoing frame was captured
@@ -662,6 +708,14 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
         case app::Builtin::Clock:
             apps::renderClock(canvas, platform_.clock(), clockStyle());
             return;
+        case app::Builtin::Visualizer: {
+            if (platform_.microphone() == nullptr) {
+                apps::renderNoMicrophone(canvas, colors::kWhite);
+                return;
+            }
+            visualizer_.render(canvas);
+            return;
+        }
         case app::Builtin::Battery: {
             platform::BatteryStatus status;
             if (platform::IPowerSource* power = platform_.power()) {

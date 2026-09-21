@@ -125,6 +125,9 @@ public:
     /// could not be configured reports no battery rather than zero percent.
     IPowerSource* power() override { return mcu_.isOpen() ? &mcu_ : nullptr; }
 
+    /// Same link, same poll: the MCU carries both battery and microphone.
+    IMicrophone* microphone() override { return mcu_.isOpen() ? &mcu_ : nullptr; }
+
     /// Non-null once start() has been called on it. Reported through the
     /// interface so core sees a transport appear exactly when one exists.
     IHttpServer* httpServer() override {

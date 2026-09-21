@@ -116,6 +116,8 @@ std::string buildBody(const Config& config) {
     body += std::to_string(static_cast<int>(config.display.brightness));
     body += ",\"power\":";
     body += config.display.power ? "true" : "false";
+    body += ",\"overlay\":";
+    appendEscaped(body, config.display.overlay);
     body += '}';
 
     body += ",\"audio\":{\"volumePercent\":";
@@ -276,6 +278,7 @@ bool ConfigStore::deserialize(std::string_view payload,
                                     ? clampToByte((rawBrightness * 255 + 50) / 100)
                                     : clampToByte(rawBrightness);
     parsed.display.power = display["power"].toBool(parsed.display.power);
+    parsed.display.overlay = display["overlay"].toString(parsed.display.overlay);
 
     const json::Value audio = body["audio"];
     parsed.audio.volumePercent =

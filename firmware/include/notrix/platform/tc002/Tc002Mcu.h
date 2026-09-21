@@ -24,18 +24,38 @@ namespace tc002 {
 ///     <- ff 55 03 03 5a 0c 4e 02 0e            telemetry, pushed unprompted
 ///     <- ff 55 02 01 01 01 58                  a flag, always 1 so far
 ///
-/// **Battery is payload byte 0 of command 0x03.** It sat at 91 during one
-/// session and 90 hours later, stays inside 0-100, and moves slowly in one
-/// direction — which is what a discharging battery does and what nothing else
-/// on this link does. Byte 1 has been constant at 12. Byte 2 drifts between
-/// roughly 70 and 78 within seconds, far too quickly to be temperature, so it
-/// is deliberately left undecoded rather than given an invented meaning.
+/// **Command 0x03 is battery**, and its three payload bytes are:
+///
+///     [0]      percentage, 0-100
+///     [1..2]   cell voltage in millivolts, big-endian
+///
+/// Byte 0 was inferred here first, from a 91-then-90 reading hours apart, and
+/// that inference was shaky: a device left on its dock reported a steady 90
+/// rather than climbing to 100, which is not what a charging battery does.
+/// The layout above is the third-party port's, read for the field mapping
+/// only - a fact about Ulanzi's MCU, not their expression of it.
+///
+/// It also settles bytes 1 and 2, which had been written off as an undecoded
+/// fast-moving value. 0c 54 is 3156 mV, 0c 4e is 3150 mV, 0c 49 is 3145 mV:
+/// one cell wobbling by a few millivolts, not a second sensor.
 ///
 /// Read-only beyond the version handshake. The MCU also drives the panel's
 /// power rails, and writing commands whose meaning is a guess is not worth a
 /// clock.
-class Tc002Mcu final : public IPowerSource {
+class Tc002Mcu final : public IPowerSource, public IMicrophone {
 public:
+    /// Command byte carrying the microphone level.
+    ///
+    /// Found by tracing the stock app while its audio visualiser ran: this
+    /// frame arrives at roughly 22 Hz and appears nowhere else, which is
+    /// why it had never been seen. The payload is a big-endian 16-bit
+    /// amplitude - a quiet room reads a few hundred, a clap reaches 32000.
+    ///
+    /// This is the whole microphone. There is no capture device, no
+    /// libmi_ai.so, and nothing new opens when the visualiser starts: the
+    /// level comes over the MCU link or not at all.
+    static constexpr std::uint8_t kMicLevel = 0x01;
+
     /// Command byte carrying periodic telemetry.
     static constexpr std::uint8_t kTelemetry = 0x03;
     /// Command byte for the version handshake.
@@ -54,6 +74,7 @@ public:
     void poll();
 
     BatteryStatus battery() const override;
+    SoundLevel level() const override;
 
     /// MCU firmware string, once it has answered. Empty until then.
     const char* version() const noexcept { return version_; }
@@ -71,6 +92,10 @@ private:
     char version_[16] = {};
 
     int batteryPercent_ = 0;
+    int batteryMillivolts_ = 0;
+
+    int micAmplitude_ = 0;
+    bool micKnown_ = false;
     bool batteryKnown_ = false;
 };
 

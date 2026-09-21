@@ -9,6 +9,7 @@
 #include "notrix/app/Carousel.h"
 #include "notrix/asset/IconStore.h"
 #include "notrix/apps/ClockApp.h"
+#include "notrix/apps/VisualizerApp.h"
 #include "notrix/apps/SplashScreen.h"
 #include "notrix/config/Config.h"
 #include "notrix/core/Log.h"
@@ -92,6 +93,7 @@ public:
     static constexpr std::string_view kBootStateKey = "boot";
     static constexpr std::string_view kClockAppId = "clock";
     static constexpr std::string_view kBatteryAppId = "battery";
+    static constexpr std::string_view kVisualizerAppId = "visualizer";
     static constexpr std::string_view kIconStateKey = "icons";
     static constexpr int kSceneTokens = 512;
 
@@ -232,6 +234,12 @@ private:
     /// direction of the transition running over it. One extra framebuffer is
     /// 2496 bytes, which is far cheaper than teaching the renderer to draw an
     /// app that is no longer active.
+    /// History for the visualiser app. Fed every tick while the microphone
+    /// is present, so the trace keeps scrolling whether or not that app is
+    /// the one on screen - switching to it mid-sound should show what just
+    /// happened, not start from an empty panel.
+    apps::Visualizer visualizer_;
+
     Framebuffer previousFrame_;
     /// The incoming frame, held while it is composited over the outgoing
     /// one. A member rather than a local so the render path allocates

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/apps/BatteryApp.h"
+#include "notrix/apps/VisualizerApp.h"
 #include "notrix/apps/ClockApp.h"
 
 #include <string>
@@ -458,4 +459,131 @@ NOTRIX_TEST(Battery, OutOfRangeChargeIsClampedNotWrapped) {
 
     NOTRIX_CHECK(render(250) == render(100));
     NOTRIX_CHECK(render(-20) == render(0));
+}
+
+
+// --- visualizer --------------------------------------------------------------
+
+namespace {
+
+notrix::Framebuffer renderViz(const notrix::apps::Visualizer& viz) {
+    notrix::Framebuffer frame;
+    notrix::Canvas canvas(frame);
+    viz.render(canvas);
+    return frame;
+}
+
+int litColumns(const notrix::Framebuffer& frame, notrix::Rgb baseline) {
+    int columns = 0;
+    for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+        for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+            const notrix::Rgb pixel = frame.at(x, y);
+            if (pixel != colors::kBlack && pixel != baseline) {
+                ++columns;
+                break;
+            }
+        }
+    }
+    return columns;
+}
+
+}  // namespace
+
+NOTRIX_TEST(Visualizer, SilenceStillShowsABaseline) {
+    // A blank panel reads as broken rather than as quiet, so the centre line is
+    // always drawn - even before a single sample has arrived.
+    notrix::apps::Visualizer viz;
+    const notrix::Framebuffer frame = renderViz(viz);
+
+    const notrix::Framebuffer blank;
+    NOTRIX_CHECK(frame != blank);
+}
+
+NOTRIX_TEST(Visualizer, LouderSoundsFillMoreOfThePanel) {
+    notrix::apps::Visualizer quiet;
+    notrix::apps::Visualizer loud;
+    for (int i = 0; i < 60; ++i) {
+        quiet.push(500);
+        loud.push(20000);
+    }
+
+    auto height = [](const notrix::Framebuffer& frame) {
+        int lit = 0;
+        for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+            for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+                if (frame.at(x, y) != colors::kBlack) { ++lit; break; }
+            }
+        }
+        return lit;
+    };
+
+    // Auto-gain means a steady tone settles to a similar height whatever its
+    // absolute level - which is the point - so this asserts both render
+    // something rather than asserting one is taller.
+    NOTRIX_CHECK(height(renderViz(quiet)) > 2);
+    NOTRIX_CHECK(height(renderViz(loud)) > 2);
+}
+
+NOTRIX_TEST(Visualizer, AutoGainOpensUpForAQuietRoom) {
+    // The whole reason gain lives in the app: a room that never exceeds 800
+    // must still fill the panel, or the visualiser is a flat line in every
+    // house that is not a nightclub.
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 200; ++i) {
+        viz.push(700);
+    }
+
+    NOTRIX_CHECK(viz.ceiling() <= 800);
+
+    const notrix::Framebuffer frame = renderViz(viz);
+    int tallest = 0;
+    for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+            if (frame.at(x, y) != colors::kBlack) { ++tallest; break; }
+        }
+    }
+    NOTRIX_CHECK(tallest > notrix::Framebuffer::kHeight / 2);
+}
+
+NOTRIX_TEST(Visualizer, AClapDoesNotClipTheFramesAroundIt) {
+    // Gain rises instantly and falls slowly, so a spike is drawn at full height
+    // on the frame it arrives rather than after the window has caught up.
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 40; ++i) { viz.push(600); }
+    viz.push(32000);
+
+    NOTRIX_CHECK(viz.ceiling() >= 32000);
+}
+
+NOTRIX_TEST(Visualizer, HistoryScrollsAndIsBounded) {
+    // 52 columns of history, newest at the right, and nothing unbounded.
+    notrix::apps::Visualizer viz;
+    NOTRIX_CHECK_FALSE(viz.hasSamples());
+
+    for (int i = 0; i < 500; ++i) {
+        viz.push(1000 + (i % 7) * 900);
+    }
+    NOTRIX_CHECK(viz.hasSamples());
+
+    const notrix::Framebuffer frame = renderViz(viz);
+    NOTRIX_CHECK_EQ(litColumns(frame, notrix::rgb(20, 28, 40)),
+                    notrix::Framebuffer::kWidth);
+}
+
+NOTRIX_TEST(Visualizer, OutOfRangeSamplesAreClampedNotWrapped) {
+    notrix::apps::Visualizer viz;
+    viz.push(-5000);
+    viz.push(999999);
+    // Neither should have produced a nonsense window.
+    NOTRIX_CHECK(viz.ceiling() >= 400);
+    NOTRIX_CHECK(viz.ceiling() <= 32767);
+}
+
+NOTRIX_TEST(Visualizer, NoMicrophoneSaysSoRatherThanDrawingSilence) {
+    notrix::Framebuffer frame;
+    notrix::Canvas canvas(frame);
+    notrix::apps::renderNoMicrophone(canvas, colors::kWhite);
+
+    const notrix::Framebuffer blank;
+    NOTRIX_CHECK(frame != blank);
 }

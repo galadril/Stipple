@@ -90,6 +90,20 @@
         </p>
     </div>
     <div class="field">
+        <label for="overlay">Weather overlay</label>
+        <select id="overlay" data-setting="display.overlay">
+            <option value="none">None</option>
+            <option value="rain">Rain</option>
+            <option value="snow">Snow</option>
+            <option value="storm">Storm</option>
+            <option value="frost">Frost</option>
+        </select>
+        <p class="help">
+            Drawn over whatever app is showing, and only on pixels it left
+            dark &mdash; so it never covers the time.
+        </p>
+    </div>
+    <div class="field">
         <label for="volume">Volume</label>
         <input type="range" id="volume" min="0" max="100" data-setting="audio.volumePercent">
         <output for="volume" id="volume-out">50</output>

@@ -24,6 +24,12 @@ struct DisplaySettings {
     /// a black frame, so the panel is genuinely dark rather than holding the
     /// last image.
     bool power = true;
+
+    /// Weather drawn over whatever app is showing, by name (see
+    /// render::overlayFromName). A string for the same reason the clock face
+    /// is one: an enum ordinal in a config file is unreadable, and
+    /// renumbering it silently changes what a device does.
+    std::string overlay = "none";
 };
 
 // Note: there is deliberately no `autoBrightness`. It was here, copied from what

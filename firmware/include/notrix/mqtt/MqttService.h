@@ -60,6 +60,13 @@ public:
     /// defaults to leaving the clock where it was.
     void configure(std::uint64_t nowMillis = 0);
 
+    /// Publish or withdraw the Home Assistant discovery entities.
+    ///
+    /// Called when the connection comes up and whenever the discovery setting
+    /// changes. Idempotent: the messages are retained, so republishing the same
+    /// thing costs a broker write and changes nothing.
+    void publishDiscovery(bool enabled);
+
     /// Drive the connection. Called every loop iteration; cheap when idle.
     void tick(std::uint64_t nowMillis);
 
@@ -86,6 +93,8 @@ public:
         bool healthy = false;
         int rssiDbm = 0;
         bool hasRssi = false;
+        int batteryPercent = 0;
+        bool hasBattery = false;
     };
     void setDeviceState(DeviceState state) { deviceState_ = std::move(state); }
 
@@ -133,6 +142,9 @@ private:
     /// using that to stamp a log froze every MQTT line at the moment of
     /// the last status, which is why the log read out of order.
     std::uint64_t nowMillis_ = 0;
+    /// What discovery state the broker currently holds, so a reconnect does not
+    /// republish a dozen retained messages it already has.
+    bool discoveryPublished_ = false;
     DeviceState deviceState_;
     bool statusDue_ = true;
     bool announced_ = false;

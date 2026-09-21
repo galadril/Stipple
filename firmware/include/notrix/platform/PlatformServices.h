@@ -54,6 +54,13 @@ struct BatteryStatus {
     bool known = false;
     /// 0-100 when `known`.
     int percent = 0;
+
+    /// Cell voltage in millivolts, 0 when unknown.
+    ///
+    /// Reported alongside the percentage rather than instead of it because the
+    /// two answer different questions: the percentage is what a user wants, and
+    /// the voltage is what tells you whether to believe it.
+    int millivolts = 0;
 };
 
 /// Battery state.
@@ -65,6 +72,29 @@ class IPowerSource {
 public:
     virtual ~IPowerSource() = default;
     virtual BatteryStatus battery() const = 0;
+};
+
+struct SoundLevel {
+    /// False means this platform cannot hear, not that the room is silent.
+    /// A visualiser must tell those apart, or a device with no microphone
+    /// shows a flatline that looks like a bug.
+    bool known = false;
+
+    /// Amplitude, 0 to 32767. Raw rather than normalised: what counts as loud
+    /// depends on the room, and an adapter cannot know that. Auto-gain belongs
+    /// where the history is, which is in the app.
+    int amplitude = 0;
+};
+
+/// The microphone, as a single amplitude.
+///
+/// Not a spectrum. The TC002 reports one 16-bit level roughly twenty times a
+/// second over its MCU link and nothing more, so anything claiming to be a
+/// spectrum analyser here would be inventing the bands.
+class IMicrophone {
+public:
+    virtual ~IMicrophone() = default;
+    virtual SoundLevel level() const = 0;
 };
 
 /// Deliberately its own interface rather than a method on IPlatformServices:
@@ -113,6 +143,9 @@ public:
 
     /// Battery, where there is one to report. Null on a mains-only panel.
     virtual IPowerSource* power() { return nullptr; }
+
+    /// Microphone. Null where the hardware cannot hear.
+    virtual IMicrophone* microphone() { return nullptr; }
     virtual INetworkManager* network() { return nullptr; }
     virtual IRebooter* rebooter() { return nullptr; }
 

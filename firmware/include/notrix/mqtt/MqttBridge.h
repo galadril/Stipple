@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 #include <string_view>
 
 #include "notrix/api/Http.h"
@@ -111,7 +112,28 @@ public:
                                      std::uint64_t uptimeMillis,
                                      bool healthy,
                                      int rssiDbm,
-                                     bool hasRssi);
+                                     bool hasRssi,
+                                     int batteryPercent = 0,
+                                     bool hasBattery = false);
+
+    /// Home Assistant MQTT discovery (§20).
+    ///
+    /// One retained message per entity on `homeassistant/<component>/<node>/
+    /// <object>/config`, which is the convention HA watches. Publishing them is
+    /// the whole integration: HA creates the entities, and every command and
+    /// state afterwards flows through topics that already existed.
+    ///
+    /// The entities are deliberately built on the *existing* command surface -
+    /// `cmd/settings` takes a JSON patch, and HA's template schemas can emit
+    /// exactly that - so discovery adds no new way to control the device and
+    /// therefore no second thing to keep in step.
+    ///
+    /// `clear` produces the same topics with empty payloads, which is how MQTT
+    /// says "this entity is gone". Switching discovery off must remove the
+    /// entities rather than orphan them in someone's dashboard.
+    std::vector<platform::MqttMessage> discoveryMessages(const config::Config& settings,
+                                                         std::string_view deviceId,
+                                                         bool clear) const;
 
     /// A button event, for automations that want to react to the hardware.
     static std::string buttonPayload(std::string_view action, int repeat, bool longPress);

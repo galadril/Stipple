@@ -6,6 +6,7 @@
 #include "notrix/api/JsonWriter.h"
 #include "notrix/app/AppRegistry.h"
 #include "notrix/core/Base64.h"
+#include "notrix/render/Overlay.h"
 #include "notrix/graphics/Framebuffer.h"
 #include "notrix/asset/IconStore.h"
 #include "notrix/app/Carousel.h"
@@ -80,6 +81,7 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .beginObject()
         .member("brightness", static_cast<int>(settings.display.brightness))
         .member("power", settings.display.power)
+        .member("overlay", settings.display.overlay)
         .endObject()
         .key("audio")
         .beginObject()
@@ -362,6 +364,10 @@ Response ApiServer::handleDevice(const Request& request) {
         writer.key("battery").beginObject().member("known", status.known);
         if (status.known) {
             writer.member("percent", status.percent);
+            // The number that says whether to believe the percentage. A cell
+            // reading 3.15 V is telling you something the percentage alone
+            // cannot.
+            writer.member("millivolts", status.millivolts);
         }
         writer.endObject();
     }
@@ -1048,6 +1054,15 @@ Response ApiServer::handleSettings(const Request& request) {
         }
         if (const json::Value power = display["power"]; power.isBoolean()) {
             updated.display.power = power.toBool(true);
+        }
+        if (const json::Value overlay = display["overlay"]; overlay.isString()) {
+            // Round-tripped, like clock.theme. Falling back silently would
+            // leave a client believing it had selected weather it had not.
+            const std::string name = overlay.toString();
+            if (render::overlayName(render::overlayFromName(name)) != name) {
+                return unprocessable("'display.overlay' is not a known overlay");
+            }
+            updated.display.overlay = name;
         }
     }
 
