@@ -32,6 +32,8 @@ add_executable(notrix_tests
     test_wireless_stats.cpp
     test_rescue.cpp
     test_wpa_replies.cpp
+    test_dhcp.cpp
+    test_ipv4_udp.cpp
 )
 
 target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

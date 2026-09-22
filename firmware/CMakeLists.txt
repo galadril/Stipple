@@ -36,6 +36,7 @@ add_library(notrix_core
     src/scene/Scene.cpp
     src/audio/Tone.cpp
     src/time/Timezone.cpp
+    src/net/DhcpClient.cpp
     src/core/Base64.cpp
     src/core/Checksum.cpp
     src/core/Log.cpp
