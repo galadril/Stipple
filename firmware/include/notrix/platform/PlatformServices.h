@@ -33,9 +33,23 @@ public:
 
 struct NetworkStatus {
     bool connected = false;
+
+    /// False means this platform cannot measure a signal, which is not the
+    /// same as a signal of zero. A UI showing "0 dBm" for a radio that never
+    /// answered is the same confident lie as a battery reading 0% because
+    /// nothing did.
+    bool signalKnown = false;
+
+    /// Negative, and closer to zero is better. Meaningful only when
+    /// `signalKnown`.
     int rssiDbm = 0;
+
     std::string ipv4;
     std::string hostname;
+
+    /// The network joined, where the platform can say. Empty otherwise -
+    /// which is normal on a wired or simulated device, not a failure.
+    std::string ssid;
 };
 
 /// Wi-Fi state, read-only at this layer. Joining a network is a provisioning

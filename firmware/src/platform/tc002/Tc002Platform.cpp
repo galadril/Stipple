@@ -5,6 +5,8 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#include <linux/wireless.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -13,7 +15,10 @@
 
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <utility>
+
+#include "notrix/platform/tc002/WirelessStats.h"
 
 namespace notrix {
 namespace platform {
@@ -211,8 +216,77 @@ bool Tc002Storage::remove(std::string_view key) {
 
 // --- network ----------------------------------------------------------------
 
+namespace {
+
+/// Read a small file whole. Returns empty on any failure, which every caller
+/// here treats as "this platform cannot say" rather than as an error.
+std::string readSmallFile(const char* path) {
+    const int fd = ::open(path, O_RDONLY);
+    if (fd < 0) {
+        return std::string();
+    }
+    std::string out;
+    char chunk[512];
+    for (;;) {
+        const ssize_t got = ::read(fd, chunk, sizeof(chunk));
+        if (got <= 0) {
+            break;
+        }
+        out.append(chunk, static_cast<std::size_t>(got));
+        // Bounded, per §38. /proc/net/wireless is a few hundred bytes; a file
+        // that keeps producing is not the file this was looking for.
+        if (out.size() > 8192) {
+            break;
+        }
+    }
+    ::close(fd);
+    return out;
+}
+
+/// The SSID, via the wireless-extensions ioctl.
+///
+/// There is no wpa_cli on this device and no iwgetid, so the ioctl is the only
+/// route. /proc/net/wireless reports the signal but never the name.
+std::string readSsid(const char* interface) {
+    const int sock = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        return std::string();
+    }
+
+    struct iwreq request;
+    std::memset(&request, 0, sizeof(request));
+    std::strncpy(request.ifr_name, interface, IFNAMSIZ - 1);
+
+    char essid[IW_ESSID_MAX_SIZE + 1] = {};
+    request.u.essid.pointer = essid;
+    request.u.essid.length = IW_ESSID_MAX_SIZE;
+    request.u.essid.flags = 0;
+
+    std::string out;
+    if (::ioctl(sock, SIOCGIWESSID, &request) == 0) {
+        essid[IW_ESSID_MAX_SIZE] = '\0';
+        out = essid;
+    }
+    ::close(sock);
+    return out;
+}
+
+/// The interface this device joins networks on. Named once rather than spelled
+/// at three call sites.
+constexpr const char* kWirelessInterface = "wlan0";
+
+}  // namespace
+
 NetworkStatus Tc002Network::status() const {
     NetworkStatus result;
+
+    // Signal strength, which was reported as a flat zero until somebody looked
+    // at the tile showing it.
+    const wireless::Stats signal =
+        wireless::parse(readSmallFile("/proc/net/wireless"), kWirelessInterface);
+    result.signalKnown = signal.known;
+    result.rssiDbm = signal.levelDbm;
+    result.ssid = readSsid(kWirelessInterface);
 
     char hostname[128] = {};
     if (::gethostname(hostname, sizeof(hostname) - 1) == 0) {

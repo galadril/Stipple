@@ -422,7 +422,10 @@
                 if (device.network.hostname) {
                     addFact(facts, 'Hostname', device.network.hostname);
                 }
-                if (device.network.rssiDbm) {
+                if (device.network.ssid) {
+                    addFact(facts, 'Network', device.network.ssid);
+                }
+                if (device.network.rssiDbm !== undefined) {
                     addFact(facts, 'Signal', device.network.rssiDbm + ' dBm');
                 }
             } else {
@@ -531,10 +534,14 @@
         var network = device && device.network;
         if (network && network.connected) {
             // The address leads: it is the one reading here somebody might
-            // want to read out loud. It fits now that the row is as wide as
-            // the panel; when the panel was narrower this had to be the note.
+            // want to read out loud. The note carries the network name and
+            // the signal, whichever of them the device can say - rssiDbm is
+            // absent rather than zero when it cannot be measured.
+            var detail = [];
+            if (network.ssid) { detail.push(network.ssid); }
+            if (network.rssiDbm !== undefined) { detail.push(network.rssiDbm + ' dBm'); }
             host.appendChild(tile('Wi-Fi', network.ipv4 || 'connected',
-                network.rssiDbm ? network.rssiDbm + ' dBm' : ''));
+                detail.join(' · ')));
         } else if (network) {
             host.appendChild(tile('Wi-Fi', null, 'not connected'));
         }

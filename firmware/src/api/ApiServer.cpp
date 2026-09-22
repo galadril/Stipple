@@ -371,10 +371,19 @@ Response ApiServer::handleDevice(const Request& request) {
         const platform::NetworkStatus status = context_.platform->network()->status();
         writer.beginObject()
             .member("connected", status.connected)
-            .member("rssiDbm", status.rssiDbm)
             .member("ipv4", status.ipv4)
-            .member("hostname", status.hostname)
-            .endObject();
+            .member("hostname", status.hostname);
+        // Emitted only where it means something. A platform that cannot
+        // measure a signal reported a flat zero before, which reads as "no
+        // signal" rather than "no measurement" - the same class of lie as a
+        // battery at 0% because nothing answered.
+        if (status.signalKnown) {
+            writer.member("rssiDbm", status.rssiDbm);
+        }
+        if (!status.ssid.empty()) {
+            writer.member("ssid", status.ssid);
+        }
+        writer.endObject();
     } else {
         // Null rather than a fabricated "disconnected": this platform has no
         // network interface at all, which is different from having one that is
