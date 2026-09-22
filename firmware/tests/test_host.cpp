@@ -1742,3 +1742,49 @@ NOTRIX_TEST(Host, AnAppInstalledSinceTheOrderWasSavedAppearsRatherThanVanishing)
     NOTRIX_CHECK(host.apps().find(ApplicationHost::kClockAppId) != nullptr);
     NOTRIX_CHECK(host.apps().find(ApplicationHost::kVisualizerAppId) != nullptr);
 }
+
+NOTRIX_TEST(Host, ChangingTheAppDurationTakesEffectWithoutARestart) {
+    // It was copied into the carousel in initialize() and nowhere else, so
+    // changing it over the API updated the stored setting and did nothing at
+    // all until the next restart. From outside, a setting that only applies
+    // after a reboot and does not say so is a setting that is ignored.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+    NOTRIX_REQUIRE(host.apps().count() >= 2);
+
+    host.settings().apps.defaultDurationSeconds = 1;
+    run(host, platform, 700);
+
+    const std::string before = host.carousel().active()->id;
+
+    // Past one second and well short of two. With only two apps installed, a
+    // wider window would advance twice and land back where it started - which
+    // is a test that passes for "never moved" and for "moved correctly" alike.
+    run(host, platform, 1800);
+    NOTRIX_CHECK(host.carousel().active()->id != before);
+
+    // And nowhere near the eight-second default it would have used before.
+    NOTRIX_CHECK(host.carousel().config().defaultDurationSeconds == 1);
+}
+
+NOTRIX_TEST(Host, ALongerDurationAlsoTakesEffectImmediately) {
+    // The other direction, because "it advances sooner" could be satisfied by
+    // something ignoring the setting entirely and rotating fast.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+
+    host.settings().apps.defaultDurationSeconds = 60;
+    run(host, platform, 700);
+
+    const std::string before = host.carousel().active()->id;
+    run(host, platform, 20000);
+    NOTRIX_CHECK_EQ(host.carousel().active()->id, before);
+}

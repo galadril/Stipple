@@ -148,9 +148,7 @@ bool ApplicationHost::initialize() {
         platform_.audio()->setVolume(config::volumeToByte(settings_.audio.volumePercent));
     }
 
-    app::CarouselConfig carousel;
-    carousel.defaultDurationSeconds = settings_.apps.defaultDurationSeconds;
-    carousel_.setConfig(carousel);
+    applyCarouselSettings();
 
     // 5. Apps and stored assets.
     if (bootMode_ == BootMode::Normal) {
@@ -543,6 +541,26 @@ void ApplicationHost::activateCurrentSetting() {
     // toggle.
 }
 
+void ApplicationHost::applyCarouselSettings() {
+    // Re-applied whenever it differs rather than copied once at startup.
+    //
+    // It was set in initialize() and nowhere else, so changing the app
+    // duration over the API updated the stored setting and did nothing at all
+    // until the next restart - which reads as the setting being ignored,
+    // because from outside that is exactly what it was.
+    //
+    // Compared rather than assigned blindly: this runs every tick, and a
+    // carousel told its configuration had changed would be entitled to act on
+    // that. Today it would not, but a free "nothing changed" check is cheaper
+    // than depending on it never starting to.
+    if (carousel_.config().defaultDurationSeconds == settings_.apps.defaultDurationSeconds) {
+        return;
+    }
+    app::CarouselConfig carousel;
+    carousel.defaultDurationSeconds = settings_.apps.defaultDurationSeconds;
+    carousel_.setConfig(carousel);
+}
+
 // --- app order ---------------------------------------------------------------
 
 void ApplicationHost::applyStoredAppOrder() {
@@ -880,6 +898,7 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
     pumpInput(nowMillis);
     persistIconsIfChanged();
     persistAppOrderIfChanged();
+    applyCarouselSettings();
 
     if (splashActive_) {
         if (splashElapsed(nowMillis)) {

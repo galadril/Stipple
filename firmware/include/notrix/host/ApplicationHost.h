@@ -226,6 +226,9 @@ private:
     /// The knob press, inside settings: toggles what can be toggled.
     void activateCurrentSetting();
 
+    /// Keep the carousel in step with the stored app settings.
+    void applyCarouselSettings();
+
     /// Put the registry into the order the user last arranged, and apply the
     /// enabled flags and durations that went with it.
     void applyStoredAppOrder();
