@@ -8,7 +8,7 @@ Phases 0–7 are done. NOTRIX runs on real TC002 hardware: it renders through th
 
 What exists: `notrix_core` (framebuffer, Canvas, font/text, scenes, icon store, app carousel, notifications, config, frame scheduler, ring log, `ApplicationHost`, the `/api/v1/*` server, the embedded device web UI and the MQTT bridge), `notrix_imageio` (dependency-free PNG encoder), **both** platform adapters — `simulator` and `tc002` (`Tc002Display`, `Tc002Input`, `Tc002Mcu`, `Tc002HttpServer`, `Tc002MqttClient`, `Tc002Platform`) — a host test suite with golden-image comparison, and a WebAssembly browser emulator that serves the real config page through the real router.
 
-`tooling/` exists: `probe/` (read-only device reconnaissance, restore-image capture, ABI checking) and `cross/` (two pinned container toolchains — bookworm for libraries and static executables, bullseye for dynamic ones, because bookworm's executables demand `GLIBC_2.34` and the device has 2.30). Directories for `sdk/`, `installer/` and `integrations/` do not exist yet. The device UI lives in `firmware/web/` and is compiled into the binary by `cmake/EmbedWebAssets.cmake`; there is no top-level `web/`.
+`tooling/` exists: `probe/` (read-only device reconnaissance, ABI checking), `imgtool/` (reads, verifies and builds `update.img` containers, and captures a verified restore image from a live device — neither writes to one) and `cross/` (two pinned container toolchains — bookworm for libraries and static executables, bullseye for dynamic ones, because bookworm's executables demand `GLIBC_2.34` and the device has 2.30). Directories for `sdk/`, `installer/` and `integrations/` do not exist yet. The device UI lives in `firmware/web/` and is compiled into the binary by `cmake/EmbedWebAssets.cmake`; there is no top-level `web/`.
 
 **The hardware is real and the findings are first-hand.** `docs/research/tc002-platform-findings.md` is the measured record: SSD21x dual-core Cortex-A7, 36 MB RAM, glibc 2.30, an 8 MiB `res` partition, and the display, input and MCU protocols decoded off the wire. Prefer it over the blueprint wherever the two disagree — the blueprint was written before anyone had a device.
 
@@ -46,8 +46,13 @@ It is not an ESP32 firmware, not a port of AWTRIX 3 or AWTRIX NG, and must not i
   exists and its design is [ADR 0008](docs/adr/0008-installer-helper.md): three
   tiers (emulator → volatile `/tmp` trial → gated flash), a restore image
   captured from the user's own device as a hard precondition, and no
-  vendor-derived blob in any release. The code is Phase 7; the gates are not
-  negotiable in it.
+  vendor-derived blob in any release. **The first gate is met** — `dev.ps1
+  capture` produces a verified restore image, and `tooling/imgtool/` builds
+  and checks `update.img` containers (proven by repacking a factory image
+  byte for byte). **The second is not**: nobody has demonstrated a restore,
+  so nothing gets flashed. Flashing will go through the vendor's own update
+  path rather than a writer of ours — see
+  [ADR 0020](docs/adr/0020-persistence-through-the-vendor-update-path.md).
 - Tests required for core behavior.
 - Do not hand-edit generated FlyThings files.
 - Document reversed/reverse-engineered platform behavior in `docs/`.
@@ -81,7 +86,7 @@ MQTT namespace is `notrix/{deviceId}/...`, off by default. Commands are translat
 
 - The TC002 display API has an internal throttle; Ulanzi warns against frame intervals below ~15 ms. Do **not** target 60 FPS. Use dirty rendering, a frame budget, and 20–30 FPS for animation.
 - The MCU must be initialized before normal LED-board operation.
-- USB-C on the TC002 is mass-storage, not a serial/USB flashing path. A browser WebSerial/WebUSB flasher (ESP32-style) is **not** available. Development deployment is Wi-Fi ADB into `/tmp`, which is volatile — a power cycle restores the stock application. This is the default and safest dev mode.
+- USB-C on the TC002 defaults to host mode and presents mass storage, so a browser WebSerial/WebUSB flasher (ESP32-style) is **not** available. It is not *only* mass storage, though: `/sys/bus/platform/devices/soc:usbotg/otg_role` reads `usb_host` and accepts `usb_device`, which brings up the ADB gadget over the cable with no network involved. That is a way into a device whose Wi-Fi is broken, and it needs a shell to arrange, so it is something to set up before it is needed. Development deployment is Wi-Fi ADB into `/tmp`, which is volatile — a power cycle restores the stock application. This is the default and safest dev mode.
 - App ordering must never be inferred from filesystem enumeration or associative-container iteration; the app manager owns explicit ordering.
 - Configuration is versioned (`schemaVersion`) with transactional writes, checksum, backup copy and migration code. Malformed JSON must never brick the device or cause a boot loop.
 - Logging is a ring buffer — avoid flash writes. Never expose Wi-Fi passwords or secrets via diagnostics.
@@ -135,10 +140,11 @@ CMake from a Visual Studio install is **not on PATH**; `dev.ps1` locates it via 
 
 `docs/bring-up.md` is the day-one runbook for a new device: probe read-only first, capture a restore image before anything else, never flash what has not run from `/tmp` on that exact unit. `tooling/probe/probe.py` refuses to start if a mutating command is ever added to it.
 
-The remaining device verbs arrive in Phase 7. ADR 0008 fixes the set as `doctor`,
-`deploy`, `capture`, `flash`, `restore`, `logs` — `capture` and `flash` are
-additions to blueprint §27.3, and `dev.ps1` wraps the CLI rather than
-reimplementing it.
+ADR 0008 fixes the verb set as `doctor`, `deploy`, `capture`, `flash`,
+`restore`, `logs` — `capture` and `flash` are additions to blueprint §27.3,
+and `dev.ps1` wraps the CLI rather than reimplementing it. `doctor`, `deploy`
+and `capture` exist. `flash` and `restore` do not, and will not until ADR
+0008's second gate is met.
 
 CI is `.github/workflows/ci.yml`; `release.yml` calls it via `workflow_call` on
 a `v*` tag so a release cannot pass weaker gates than main. A release packages

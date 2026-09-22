@@ -4,40 +4,106 @@
 
 NOTRIX replaces the stock pixel-app experience on the Ulanzi TC002 with a
 renderer it owns end to end: a 52×16 framebuffer, deterministic custom apps,
-notifications, HTTP and MQTT APIs, and a browser-based emulator. Local-first —
-no cloud required.
+notifications, HTTP and MQTT APIs, sound, and a browser-based emulator.
+Local-first — no cloud, no account, no vendor app.
 
-> **Status: early development.** Phase 1 of 7. There is no installable firmware
-> yet, and nothing here has run on real hardware. See [Roadmap](#roadmap).
+> **Status: runs on real hardware, and does not survive a power cycle yet.**
+>
+> Everything below works on a device today, loaded into `/tmp` over Wi-Fi ADB.
+> Because `/tmp` is tmpfs, unplugging the clock restores the stock firmware —
+> which is the safety property that made all of it possible to build, and the
+> one thing still standing between NOTRIX and being a firmware you install.
+> See [What is not done](#what-is-not-done).
 
 ---
 
-## What works today
+## What works, on hardware
 
-- A complete, tested 52×16 RGB framebuffer and `Canvas` with strict clipping
-- A 5×7 proportional font engine with UTF-8, the degree sign, measurement and
-  alignment
-- The `IPlatformServices` hardware boundary, with a full simulator adapter
-- Golden-image rendering tests with PNG diffs on failure
-- A browser emulator running the real renderer compiled to WebAssembly
+**The panel.** 52×16 RGB through the vendor HAL, dirty rendering, a frame
+budget, overlays and configurable transitions between apps.
+
+**Apps and scenes.** A declarative scene model — pixel, line, rectangle, text,
+icon, bitmap, sprite, progress, graph, animation, group — with a carousel you
+can reorder, pin and configure per app.
+
+**Controls.** One meaning per control: knob turns to move, press to act, −/+
+to adjust, middle to go back, hold the knob for settings
+([ADR 0017](docs/adr/0017-device-navigation-model.md)).
+
+**Sound.** Tones and notification chimes through the SigmaStar audio path, with
+volume on −/+. Plus a microphone-driven visualiser.
+
+**Networking.** Its own DHCP client, Wi-Fi scanning and joining, and a setup
+hotspot — the device hosts `NOTRIX-setup`, serves its configuration page on
+`192.168.4.1`, and hands the radio back when you are done
+([ADR 0018](docs/adr/0018-first-run-provisioning-and-access.md)).
+
+**A web UI and an API.** One surface, `/api/v1/*`, served by the device itself
+and reachable over HTTP or MQTT. The configuration page is compiled into the
+binary, because a device whose storage has failed is exactly when its
+configuration page is needed.
+
+**Access control.** HTTP Basic over the page and the API alike, off by default,
+with a physical way back: hold − and + for five seconds.
+
+**A browser emulator.** The real renderer compiled to WebAssembly, serving the
+real configuration page through the real router. Not a mock.
+
+Roughly 840 tests, including golden-image comparison of rendered frames.
+
+## Try it without a device
 
 ```powershell
 .\dev.ps1 doctor     # check your toolchain
 .\dev.ps1 test       # run the host test suite
-.\dev.ps1 preview    # render frames to PNG and open them — no extra tooling
+.\dev.ps1 preview    # render frames to PNG and open them - needs only a compiler
 .\dev.ps1 serve      # build the emulator and open http://localhost:8080/
 ```
 
-`preview` needs only a C++ compiler. `serve` additionally needs the Emscripten
-SDK — see [`docs/development/toolchain.md`](docs/development/toolchain.md).
+`serve` needs the Emscripten SDK; see
+[`docs/development/toolchain.md`](docs/development/toolchain.md).
 
-Setup instructions: [`docs/development/toolchain.md`](docs/development/toolchain.md).
+## Try it on a device
 
-## Why the emulator comes first
+**This does not modify your clock.** NOTRIX is pushed to `/tmp`, which is
+tmpfs. A power cycle restores the stock firmware, every time. That is the whole
+design of tier 2 in [ADR 0008](docs/adr/0008-installer-helper.md).
 
-The project is being built without a TC002 on hand. That turns out to cost very
-little, because the architecture already separates NOTRIX core from the hardware
-at a single boundary:
+```powershell
+.\dev.ps1 capture 192.168.1.238:5555   # read a restore image off your device first
+.\dev.ps1 deploy  192.168.1.238:5555   # cross-build, push to /tmp, run
+```
+
+`capture` comes first for a reason worth reading:
+[every TC002 ships a recovery image on its own USB volume, and it is not
+necessarily the firmware that unit is running](docs/research/tc002-platform-findings.md).
+On the unit this was developed against, holding the reset button installs an
+*older* image than the device has. Capture from your own device, and the
+physical recovery button becomes correct.
+
+Full runbook: [`docs/bring-up.md`](docs/bring-up.md).
+
+## What is not done
+
+Stated plainly, because a status section that only lists wins is not a status
+section.
+
+- **It does not persist.** Making it survive a reboot means writing the `res`
+  partition. The tooling to build and verify a flashable image exists and is
+  verified against a factory image
+  ([ADR 0020](docs/adr/0020-persistence-through-the-vendor-update-path.md)), and
+  **nothing has been flashed**. ADR 0008 requires a restore path that has been
+  *demonstrated*, not one that ought to work.
+- **NOTRIX has never been built as `libzkgui.so`.** Persisting means becoming
+  the shared library the vendor host loads, and nobody has tried it. That, not
+  the flashing, is the unproven part.
+- **No OTA updates.**
+- **No installable release.** Releases package the emulator and say so.
+- **Renewal of a DHCP lease is untested end to end.** The timing is tested on a
+  host, the wire format against a real server; twelve hours apart, they have
+  not yet met.
+
+## How it is built
 
 ```
                         NOTRIX CORE
@@ -48,70 +114,68 @@ at a single boundary:
 └─────────────────────────┬───────────────────────────────┘
                    IPlatformServices
              ┌────────────┴────────────┐
-      TC002 FlyThings             Simulator
-      adapter                     adapter
+      TC002 adapter               Simulator adapter
 ```
 
-Everything above that line is portable and host-testable. Only the adapter below
-it needs a device. So the simulator is built first and device bring-up comes
-last — and the emulator is not a mock, it is the real renderer with a different
-output device.
+Everything above that line is portable C++17 and host-testable. Only the
+adapter below it needs a device, and the simulator runs the *same* scene
+parser, layout engine, font engine and app scheduler as the hardware.
 
-Recorded in [ADR 0011](docs/adr/0011-simulator-first-development-order.md).
+That boundary is why the simulator was built first and bring-up came last
+([ADR 0011](docs/adr/0011-simulator-first-development-order.md)). It paid off:
+when hardware arrived, every layer above the boundary already worked and had
+tests, so bring-up was writing one adapter rather than debugging a whole system
+through a 52×16 window.
 
-## Roadmap
-
-| Phase | Content | Needs a TC002 |
-|---|---|:--:|
-| 0 | Repo skeleton, CMake, CI, ADRs | no |
-| **1** | **Framebuffer, Canvas, golden-image tests** | no |
-| **1b** | **WebAssembly browser emulator** | no |
-| 2 | Font and text engine | no |
-| 3 | `IPlatformServices` + simulator adapter | no |
-| 4 | Scene model, app engine, configuration | no |
-| 5 | HTTP API and notifications | no |
-| 6 | MQTT and device web UI | no |
-| 7 | TC002 bring-up: probe, cross-compile, sideload, device adapter | **yes** |
-
-The full design is in
-[`NOTRIX-PROJECT-BLUEPRINT.md`](NOTRIX-PROJECT-BLUEPRINT.md) — vision,
-architecture, API design, security, update strategy and the open research
-questions that are deliberately still unanswered.
+**No external dependencies**, by decision
+([ADR 0012](docs/adr/0012-dependency-free-core.md)). The JSON parser, the PNG
+encoder, the test harness and the MQTT client are all in-tree.
 
 ## Repository layout
 
 ```
-firmware/      core renderer, headers, host tests   (portable C++17)
+firmware/      core renderer, platform adapters, host tests   (C++17)
 simulator/     browser emulator (Emscripten)
-docs/          architecture, ADRs, development guides
-cmake/         shared build configuration
+tooling/       device probe, cross-toolchains, image tooling  (Python)
+docs/          architecture, ADRs, research, runbooks
 ```
 
-Directories for `sdk/`, `installer/`, `web/`, `integrations/` and `tooling/`
-appear as their phases begin. NOTRIX is a monorepo by design — one issue
-tracker, one release process, and a single PR can change firmware, API,
-simulator and docs together (blueprint §41.1).
+The device configuration page lives in `firmware/web/` and is compiled into the
+binary.
+
+## Documentation
+
+- [`NOTRIX-PROJECT-BLUEPRINT.md`](NOTRIX-PROJECT-BLUEPRINT.md) — the full design
+- [`docs/adr/`](docs/adr/) — every significant decision, and why
+- [`docs/research/tc002-platform-findings.md`](docs/research/tc002-platform-findings.md)
+  — what the hardware actually does, measured rather than assumed
+- [`docs/bring-up.md`](docs/bring-up.md) — day one with a new device
+- [`docs/mqtt.md`](docs/mqtt.md) — the MQTT surface
 
 ## Contributing
 
-Work proceeds one phase at a time. Before architectural work, read the blueprint
-and the [ADRs](docs/adr/). Significant architectural changes need an ADR of
-their own.
+Read the blueprint and the [ADRs](docs/adr/) before architectural work.
+Significant changes need an ADR of their own.
 
 House rules, from blueprint §44:
 
-- Reliability before feature count
-- No AWTRIX source copying
-- All hardware behind interfaces; the simulator must stay supported
-- No unbounded allocations or queues; nothing allocates in the render path
-- Tests required for core behaviour
+- Reliability before feature count. A feature that works every time beats five
+  that half-work.
+- **No AWTRIX source copying.** NOTRIX is an independent implementation.
+- All hardware behind interfaces; the simulator must stay supported.
+- No unbounded allocations or queues; nothing allocates in the render path.
+- Tests required for core behaviour.
+- Document reverse-engineered platform behaviour in `docs/`.
 
 ## Licence
 
 [GPL-3.0-or-later](LICENSE). See
 [ADR 0002](docs/adr/0002-gpl-license.md) for the reasoning and
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for the dependency register
-(currently empty — the core has no dependencies).
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for the dependency register.
+
+Restore images and partition captures are **not** redistributable — they are
+Ulanzi's firmware, and they are specific to one unit. They are gitignored for
+both reasons.
 
 ---
 

@@ -1,0 +1,138 @@
+# Getting a TC002 back
+
+Written for the moment you need it, so it starts with the answer.
+
+## The short version
+
+**Unplug it and plug it back in.**
+
+NOTRIX runs from `/tmp`, which is tmpfs. A power cycle wipes it and the stock
+Ulanzi firmware comes straight back. This works for every problem NOTRIX can
+currently cause, including the ones that look alarming: a frozen panel, a
+device that has vanished from the network, two copies fighting over the
+display, a hotspot that will not go away.
+
+Nothing NOTRIX does today touches flash. That is deliberate and it is the
+reason the rest of this document is short.
+
+---
+
+## By symptom
+
+### The panel is frozen, or showing nonsense
+
+Power cycle. If the stock clock comes back, NOTRIX was the problem and nothing
+is damaged.
+
+### The device has disappeared from the network
+
+Usually the hotspot: one radio cannot be an access point and a station at the
+same time, so while NOTRIX hosts `NOTRIX-setup` it is not on your Wi-Fi at
+all. That is normal and it reverts on its own.
+
+1. Look for a Wi-Fi network called **`NOTRIX-setup`**. If it is there, join it
+   and open <http://192.168.4.1/>.
+2. If it is not, wait two minutes — the hotspot reverts by itself and the
+   device re-joins your network.
+3. If it is still gone, power cycle.
+
+### It is on the network but you cannot log in
+
+Hold **− and + together for five seconds**. The panel counts down, and at zero
+the access password is cleared and the device starts its hotspot.
+
+It clears **only** the password. Apps, settings and arrangement are kept —
+somebody locked out of a clock wants their configuration to still be there
+when they get back in.
+
+### The clock shows the wrong time and will not change
+
+Check the timezone under **System → Time**. The device has no timezone
+database, so zones are stored as POSIX rules; picking your city from the list
+sets the right one including daylight saving.
+
+### Two copies of NOTRIX are running
+
+Symptom: the panel flickers between two things, or looks doubled. This only
+happens during development, when a new build is started without stopping the
+old one.
+
+```powershell
+adb shell ps                       # find the /tmp/notrix_device entries
+adb shell "kill -9 <pid>"          # stop each one
+```
+
+Or just power cycle.
+
+---
+
+## When Wi-Fi is not available at all
+
+The USB-C port defaults to host mode, but it can be switched:
+
+```powershell
+adb shell "echo usb_device > /sys/bus/platform/devices/soc:usbotg/otg_role"
+```
+
+That brings up the ADB gadget over the cable, giving a root shell with no
+network involved. Useful precisely when the network is the thing that broke —
+though note it needs a shell to run, so it is something to set up *before* you
+need it rather than after.
+
+---
+
+## The factory reset button, and why it may not do what you want
+
+Holding the reset button during power-up makes the device wipe `/data` and
+reflash the `res` partition from `/mnt/storage/update.img` — the file on its
+own USB volume.
+
+**That image is not necessarily the firmware your device is running.**
+
+On the unit NOTRIX was developed against, the shipped image is *older* than
+the installed partition. Holding reset there is a downgrade, not a restore.
+The third-party TC002 project reports the same on their unit. Devices differ.
+
+So before relying on that button:
+
+```powershell
+.\dev.ps1 capture 192.168.1.238:5555
+```
+
+This reads your device's live `res` partition through the kernel's read-only
+alias, wraps it in an image the loader accepts, and verifies the result
+against what it read. It writes nothing to the device.
+
+Keep `restore/restore-res.img`. It is specific to your unit, it is Ulanzi's
+firmware, and it must not be shared — which is why it is gitignored.
+
+Putting that file on the device's USB volume as `update.img` makes the reset
+button a *correct* recovery. That is worth doing whether or not you ever
+intend to flash anything.
+
+---
+
+## What NOTRIX will not do to you
+
+- **It does not write flash.** No release does, and none will until
+  [ADR 0008](adr/0008-installer-helper.md)'s gates are met: a verified restore
+  image *and* a restore path somebody has actually demonstrated.
+- **It does not change your Wi-Fi settings without being asked.** Joining a
+  network appends a block and never replaces one, so a wrong password falls
+  back to the network that was already working.
+- **It does not keep an open access point running forever.** The hotspot
+  reverts on a timer, because a clock quietly hosting an open network is a
+  worse problem than the one it was solving.
+- **It does not phone anywhere.** No cloud, no telemetry, no account.
+
+## If none of this helps
+
+Open an issue with:
+
+- what the panel was showing,
+- whether the device answers `ping`,
+- `adb shell getprop ro.product.model` if you can reach a shell,
+- and the output of `/api/v1/logs` if you can reach the web UI.
+
+Do **not** attach a restore image or a partition capture. They are vendor
+firmware and they carry details specific to your device.
