@@ -49,15 +49,25 @@ FROM docker.io/library/debian@sha256:70509c95d1857a3704c0a5d92ee2e0adac95f612a93
 RUN echo 'deb http://archive.debian.org/debian bullseye main' > /etc/apt/sources.list \
     && echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99archive
 
+# squashfs-tools builds the res partition image.
+#
+# A host tool, not a firmware dependency - it runs on x86 here and produces
+# a filesystem the device mounts. The res partition is squashfs 4.0 with xz
+# compression and 128 KiB blocks, and those parameters have to be matched
+# rather than guessed: the kernel that mounts it was built with a fixed set
+# of decompressors, and an image it cannot read is a device that boots with
+# no application at all.
 RUN apt-get update && apt-get install --no-install-recommends --yes \
         g++-arm-linux-gnueabihf \
         cmake \
         ninja-build \
         file \
+        squashfs-tools \
     && rm -rf /var/lib/apt/lists/*
 
 RUN arm-linux-gnueabihf-gcc --version | head -1 && \
     arm-linux-gnueabihf-gcc -print-file-name=libc.so.6 && \
-    cmake --version | head -1
+    cmake --version | head -1 && \
+    mksquashfs -version | head -1
 
 WORKDIR /src

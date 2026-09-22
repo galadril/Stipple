@@ -26,7 +26,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'panel', 'serve', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'image', 'panel', 'serve', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -330,6 +330,48 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/notrix_device \
 
         Write-Host "`nKeep restore/. It is specific to this device, it is Ulanzi's" -ForegroundColor Yellow
         Write-Host "firmware, and it is gitignored for both reasons." -ForegroundColor Yellow
+    }
+
+    'image' {
+        # Build a res partition image from a capture, changing one line.
+        #
+        # The image carries no NOTRIX code. ADR 0021 puts NOTRIX in /data and
+        # points the framework's startupLibPath at it, so this is flashed once
+        # and every release after that is a file copy over the network.
+        #
+        # It runs in the container and not on the host because the res
+        # filesystem stores uid/gid 1000 and modes like 0770, and extracting
+        # it onto a Windows bind mount flattens both to root/0777 - which
+        # would silently change the ownership of every file on the partition.
+        $capture = Join-Path $repoRoot 'restorees-raw.bin'
+        if (-not (Test-Path $capture)) {
+            throw "no capture at restorees-raw.bin - run '.\dev.ps1 capture <target>' first"
+        }
+
+        $engine = (Get-Command podman -ErrorAction SilentlyContinue) ??
+                  (Get-Command docker -ErrorAction SilentlyContinue)
+        if (-not $engine) { throw "podman or docker is needed for the pinned toolchain." }
+
+        $image = 'notrix-cross:bullseye'
+        & $engine.Source build -t $image -f tooling/cross/Containerfile.bullseye tooling/cross | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "could not build the cross-toolchain image" }
+
+        $script = 'bash /src/tooling/imgtool/buildres.sh /src/restore/res-raw.bin /src/restore/notrix-res.squashfs'
+        & $engine.Source run --rm -v "${repoRoot}:/src" $image bash -c $script
+        if ($LASTEXITCODE -ne 0) { throw "could not build the res image" }
+
+        $python = Get-Command python.exe -ErrorAction SilentlyContinue
+        if (-not $python) { throw "python.exe not found on PATH." }
+        & $python.Source (Join-Path $repoRoot 'tooling\imgtool\imgtool.py') pack `
+            (Join-Path $repoRoot 'restore
+otrix-res.squashfs') `
+            (Join-Path $repoRoot 'restore
+otrix-update.img') `
+            --template (Join-Path $repoRoot 'restore\shipped-update.img')
+        if ($LASTEXITCODE -ne 0) { throw "could not wrap the image" }
+
+        Write-Host "`nNothing has been flashed. ADR 0008 gates that on a" -ForegroundColor Yellow
+        Write-Host "demonstrated restore, which has not happened." -ForegroundColor Yellow
     }
 
     'panel' {
