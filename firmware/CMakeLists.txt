@@ -31,6 +31,7 @@ add_library(notrix_core
     src/notify/Notifications.cpp
     src/input/InputMapper.cpp
     src/input/Navigator.cpp
+    src/input/Rescue.cpp
     src/json/Json.cpp
     src/scene/Scene.cpp
     src/audio/Tone.cpp

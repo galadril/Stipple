@@ -228,6 +228,16 @@ std::string buildBody(const Config& config) {
     body += config.clock.tick ? "true" : "false";
     body += '}';
 
+    body += ",\"web\":{\"username\":";
+    appendEscaped(body, config.web.username);
+    body += ",\"password\":";
+    appendEscaped(body, config.web.password);
+    body += '}';
+
+    body += ",\"network\":{\"hotspotRequested\":";
+    body += config.network.hotspotRequested ? "true" : "false";
+    body += '}';
+
     body += ",\"notifications\":{\"sound\":";
     appendEscaped(body, config.notifications.sound);
     body += '}';
@@ -397,6 +407,14 @@ bool ConfigStore::deserialize(std::string_view payload,
             }
         }
     }
+
+    const json::Value web = body["web"];
+    parsed.web.username = web["username"].toString(parsed.web.username);
+    parsed.web.password = web["password"].toString(parsed.web.password);
+
+    const json::Value network = body["network"];
+    parsed.network.hotspotRequested =
+        network["hotspotRequested"].toBool(parsed.network.hotspotRequested);
 
     const json::Value notifications = body["notifications"];
     parsed.notifications.sound =

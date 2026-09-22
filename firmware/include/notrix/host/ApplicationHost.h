@@ -16,6 +16,7 @@
 #include "notrix/graphics/Framebuffer.h"
 #include "notrix/input/InputMapper.h"
 #include "notrix/input/Navigator.h"
+#include "notrix/input/Rescue.h"
 #include "notrix/json/Json.h"
 #include "notrix/mqtt/MqttService.h"
 #include "notrix/notify/Notifications.h"
@@ -145,6 +146,10 @@ public:
     /// pointed at inside it (ADR 0017).
     const input::Navigator& navigator() const noexcept { return navigator_; }
 
+    /// The rescue gesture, for the renderer that draws its countdown and for
+    /// tests that drive it.
+    const input::Rescue& rescue() const noexcept { return rescue_; }
+
     mqtt::MqttService& mqttService() noexcept { return mqtt_; }
     const mqtt::MqttService& mqttService() const noexcept { return mqtt_; }
     render::FrameScheduler& scheduler() noexcept { return scheduler_; }
@@ -234,6 +239,9 @@ private:
     /// configured and from the stored offset where it is not.
     int currentUtcOffsetSeconds() const;
 
+    /// Clear the way back in: access password gone, hotspot requested.
+    void performRescue();
+
     /// Whether the overnight dimming window applies right now.
     bool nightModeActive() const;
 
@@ -263,6 +271,9 @@ private:
 
     /// The optional once-a-second clock tick.
     void tickTheClock();
+
+    /// Draw the rescue countdown, which outranks everything on the panel.
+    void renderRescue(Canvas& canvas, std::uint64_t remainingMillis) const;
 
     /// Draw one setting, label and value, filling the panel.
     void renderSettings(Canvas& canvas) const;
@@ -295,6 +306,11 @@ private:
 
     input::InputMapper mapper_;
     input::Navigator navigator_;
+    input::Rescue rescue_;
+
+    /// Whole seconds last shown on the rescue countdown, or -1 when it is not
+    /// running. Drives one redraw per second rather than one per frame.
+    int lastRescueSecond_ = -1;
 
     /// Whether settings were open on the previous tick, so the tick that closes
     /// them does not immediately bill the carousel for the time spent inside.

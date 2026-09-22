@@ -262,6 +262,38 @@ struct VisualizerSettings {
     std::string style = "meter";
 };
 
+/// Who may talk to this device (ADR 0018).
+///
+/// HTTP Basic, one mechanism for the API and the browser, because they are the
+/// same server and two schemes would mean two things to get wrong. A browser
+/// prompts for it natively and every automation library already speaks it.
+///
+/// Off by default: a device that demanded a password before it would show a
+/// clock would be a worse first five minutes than the risk it removes.
+struct WebSettings {
+    /// Both empty means no authentication. Requiring one and not the other is
+    /// refused at the API rather than half-applied.
+    std::string username;
+
+    /// **Never returned by the API**, exactly like the MQTT password - which
+    /// also keeps it out of backups, since those are taken from the API. A
+    /// settings file in somebody's downloads folder should not be a credential.
+    ///
+    /// Stored on the device in the clear, and worth stating plainly rather than
+    /// implying otherwise. Anyone with ADB can read it, but anyone with ADB can
+    /// already replace the firmware; what this defends against is the rest of
+    /// the LAN. Hashing it is a later increment, not a reason to ship nothing.
+    std::string password;
+};
+
+/// How the device gets onto a network (ADR 0018).
+struct NetworkSettings {
+    /// Set by the rescue gesture and by a device that has nowhere to go, and
+    /// cleared once a real network is joined. Stored rather than held in memory
+    /// so a rescue survives the reboot somebody reaches for next.
+    bool hotspotRequested = false;
+};
+
 struct Config {
     int schemaVersion = kCurrentSchemaVersion;
     std::string deviceName = "notrix";
@@ -270,6 +302,8 @@ struct Config {
     MqttSettings mqtt;
     AppSettings apps;
     ClockSettings clock;
+    WebSettings web;
+    NetworkSettings network;
     NotificationSettings notifications;
     VisualizerSettings visualizer;
 };

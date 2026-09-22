@@ -304,6 +304,12 @@ void ApplicationHost::dismissSplash() noexcept {
 }
 
 void ApplicationHost::handleInput(const platform::InputEvent& event) {
+    // Before everything else, deliberately (ADR 0018). The rescue gesture has
+    // to work while a notification is up, while settings are open, and on a
+    // device whose network or password is the thing that is broken. A way back
+    // in that can be blocked by whatever is on screen is not a way back in.
+    rescue_.handle(event);
+
     // Any interaction means the user is looking at the device and wants to get
     // on with it. The press is consumed rather than also performing its normal
     // action: someone tapping a button to skip the splash does not expect to
@@ -559,6 +565,29 @@ void ApplicationHost::applyCarouselSettings() {
     app::CarouselConfig carousel;
     carousel.defaultDurationSeconds = settings_.apps.defaultDurationSeconds;
     carousel_.setConfig(carousel);
+}
+
+// --- rescue -------------------------------------------------------------------
+
+void ApplicationHost::performRescue() {
+    // Deliberately narrow. This clears the way back in and nothing else:
+    // somebody locked out of a clock wants their apps and settings to still be
+    // there afterwards, and a rescue that costs a week of an integration's work
+    // is one people avoid using until it is too late.
+    settings_.web.password.clear();
+    settings_.web.username.clear();
+    settings_.network.hotspotRequested = true;
+
+    if (!configStore_.save(settings_)) {
+        // Said out loud rather than swallowed. If this did not persist, the
+        // device is open now and locked again after the next reboot - which is
+        // the worst of both and the one outcome nobody could diagnose.
+        logger_.error(lastTickMillis_, "rescue applied but could not be saved");
+    } else {
+        logger_.warn(lastTickMillis_, "rescue: access password cleared");
+    }
+
+    scheduler_.invalidate();
 }
 
 // --- overnight dimming --------------------------------------------------------
@@ -850,6 +879,33 @@ void drawBar(Canvas& canvas, int permille, Rgb filled, Rgb track) {
 
 }  // namespace
 
+void ApplicationHost::renderRescue(Canvas& canvas, std::uint64_t remainingMillis) const {
+    // Counted in whole seconds, rounded up, so the last visible number is 1
+    // rather than 0 - a countdown that shows zero and then keeps going reads
+    // as stuck.
+    const int seconds = static_cast<int>((remainingMillis + 999) / 1000);
+
+    text::TextStyle style;
+    style.font = &text::font5x7();
+    style.color = colors::kOrange;
+    style.hAlign = text::HAlign::Left;
+    style.vAlign = text::VAlign::Top;
+    text::draw(canvas, "RESET", Rect{1, 0, Framebuffer::kWidth - 2, 7}, style);
+
+    char value[4] = {};
+    writeNumber(value, sizeof(value), seconds);
+
+    text::TextStyle number = style;
+    number.color = colors::kWhite;
+    text::draw(canvas, value, Rect{1, 8, Framebuffer::kWidth - 2, 7}, number);
+
+    // A bar that empties, so the gesture reads as progress rather than as an
+    // error message with a number in it.
+    const int permille = static_cast<int>(
+        (remainingMillis * 1000u) / input::Rescue::kHoldMillis);
+    drawBar(canvas, permille, colors::kOrange, rgb(30, 30, 30));
+}
+
 void ApplicationHost::renderSettings(Canvas& canvas) const {
     // Two lines, not one.
     //
@@ -987,6 +1043,25 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
     applyCarouselSettings();
     applyTimeSettings();
     applyBrightness();
+
+    if (rescue_.tick(nowMillis)) {
+        performRescue();
+    }
+
+    // The countdown has to ask for its own frames.
+    //
+    // Redrawing normally stops while the panel is off - otherwise a dark panel
+    // would re-render black at the full frame rate - and the rescue screen is
+    // drawn precisely then. Invalidated once per displayed second rather than
+    // every tick: a countdown needs thirty frames a second about as much as a
+    // dark panel does.
+    const int rescueSecond = rescue_.counting()
+        ? static_cast<int>((rescue_.remainingMillis(nowMillis) + 999) / 1000)
+        : -1;
+    if (rescueSecond != lastRescueSecond_) {
+        lastRescueSecond_ = rescueSecond;
+        scheduler_.invalidate();
+    }
 
     if (splashActive_) {
         if (splashElapsed(nowMillis)) {
@@ -1334,6 +1409,18 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
 
     Canvas canvas(framebuffer_);
     canvas.clear();
+
+    // The rescue countdown outranks everything, including panel power.
+    //
+    // Somebody holding both buttons has either meant to and needs to see it
+    // working, or has not and needs a reason to stop. A device that stayed
+    // dark and then silently cleared its own password would be
+    // indistinguishable from one that crashed - and this gesture is reached
+    // for precisely when nothing else about the device is behaving.
+    if (rescue_.counting()) {
+        renderRescue(canvas, rescue_.remainingMillis(nowMillis));
+        return;
+    }
 
     // Settings come before the power check, deliberately.
     //

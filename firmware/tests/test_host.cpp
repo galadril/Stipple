@@ -8,6 +8,7 @@
 #include "notrix/graphics/Canvas.h"
 #include "notrix/time/Timezone.h"
 #include "notrix/input/Navigator.h"
+#include "notrix/input/Rescue.h"
 #include "notrix/platform/simulator/SimulatorPlatform.h"
 #include "support/TestFramework.h"
 
@@ -2044,4 +2045,132 @@ NOTRIX_TEST(Host, AWindowOfNoLengthDimsNothing) {
     platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(8)));
     run(host, platform, 400);
     NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 200);
+}
+
+// --- the way back in (ADR 0018) ----------------------------------------------
+
+namespace {
+
+/// Hold both adjustment buttons for long enough to trigger the rescue.
+void holdBothButtons(ApplicationHost& host, SimulatorPlatform& platform,
+                     std::uint64_t from, std::uint64_t forMillis) {
+    InputEvent down;
+    down.phase = ButtonPhase::Down;
+    down.timestampMillis = from;
+    down.source = RawInput::KeyMinus;
+    host.handleInput(down);
+    down.source = RawInput::KeyPlus;
+    host.handleInput(down);
+
+    run(host, platform, from + forMillis, 100);
+}
+
+}  // namespace
+
+NOTRIX_TEST(Host, HoldingBothButtonsClearsTheWayBackIn) {
+    // The whole point of ADR 0018's ordering: this exists before anything that
+    // can lock somebody out, because it is what makes those safe to build.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 300);
+
+    host.settings().web.username = "admin";
+    host.settings().web.password = "forgotten";
+    host.settings().network.hotspotRequested = false;
+
+    holdBothButtons(host, platform, 1000, notrix::input::Rescue::kHoldMillis + 500);
+
+    NOTRIX_CHECK(host.settings().web.password.empty());
+    NOTRIX_CHECK(host.settings().web.username.empty());
+    NOTRIX_CHECK(host.settings().network.hotspotRequested);
+    NOTRIX_CHECK(logContains(host, "rescue"));
+}
+
+NOTRIX_TEST(Host, TheRescueKeepsAppsAndSettings) {
+    // A rescue that costs a week of an integration's work is one people avoid
+    // using until it is too late. It clears the way back in and nothing else.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 300);
+
+    host.settings().web.password = "forgotten";
+    host.settings().clock.theme = "calendar";
+    host.settings().display.brightness = 42;
+    const int appsBefore = host.apps().count();
+
+    holdBothButtons(host, platform, 1000, notrix::input::Rescue::kHoldMillis + 500);
+
+    NOTRIX_CHECK(host.settings().web.password.empty());
+    NOTRIX_CHECK_EQ(host.settings().clock.theme, std::string("calendar"));
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), 42);
+    NOTRIX_CHECK_EQ(host.apps().count(), appsBefore);
+}
+
+NOTRIX_TEST(Host, TheRescueSurvivesARestart) {
+    // Persisted, because if it did not the device would be open now and locked
+    // again after the reboot somebody reaches for next - the worst of both and
+    // the one outcome nobody could diagnose.
+    SimulatorPlatform platform;
+    {
+        ApplicationHost host(platform, quietConfig());
+        host.initialize();
+        run(host, platform, 300);
+        host.settings().web.password = "forgotten";
+        holdBothButtons(host, platform, 1000, notrix::input::Rescue::kHoldMillis + 500);
+        host.shutdown();
+    }
+
+    ApplicationHost restarted(platform, quietConfig());
+    restarted.initialize();
+    run(restarted, platform, 20000);
+
+    NOTRIX_CHECK(restarted.settings().web.password.empty());
+    NOTRIX_CHECK(restarted.settings().network.hotspotRequested);
+}
+
+NOTRIX_TEST(Host, TheCountdownIsShownEvenWithThePanelOff) {
+    // This gesture is reached for precisely when nothing else about the device
+    // is behaving. A device that stayed dark and then silently cleared its own
+    // password would be indistinguishable from one that crashed.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 300);
+
+    host.settings().display.power = false;
+    run(host, platform, 600);
+    NOTRIX_CHECK_EQ(countLit(host.frame()), 0);
+
+    InputEvent down;
+    down.phase = ButtonPhase::Down;
+    down.timestampMillis = 1000;
+    down.source = RawInput::KeyMinus;
+    host.handleInput(down);
+    down.source = RawInput::KeyPlus;
+    host.handleInput(down);
+
+    run(host, platform, 2000, 100);
+
+    NOTRIX_CHECK(host.rescue().counting());
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
+}
+
+NOTRIX_TEST(Host, AnOrdinaryPressDoesNotTriggerTheRescue) {
+    // Both buttons are adjustment controls people hold on purpose.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 300);
+
+    host.settings().web.password = "kept";
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 1000, 2000);
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 4000, 2000);
+    run(host, platform, 9000, 100);
+
+    NOTRIX_CHECK_EQ(host.settings().web.password, std::string("kept"));
 }
