@@ -215,6 +215,25 @@ if(NOTRIX_DEVICE_BUILD)
         notrix_platform_tc002
         notrix_warnings)
 
+    # The same firmware, as the library the TC002 framework loads.
+    #
+    # /bin/zkgui dlopens whatever /res/etc/EasyUI.cfg names and NOTRIX takes
+    # the process in a static constructor (ADR 0021). Built from the very
+    # same translation unit as the executable, with one define, because a
+    # device build that took a different path from the one tested over ADB
+    # would be a second firmware wearing the first one's tests.
+    #
+    # Named libnotrix.so rather than libzkgui.so on purpose: it does not
+    # replace the vendor application, it is pointed at instead of it, and the
+    # vendor's own library stays where it is.
+    add_library(notrix_startup SHARED tools/device/main.cpp)
+    set_target_properties(notrix_startup PROPERTIES OUTPUT_NAME notrix)
+    target_compile_definitions(notrix_startup PRIVATE NOTRIX_AS_LIBRARY)
+    target_link_libraries(notrix_startup PRIVATE
+        notrix_core
+        notrix_platform_tc002
+        notrix_warnings)
+
     # Dynamic, because the speaker is only reachable through a vendor library.
     #
     # Static linking was the right first answer: it removed every question

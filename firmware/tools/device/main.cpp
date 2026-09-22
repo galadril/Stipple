@@ -22,6 +22,8 @@
 // frames are rendering, so a process killed mid-startup is meant to count as a
 // failed boot, and three of those bring the device up in safe mode.
 
+#include <unistd.h>
+
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -76,7 +78,18 @@ void sleepMillis(std::uint64_t millis) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+/// The whole of NOTRIX's startup, with two ways in.
+///
+/// As an executable this is `main`. As a shared library it is called from a
+/// static constructor, because that is how the TC002 framework loads its
+/// application - `dlopen` on a path from /res/etc/EasyUI.cfg, and
+/// constructors run before the caller can look up a single symbol
+/// (ADR 0021).
+///
+/// Deliberately the same function either way. A device build that took a
+/// different path from the one tested over ADB would be a second firmware
+/// wearing the first one's tests.
+int notrixMain(int argc, char** argv) {
     // Flags come out first, so they cannot be mistaken for the positional
     // arguments they follow.
     bool wantDhcp = true;
@@ -431,3 +444,40 @@ int main(int argc, char** argv) {
                 platform.http().servedCount(), platform.http().rejectedCount());
     return 0;
 }
+
+#ifdef NOTRIX_AS_LIBRARY
+
+/// Loaded by /bin/zkgui, and never gives the process back.
+///
+/// The framework `dlopen`s whatever /res/etc/EasyUI.cfg names, then looks up
+/// three entry points and runs its own loop. This returns to none of that:
+/// the constructor takes the thread and NOTRIX owns the device from here.
+///
+/// **Which is why the three entry points never had to be worked out.** Their
+/// names are obfuscated in libeasyui's .data and it does not matter, because
+/// `dlopen` runs constructors first and this one does not come back.
+///
+/// Nothing is passed in. A library has no argv, and every option this
+/// accepts is a development one - the flags exist for ADB sessions, and a
+/// device booting into its own firmware wants the stored configuration and
+/// nothing else.
+__attribute__((constructor)) static void notrixTakesOver() {
+    static char program[] = "notrix";
+    static char* argv[] = {program, nullptr};
+    notrixMain(1, argv);
+
+    // Reached only if the loop stops - a signal, or a display that could not
+    // be opened. Returning would hand control back to a framework that is
+    // about to start its own UI on a panel NOTRIX has been driving, so the
+    // process ends here instead. init does not respawn zkswe on its own, so
+    // the device sits reachable over ADB with the panel as NOTRIX left it,
+    // which is a far better place to debug from than a fight over the
+    // display.
+    ::_exit(0);
+}
+
+#else
+
+int main(int argc, char** argv) { return notrixMain(argc, argv); }
+
+#endif
