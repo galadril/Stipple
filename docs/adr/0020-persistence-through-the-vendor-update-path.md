@@ -136,3 +136,32 @@ failure means the device does not boot. Rejected for that alone.
 **Stay volatile forever.** Defensible for a development tool and not for a
 product: a clock that forgets what it is every time the power blinks is not a
 replacement firmware, it is a demo.
+
+## Update: the stock firmware will do the flashing
+
+Probed on hardware after this ADR was written, and it simplifies the
+remaining work considerably.
+
+The stock application serves an OTA endpoint on port 80 that takes a URL and
+downloads the image itself:
+
+```json
+POST /update
+{"app": {"version": "0.1.0", "downloadUrl": "http://host/notrix.img"}}
+```
+
+Unauthenticated. So the eventual install becomes: boot stock, serve the image
+from any machine on the LAN, hand the device its URL. No writer of ours, no
+MTD ioctls, and the same validation path Ulanzi's own updates take.
+
+This does not move ADR 0008's gates and does not change this ADR's decision -
+it confirms it. The reasoning was that the device's own update path is better
+than anything we would write. It turns out to be better still than the
+`/mnt/storage` route this ADR described, because it needs no physical access
+at all.
+
+**What this project must not copy is its security posture.** An
+unauthenticated remote firmware write available to anything on the LAN is
+exactly what NOTRIX should not offer. `/api/v1/system/restore-image` stages a
+file to the USB volume, behind the access password, and cannot flash. That
+asymmetry is deliberate and should survive whatever comes next.

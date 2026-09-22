@@ -1353,3 +1353,55 @@ Still unknown, and it is the thing that decides whether NOTRIX can persist as
 a drop-in replacement: **which symbol is looked up after the library is
 opened.** Until that is known, building NOTRIX as `libzkgui.so` is not
 something anyone can attempt.
+
+## The stock firmware will flash an image for you, over HTTP, unauthenticated
+
+Probed live on the device. This is the easiest flashing path that exists and
+it needs no tool from us at all.
+
+`/bin/zkgui` runs a `ConfigWebServer` on port 80 with an OTA handler,
+`ConfigWebServer::otaUpdateRequest`. It takes a **URL to download**, not an
+uploaded file:
+
+```
+POST /update
+{}                              -> {"code":400,"message":"Missing parameter: mcu/app.downloadUrl"}
+{"app":{"version":"9.9.9"}}     -> {"code":400,"message":"Missing parameter: app.downloadUrl"}
+```
+
+Supplying `version` makes it commit to the `app` branch and name the field
+precisely, which gives the shape:
+
+```json
+{"app": {"version": "0.1.0", "downloadUrl": "http://host/notrix.img"}}
+```
+
+with `mcu` as the sibling for MCU firmware.
+
+**No authentication.** No token, no signature, no nonce - it answered a bare
+POST from an unrelated machine on the LAN. The device downloads the image
+itself and then applies the same validation the loader always does: magic,
+device code, header CRC32, payload MD5. Nothing checks *who* built it.
+
+That is the whole flashing story, and it is the vendor's own validated path:
+serve an image from any HTTP server on the network, hand the device its URL,
+and it installs it.
+
+It is also worth saying out loud that this is an unauthenticated remote
+firmware write, reachable by anything on the same network as a stock TC002.
+NOTRIX does not expose anything like it - `/api/v1/system/restore-image`
+stages a file to the USB volume and cannot flash - and the difference is
+deliberate.
+
+Two related endpoints seen in the same handler table: `/checkUpdate` and
+`/firmware/checkUpdate`, which talk to Ulanzi's cloud and do use a token
+(the log strings mention a 401 and a refresh). Those are for *discovering* an
+update. Applying one needs none of it.
+
+### An aside on provenance
+
+The vendor binary carries symbols namespaced `awtrix` - `awtrix::Updater`,
+`awtrix::ConfigWebServer`, and a path `../src/awtrix/ota/Updater.cpp`. Noted
+because it bears on licensing and on where the official Ulanzi sources sit,
+not because anything here derives from it. NOTRIX shares no code with it and
+does not reference it in anything it ships.
