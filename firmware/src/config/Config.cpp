@@ -152,7 +152,21 @@ std::string buildBody(const Config& config) {
     body += std::to_string(config.apps.defaultDurationSeconds);
     body += ",\"transitions\":";
     body += config.apps.transitions ? "true" : "false";
-    body += '}';
+    body += ",\"order\":[";
+    for (std::size_t i = 0; i < config.apps.order.size(); ++i) {
+        if (i > 0) {
+            body += ',';
+        }
+        const config::AppPreference& preference = config.apps.order[i];
+        body += "{\"id\":";
+        appendEscaped(body, preference.id);
+        body += ",\"enabled\":";
+        body += preference.enabled ? "true" : "false";
+        body += ",\"durationSeconds\":";
+        body += std::to_string(preference.durationSeconds);
+        body += '}';
+    }
+    body += "]}";
 
     body += ",\"clock\":{\"twentyFourHour\":";
     body += config.clock.twentyFourHour ? "true" : "false";
@@ -317,6 +331,38 @@ bool ConfigStore::deserialize(std::string_view payload,
     parsed.apps.defaultDurationSeconds = clampDuration(
         apps["defaultDurationSeconds"].toInt(parsed.apps.defaultDurationSeconds));
     parsed.apps.transitions = apps["transitions"].toBool(parsed.apps.transitions);
+
+    // An order that cannot be read is dropped, not fatal. Losing the
+    // arrangement of a carousel is a small annoyance; refusing to boot over it
+    // is not, and this whole file exists so one bad field cannot cost the user
+    // every other setting they have.
+    parsed.apps.order.clear();
+    if (const json::Value order = apps["order"]; order.isArray()) {
+        const int count = order.size();
+        for (int i = 0; i < count; ++i) {
+            const json::Value entry = order[i];
+            if (!entry.isObject()) {
+                continue;
+            }
+            AppPreference preference;
+            preference.id = entry["id"].toString(std::string());
+            if (preference.id.empty()) {
+                continue;  // an entry naming nothing orders nothing
+            }
+            preference.enabled = entry["enabled"].toBool(true);
+            preference.durationSeconds = static_cast<int>(entry["durationSeconds"].toInt(0));
+            if (preference.durationSeconds < 0) {
+                preference.durationSeconds = 0;
+            }
+            parsed.apps.order.push_back(std::move(preference));
+            // Bounded like the registry it mirrors: a stored document must not
+            // be able to make this grow without limit, and an order longer
+            // than the registry can hold describes apps that cannot exist.
+            if (parsed.apps.order.size() >= static_cast<std::size_t>(kMaxRememberedApps)) {
+                break;
+            }
+        }
+    }
 
     const json::Value notifications = body["notifications"];
     parsed.notifications.sound =

@@ -155,6 +155,7 @@ bool ApplicationHost::initialize() {
     // 5. Apps and stored assets.
     if (bootMode_ == BootMode::Normal) {
         installBuiltins();
+        applyStoredAppOrder();
         loadIcons();
     } else {
         logger_.warn(startedAt, "safe mode: no apps or icons loaded");
@@ -542,6 +543,83 @@ void ApplicationHost::activateCurrentSetting() {
     // toggle.
 }
 
+// --- app order ---------------------------------------------------------------
+
+void ApplicationHost::applyStoredAppOrder() {
+    const std::vector<config::AppPreference>& stored = settings_.apps.order;
+    if (stored.empty()) {
+        return;
+    }
+
+    // Walked in stored order, moving each app it names to the front of the
+    // remainder. Apps the store does not mention end up after the ones it does,
+    // keeping their relative order - which is what should happen to an app
+    // installed since the arrangement was made: it appears, rather than
+    // silently taking someone else's place.
+    int position = 0;
+    for (const config::AppPreference& preference : stored) {
+        app::App* existing = registry_.find(preference.id);
+        if (existing == nullptr) {
+            // An app that no longer exists. Normal rather than exceptional:
+            // firmware changes, integrations stop pushing, and a stored order
+            // from an older build must not stop a newer one booting.
+            continue;
+        }
+        registry_.move(preference.id, position);
+        registry_.setEnabled(preference.id, preference.enabled);
+        existing->durationSeconds = preference.durationSeconds;
+        ++position;
+    }
+
+    logger_.info(lastTickMillis_, "restored app order");
+}
+
+void ApplicationHost::persistAppOrderIfChanged() {
+    // Watched on the registry's own revision rather than hooked into every
+    // path that can change it. The API, MQTT and anything added later all
+    // mutate the same registry, and one watcher cannot be forgotten by a
+    // caller the way five notifications could.
+    if (registry_.revision() == persistedAppRevision_) {
+        return;
+    }
+    persistedAppRevision_ = registry_.revision();
+
+    // Safe mode deliberately loads no apps, so its registry is not a view of
+    // what the user arranged - writing it back would erase the arrangement
+    // precisely when the device is least able to explain itself.
+    if (bootMode_ != BootMode::Normal) {
+        return;
+    }
+
+    rememberAppOrder();
+    if (!configStore_.save(settings_)) {
+        logger_.error(lastTickMillis_, "could not persist app order");
+    }
+}
+
+void ApplicationHost::rememberAppOrder() {
+    settings_.apps.order.clear();
+    settings_.apps.order.reserve(static_cast<std::size_t>(registry_.count()));
+
+    for (int i = 0; i < registry_.count(); ++i) {
+        const app::App* app = registry_.at(i);
+        if (app == nullptr) {
+            continue;
+        }
+        // Temporary apps are deliberately left out. They exist for seconds and
+        // are gone before the next boot, so recording where they sat would be
+        // storing rubbish that outlives them.
+        if (app->source == app::AppSource::Temporary) {
+            continue;
+        }
+        config::AppPreference preference;
+        preference.id = app->id;
+        preference.enabled = app->enabled;
+        preference.durationSeconds = app->durationSeconds;
+        settings_.apps.order.push_back(std::move(preference));
+    }
+}
+
 // --- sounds the device makes on its own behalf -------------------------------
 
 void ApplicationHost::announceNotification() {
@@ -801,6 +879,7 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
 
     pumpInput(nowMillis);
     persistIconsIfChanged();
+    persistAppOrderIfChanged();
 
     if (splashActive_) {
         if (splashElapsed(nowMillis)) {

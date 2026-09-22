@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 #include <string_view>
 
 #include "notrix/platform/Storage.h"
@@ -86,9 +87,43 @@ struct MqttSettings {
     bool discovery = false;
 };
 
+/// What the user decided about one app, remembered across reboots.
+///
+/// Deliberately not the app itself. Built-in apps are recreated on every boot
+/// and any app an integration pushed is gone with the power, so storing their
+/// content here would be storing a copy that goes stale. What does need to
+/// survive is the part the *user* chose: where it sits in the rotation, whether
+/// it is in the rotation at all, and how long it stays up.
+struct AppPreference {
+    std::string id;
+    bool enabled = true;
+
+    /// Seconds on screen. Zero means "use the carousel default", matching
+    /// App::durationSeconds.
+    int durationSeconds = 0;
+};
+
+/// As many apps as the registry can hold. Kept here rather than including
+/// AppRegistry.h, which would make configuration depend on the app layer for
+/// one number; the assertion that they agree lives in the tests.
+inline constexpr int kMaxRememberedApps = 32;
+
 struct AppSettings {
     int defaultDurationSeconds = 8;
     bool transitions = true;
+
+    /// Display order, first to last.
+    ///
+    /// Blueprint §12 is explicit that the app manager owns ordering and it must
+    /// never be inferred - so an order the user arranged has to be written down
+    /// or it is not really theirs. On load this is applied to whatever apps
+    /// actually exist: an id that no longer exists is skipped, and an app that
+    /// is not listed keeps its natural position at the end. Neither is an
+    /// error, because both are normal - apps come and go, and a stored order
+    /// from an older firmware should not stop a newer one booting.
+    ///
+    /// Bounded by AppRegistry::kMaxApps, like everything else about apps.
+    std::vector<AppPreference> order;
 };
 
 struct ClockSettings {
@@ -210,8 +245,19 @@ public:
     /// Token budget for parsing a stored document. Must stay comfortably ahead
     /// of what serialize() produces: overflowing it makes a perfectly good
     /// configuration read as corrupt, and the device would silently fall back to
-    /// defaults. ConfigTokenBudgetHasHeadroom asserts the margin.
-    static constexpr int kMaxTokens = 256;
+    /// defaults. Config.TokenBudgetHasHeadroom asserts the margin.
+    ///
+    /// Raised from 256 when app order arrived. Each remembered app is about
+    /// seven tokens - an object, three keys and three values - so a full
+    /// registry of 32 costs more than the entire rest of the document. At 256
+    /// a device with a lot of apps would have read its own perfectly good
+    /// configuration as corrupt and quietly reset itself, which is the exact
+    /// failure this constant exists to prevent.
+    ///
+    /// The cost is stack: the parser holds this many 12-byte tokens in one
+    /// frame, so 1024 is 12 KB. That is affordable here and worth measuring
+    /// again before it grows much further.
+    static constexpr int kMaxTokens = 1024;
 
     explicit ConfigStore(platform::IStorage& storage) noexcept : storage_(storage) {}
 

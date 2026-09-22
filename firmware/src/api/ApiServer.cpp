@@ -694,6 +694,22 @@ Response ApiServer::handleAppItem(const Request& request,
             return unprocessable("'scene' cannot be patched; use PUT");
         }
 
+        // Position is a property of the app like any other, so it moves on the
+        // same verb. Applied after the put below, because a replace keeps the
+        // app where it was and moving it first would move the wrong thing.
+        //
+        // Named "position" because that is what reading an app calls it. A
+        // field a client can read and cannot write back under the same name is
+        // a trap, and this one very nearly shipped as "index".
+        int moveTo = -1;
+        if (const json::Value position = fields["position"]; position.isNumber()) {
+            const std::int64_t wanted = position.toInt(-1);
+            if (wanted < 0 || wanted >= context_.apps->count()) {
+                return unprocessable("'position' is outside the installed apps");
+            }
+            moveTo = static_cast<int>(wanted);
+        }
+
         switch (context_.apps->put(std::move(updated))) {
             case app::AppRegistry::PutResult::Added:
             case app::AppRegistry::PutResult::Replaced:
@@ -706,12 +722,16 @@ Response ApiServer::handleAppItem(const Request& request,
                 return payloadTooLarge("'scene' exceeds the per-app limit");
         }
 
+        if (moveTo >= 0) {
+            context_.apps->move(id, moveTo);
+        }
+
         if (context_.carousel != nullptr) {
             context_.carousel->tick(nowMillis);
         }
 
         JsonWriter writer;
-        writeApp(writer, *context_.apps->find(id), 0);
+        writeApp(writer, *context_.apps->find(id), context_.apps->indexOf(id));
         return ok(writer.take());
     }
 

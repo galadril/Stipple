@@ -438,13 +438,38 @@
 
     // --- apps ---------------------------------------------------------------
 
+    // Which app row is being dragged. Held outside the handlers because
+    // dragover fires on the row being passed over, not the one being moved.
+    var dragging = null;
+
+    function moveApp(id, index) {
+        return send('PATCH', '/api/v1/apps/' + encodeURIComponent(id), { position: index })
+            .then(function () { return loadApps(); })
+            .catch(function (error) {
+                // Reload either way: the list on screen no longer matches the
+                // device, and guessing which of the two is right is how a UI
+                // ends up lying about what order the apps are in.
+                loadApps();
+                fail(error);
+            });
+    }
+
     function loadApps() {
         return send('GET', '/api/v1/apps').then(function (result) {
             var list = $('app-list');
             list.textContent = '';
 
-            (result.apps || []).forEach(function (app) {
+            var apps = result.apps || [];
+
+            apps.forEach(function (app, position) {
                 var row = el('li');
+                row.draggable = true;
+                row.dataset.appId = app.id;
+
+                // A handle, so the row can still be dragged on a device where
+                // the whole row is also a tap target.
+                var grip = el('span', 'grip', '☰');
+                grip.title = 'Drag to reorder';
 
                 var toggle = el('input');
                 toggle.type = 'checkbox';
@@ -472,13 +497,63 @@
                         .catch(fail);
                 });
 
+                // Buttons as well as dragging. Dragging does not exist on a
+                // touch screen without a pile of pointer-event code, and the
+                // phone is where somebody is most likely to be standing in
+                // front of the clock wanting to change it.
+                var up = el('button', 'btn btn-move', '▲');
+                up.type = 'button';
+                up.title = 'Move up';
+                up.disabled = position === 0;
+                up.addEventListener('click', function () { moveApp(app.id, position - 1); });
+
+                var down = el('button', 'btn btn-move', '▼');
+                down.type = 'button';
+                down.title = 'Move down';
+                down.disabled = position === apps.length - 1;
+                down.addEventListener('click', function () { moveApp(app.id, position + 1); });
+
+                row.addEventListener('dragstart', function (event) {
+                    dragging = { id: app.id, from: position };
+                    row.classList.add('dragging');
+                    event.dataTransfer.effectAllowed = 'move';
+                    // Firefox refuses to start a drag without payload.
+                    event.dataTransfer.setData('text/plain', app.id);
+                });
+
+                row.addEventListener('dragend', function () {
+                    row.classList.remove('dragging');
+                    dragging = null;
+                    Array.prototype.forEach.call(
+                        list.children, function (child) { child.classList.remove('over'); });
+                });
+
+                row.addEventListener('dragover', function (event) {
+                    if (!dragging || dragging.id === app.id) { return; }
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                    row.classList.add('over');
+                });
+
+                row.addEventListener('dragleave', function () { row.classList.remove('over'); });
+
+                row.addEventListener('drop', function (event) {
+                    event.preventDefault();
+                    row.classList.remove('over');
+                    if (!dragging || dragging.id === app.id) { return; }
+                    moveApp(dragging.id, position);
+                });
+
+                row.appendChild(grip);
                 row.appendChild(toggle);
                 row.appendChild(body);
+                row.appendChild(up);
+                row.appendChild(down);
                 row.appendChild(show);
                 list.appendChild(row);
             });
 
-            if (!result.apps || !result.apps.length) {
+            if (!apps.length) {
                 list.appendChild(el('li', null, 'No apps installed.'));
             }
         });

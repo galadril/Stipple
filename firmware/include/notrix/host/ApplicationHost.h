@@ -226,6 +226,16 @@ private:
     /// The knob press, inside settings: toggles what can be toggled.
     void activateCurrentSetting();
 
+    /// Put the registry into the order the user last arranged, and apply the
+    /// enabled flags and durations that went with it.
+    void applyStoredAppOrder();
+
+    /// Write the order out when the registry says it changed.
+    void persistAppOrderIfChanged();
+
+    /// Copy the registry's current order back into settings, ready to persist.
+    void rememberAppOrder();
+
     /// Play a notification's sound, once, when it first appears.
     void announceNotification();
 
@@ -305,6 +315,7 @@ private:
     std::uint64_t lastTickMillis_ = 0;
     std::uint64_t lastClockMillis_ = 0;
     std::uint32_t persistedIconRevision_ = 0;
+    std::uint32_t persistedAppRevision_ = 0;
     /// Display power as of the last rendered frame, so a change made through any
     /// route forces one more redraw. Starts true to match the default setting.
     bool renderedWithPower_ = true;

@@ -1620,3 +1620,125 @@ NOTRIX_TEST(Host, TheClockDoesNotTickOverANotification) {
     }
     NOTRIX_CHECK(platform.simulatedAudio().requests().empty());
 }
+
+// --- app order ---------------------------------------------------------------
+
+NOTRIX_TEST(Host, AppOrderSurvivesARestart) {
+    // Blueprint §12 says the app manager owns ordering and it must never be
+    // inferred. An order the user arranged is therefore theirs only if it is
+    // written down - otherwise every reboot silently overrules them.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    capabilities.microphone = true;
+    SimulatorPlatform platform(capabilities);
+
+    std::string reversedFirst;
+    {
+        ApplicationHost host(platform, quietConfig());
+        host.initialize();
+        run(host, platform, 200);
+        NOTRIX_REQUIRE(host.apps().count() >= 3);
+
+        // Move the last app to the front.
+        const std::string last = host.apps().at(host.apps().count() - 1)->id;
+        NOTRIX_REQUIRE(host.apps().move(last, 0));
+        reversedFirst = last;
+
+        run(host, platform, 1000);
+        host.shutdown();
+    }
+
+    ApplicationHost restarted(platform, quietConfig());
+    restarted.initialize();
+    run(restarted, platform, 2000);
+
+    NOTRIX_REQUIRE(restarted.apps().count() >= 3);
+    NOTRIX_CHECK_EQ(restarted.apps().at(0)->id, reversedFirst);
+}
+
+NOTRIX_TEST(Host, ADisabledAppStaysDisabledAcrossARestart) {
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+
+    {
+        ApplicationHost host(platform, quietConfig());
+        host.initialize();
+        run(host, platform, 200);
+        NOTRIX_REQUIRE(host.apps().setEnabled(ApplicationHost::kBatteryAppId, false));
+        run(host, platform, 1000);
+        host.shutdown();
+    }
+
+    ApplicationHost restarted(platform, quietConfig());
+    restarted.initialize();
+    run(restarted, platform, 2000);
+
+    const notrix::app::App* battery = restarted.apps().find(ApplicationHost::kBatteryAppId);
+    NOTRIX_REQUIRE(battery != nullptr);
+    NOTRIX_CHECK_FALSE(battery->enabled);
+}
+
+NOTRIX_TEST(Host, AStoredOrderNamingAnAppThatIsGoneStillBoots) {
+    // Firmware changes and integrations stop pushing, so an order that names a
+    // missing app is normal rather than exceptional. It must not cost the
+    // arrangement of the apps that *are* there, and certainly must not stop
+    // the device starting.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+
+    // Written through the store, because initialize() loads settings and
+    // would overwrite anything set on the host beforehand - which is also
+    // exactly how a real device meets a stored order.
+    {
+        notrix::config::Config stored;
+        notrix::config::AppPreference ghost;
+        ghost.id = "an-app-that-never-existed";
+        stored.apps.order.push_back(ghost);
+
+        notrix::config::AppPreference battery;
+        battery.id = std::string(ApplicationHost::kBatteryAppId);
+        stored.apps.order.push_back(battery);
+
+        notrix::config::ConfigStore store(platform.storage());
+        NOTRIX_REQUIRE(store.save(stored));
+    }
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+
+    NOTRIX_CHECK(host.healthy());
+    // The real app named after the ghost still took the first position.
+    NOTRIX_CHECK_EQ(host.apps().at(0)->id, std::string(ApplicationHost::kBatteryAppId));
+}
+
+NOTRIX_TEST(Host, AnAppInstalledSinceTheOrderWasSavedAppearsRatherThanVanishing) {
+    // Apps not named by the stored order keep their natural position after the
+    // ones that are. Dropping them, or sorting them to the front, would both
+    // be the device overruling an arrangement it was only asked to restore.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    capabilities.microphone = true;
+    SimulatorPlatform platform(capabilities);
+
+    {
+        notrix::config::Config stored;
+        notrix::config::AppPreference battery;
+        battery.id = std::string(ApplicationHost::kBatteryAppId);
+        stored.apps.order.push_back(battery);
+
+        notrix::config::ConfigStore store(platform.storage());
+        NOTRIX_REQUIRE(store.save(stored));
+    }
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+
+    NOTRIX_CHECK_EQ(host.apps().at(0)->id, std::string(ApplicationHost::kBatteryAppId));
+    // Clock and visualiser were not mentioned, and are still installed.
+    NOTRIX_CHECK(host.apps().find(ApplicationHost::kClockAppId) != nullptr);
+    NOTRIX_CHECK(host.apps().find(ApplicationHost::kVisualizerAppId) != nullptr);
+}

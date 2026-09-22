@@ -957,3 +957,46 @@ NOTRIX_TEST(Api, ReplacingASystemAppKeepsItABuiltin) {
     NOTRIX_CHECK(fixture.apps.find("clock")->builtin == notrix::app::Builtin::Clock);
     NOTRIX_CHECK(fixture.apps.find("clock")->source == notrix::app::AppSource::System);
 }
+
+NOTRIX_TEST(Api, AnAppCanBeMovedByPatchingItsPosition) {
+    // Position is a property of the app like any other, so it moves on the
+    // same verb rather than needing an endpoint of its own.
+    Fixture fixture;
+    fixture.addApp("one");
+    fixture.addApp("two");
+    fixture.addApp("three");
+
+    const Response moved = fixture.call("PATCH", "/api/v1/apps/three", R"({"position":0})");
+    NOTRIX_CHECK_EQ(static_cast<int>(moved.status), 200);
+
+    NOTRIX_CHECK_EQ(fixture.apps.at(0)->id, std::string("three"));
+    NOTRIX_CHECK_EQ(fixture.apps.at(1)->id, std::string("one"));
+    NOTRIX_CHECK_EQ(fixture.apps.at(2)->id, std::string("two"));
+}
+
+NOTRIX_TEST(Api, MovingAnAppReportsItsNewPosition) {
+    // The reply used to say position 0 whatever happened, which is a lie a client
+    // would happily rebuild its list from.
+    Fixture fixture;
+    fixture.addApp("one");
+    fixture.addApp("two");
+    fixture.addApp("three");
+
+    const Response moved = fixture.call("PATCH", "/api/v1/apps/one", R"({"position":2})");
+    NOTRIX_CHECK_EQ(static_cast<int>(moved.status), 200);
+    NOTRIX_CHECK(moved.body.find("\"position\":2") != std::string::npos);
+}
+
+NOTRIX_TEST(Api, APositionOutsideTheInstalledAppsIsRefused) {
+    Fixture fixture;
+    fixture.addApp("one");
+    fixture.addApp("two");
+
+    NOTRIX_CHECK_EQ(
+        static_cast<int>(fixture.call("PATCH", "/api/v1/apps/one", R"({"position":9})").status), 422);
+    NOTRIX_CHECK_EQ(
+        static_cast<int>(fixture.call("PATCH", "/api/v1/apps/one", R"({"position":-1})").status), 422);
+
+    // And nothing moved on the way to being refused.
+    NOTRIX_CHECK_EQ(fixture.apps.at(0)->id, std::string("one"));
+}
