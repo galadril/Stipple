@@ -6,6 +6,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NOTRIX</title>
 <link rel="stylesheet" href="/app.css">
+<!-- Declared, so the browser stops asking for /favicon.ico. A browser that is
+     not told where the icon is guesses that path and logs a 404 on the device
+     every time somebody opens this page. -->
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 </head>
 <body>
 
@@ -283,11 +287,44 @@
         <input type="text" id="deviceName" maxlength="64" data-setting="deviceName">
     </div>
     <dl class="facts" id="device-facts"></dl>
+    <h2>Backup</h2>
+    <p class="help">
+        Downloads every setting as a file. The MQTT password is not in it
+        &mdash; the device never gives it back, to anyone &mdash; so it has to
+        be typed in again after a restore.
+    </p>
+    <div class="toolbar">
+        <button class="btn" id="backup" type="button">Download backup</button>
+        <button class="btn" id="restore" type="button">Restore from file</button>
+        <input type="file" id="restore-file" accept="application/json,.json" hidden>
+    </div>
+
+    <h2>Reset</h2>
+    <p class="help">
+        Puts settings back to their defaults. The device keeps its name, so it
+        is still the one you were looking at.
+    </p>
+    <div class="toolbar">
+        <button class="btn danger" id="reset" type="button">Reset settings</button>
+        <button class="btn danger" id="reset-all" type="button">Reset settings and apps</button>
+    </div>
+
     <h2>Restart</h2>
     <p class="help">
         Settings are saved as you change them, so a restart loses nothing.
     </p>
     <button class="btn danger" id="reboot" type="button">Restart device</button>
+
+    <h2>Firmware</h2>
+    <p class="help" id="firmware-help">
+        There is no firmware upload here, and that is deliberate rather than
+        unfinished. Installing to flash needs a restore image captured from
+        this exact device <em>and</em> a demonstrated way to put it back, and
+        the second does not exist yet &mdash; this hardware has no
+        <code>dd</code>, <code>flashcp</code> or <code>nandwrite</code>. A
+        button that wrote flash without one would be a brick waiting for a bad
+        day. See ADR 0008.
+    </p>
 </section>
 
 <section class="panel" id="panel-logs">

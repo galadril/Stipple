@@ -111,6 +111,10 @@ enum class Resource : std::uint8_t {
     AssetItem,
     Settings,
     SystemReboot,
+    /// Put configuration back to defaults. Separate from a DELETE on settings
+    /// because "reset" and "delete" are different promises: this leaves a
+    /// working configuration behind rather than an absent one.
+    SystemReset,
     /// The frame currently on the panel, for the web UI's live view.
     DisplayFrame,
     /// A button press injected from somewhere that is not the hardware.

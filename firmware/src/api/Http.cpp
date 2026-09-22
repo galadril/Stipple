@@ -198,6 +198,10 @@ RouteMatch matchRoute(std::string_view path) {
             match.resource = Resource::SystemReboot;
             return match;
         }
+        if (head == "system" && parts[3] == "reset") {
+            match.resource = Resource::SystemReset;
+            return match;
+        }
         if (head == "display" && parts[3] == "frame") {
             match.resource = Resource::DisplayFrame;
             return match;

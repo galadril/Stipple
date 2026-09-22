@@ -1000,3 +1000,158 @@ NOTRIX_TEST(Api, APositionOutsideTheInstalledAppsIsRefused) {
     // And nothing moved on the way to being refused.
     NOTRIX_CHECK_EQ(fixture.apps.at(0)->id, std::string("one"));
 }
+
+// --- reset -------------------------------------------------------------------
+
+NOTRIX_TEST(Api, ResetPutsSettingsBackToDefaults) {
+    Fixture fixture;
+    fixture.config.display.brightness = 17;
+    fixture.config.clock.theme = "calendar";
+    fixture.config.apps.defaultDurationSeconds = 44;
+
+    const Response reset = fixture.call("POST", "/api/v1/system/reset");
+    NOTRIX_CHECK_EQ(static_cast<int>(reset.status), 200);
+
+    const notrix::config::Config defaults;
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.config.display.brightness),
+                    static_cast<int>(defaults.display.brightness));
+    NOTRIX_CHECK_EQ(fixture.config.clock.theme, defaults.clock.theme);
+    NOTRIX_CHECK_EQ(fixture.config.apps.defaultDurationSeconds,
+                    defaults.apps.defaultDurationSeconds);
+}
+
+NOTRIX_TEST(Api, ResetKeepsTheDeviceName) {
+    // It is how somebody tells one of these from another on the network, it is
+    // not a setting that can be "wrong", and losing it means finding the device
+    // again before you can fix whatever you were resetting.
+    Fixture fixture;
+    fixture.config.deviceName = "kitchen";
+    fixture.config.display.brightness = 17;
+
+    fixture.call("POST", "/api/v1/system/reset");
+
+    NOTRIX_CHECK_EQ(fixture.config.deviceName, std::string("kitchen"));
+}
+
+NOTRIX_TEST(Api, ResetKeepsTheArrangementWithTheApps) {
+    // Clearing the stored order cleared only the stored copy: the running
+    // device stayed in the user's order until it next rebooted and then
+    // silently reverted. A reset that takes effect at an unpredictable point
+    // in the future is worse than one that does nothing.
+    Fixture fixture;
+    notrix::config::AppPreference arranged;
+    arranged.id = "battery";
+    fixture.config.apps.order.push_back(arranged);
+    fixture.config.display.brightness = 17;
+
+    fixture.call("POST", "/api/v1/system/reset");
+    NOTRIX_REQUIRE(fixture.config.apps.order.size() == 1);
+    NOTRIX_CHECK_EQ(fixture.config.apps.order[0].id, std::string("battery"));
+
+    // And it goes when the apps do, because then there is nothing to arrange.
+    fixture.call("POST", "/api/v1/system/reset", R"({"apps":true})");
+    NOTRIX_CHECK(fixture.config.apps.order.empty());
+}
+
+NOTRIX_TEST(Api, ResetKeepsAppsUnlessAskedOtherwise) {
+    // Somebody resetting settings to sort out a display problem should not
+    // silently lose the apps an integration spent a week pushing.
+    Fixture fixture;
+    fixture.addApp("pushed");
+
+    fixture.call("POST", "/api/v1/system/reset");
+    NOTRIX_CHECK(fixture.apps.find("pushed") != nullptr);
+
+    fixture.call("POST", "/api/v1/system/reset", R"({"apps":true})");
+    NOTRIX_CHECK(fixture.apps.find("pushed") == nullptr);
+}
+
+NOTRIX_TEST(Api, ResetIsPersisted) {
+    // The running device is on defaults either way; a caller that believes the
+    // reset survived a reboot when it did not will be surprised later.
+    Fixture fixture;
+    fixture.config.display.brightness = 17;
+    fixture.call("POST", "/api/v1/system/reset");
+
+    notrix::config::Config stored;
+    fixture.configStore.load(stored);
+    const notrix::config::Config defaults;
+    NOTRIX_CHECK_EQ(static_cast<int>(stored.display.brightness),
+                    static_cast<int>(defaults.display.brightness));
+}
+
+NOTRIX_TEST(Api, ResetRefusesTheWrongMethod) {
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.call("GET", "/api/v1/system/reset").status), 405);
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.call("DELETE", "/api/v1/system/reset").status), 405);
+}
+
+NOTRIX_TEST(Api, SettingsRoundTripThroughABackup) {
+    // What the web UI's backup and restore actually do: read the settings
+    // document, send the whole thing back, and get the same device state. If
+    // any field the API emits is one it will not accept, this fails - which is
+    // the only way to notice a write-only or read-only field before a user
+    // does.
+    Fixture fixture;
+    fixture.config.deviceName = "hallway";
+    fixture.config.display.brightness = 42;
+    fixture.config.display.overlay = "confetti";
+    fixture.config.clock.theme = "calendar";
+    fixture.config.clock.timezone = "CET-1CEST,M3.5.0,M10.5.0/3";
+    fixture.config.apps.defaultDurationSeconds = 17;
+    fixture.config.apps.transition = "dissolve";
+    fixture.config.visualizer.style = "meter";
+    fixture.config.notifications.sound = "alert";
+    fixture.config.clock.tick = true;
+
+    notrix::config::AppPreference arranged;
+    arranged.id = "battery";
+    arranged.enabled = false;
+    arranged.durationSeconds = 9;
+    fixture.config.apps.order.push_back(arranged);
+
+    const Response saved = fixture.call("GET", "/api/v1/settings");
+    NOTRIX_REQUIRE(saved.status == 200);
+    const std::string backup = saved.body;
+
+    // Wipe, then restore from the backup exactly as the page does.
+    fixture.call("POST", "/api/v1/system/reset");
+    const Response restored = fixture.call("PATCH", "/api/v1/settings", backup);
+    NOTRIX_CHECK_EQ(static_cast<int>(restored.status), 200);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.config.display.brightness), 42);
+    NOTRIX_CHECK_EQ(fixture.config.display.overlay, std::string("confetti"));
+    NOTRIX_CHECK_EQ(fixture.config.clock.theme, std::string("calendar"));
+    NOTRIX_CHECK_EQ(fixture.config.clock.timezone,
+                    std::string("CET-1CEST,M3.5.0,M10.5.0/3"));
+    NOTRIX_CHECK_EQ(fixture.config.apps.defaultDurationSeconds, 17);
+    NOTRIX_CHECK_EQ(fixture.config.apps.transition, std::string("dissolve"));
+    NOTRIX_CHECK_EQ(fixture.config.visualizer.style, std::string("meter"));
+    NOTRIX_CHECK_EQ(fixture.config.notifications.sound, std::string("alert"));
+    NOTRIX_CHECK(fixture.config.clock.tick);
+
+    // The arrangement too. It was persisted to flash and left out of this
+    // document, so a backup silently omitted it and a restore could not bring
+    // it back - and this test passed anyway until it started looking.
+    NOTRIX_REQUIRE(fixture.config.apps.order.size() == 1);
+    NOTRIX_CHECK_EQ(fixture.config.apps.order[0].id, std::string("battery"));
+    NOTRIX_CHECK_FALSE(fixture.config.apps.order[0].enabled);
+    NOTRIX_CHECK_EQ(fixture.config.apps.order[0].durationSeconds, 9);
+}
+
+NOTRIX_TEST(Api, AMalformedOrderIsRefusedRatherThanPartlyApplied) {
+    Fixture fixture;
+
+    NOTRIX_CHECK_EQ(static_cast<int>(
+        fixture.call("PATCH", "/api/v1/settings",
+                     R"({"apps":{"order":[{"enabled":true}]}})").status), 422);
+    NOTRIX_CHECK_EQ(static_cast<int>(
+        fixture.call("PATCH", "/api/v1/settings",
+                     R"({"apps":{"order":["clock"]}})").status), 422);
+    NOTRIX_CHECK_EQ(static_cast<int>(
+        fixture.call("PATCH", "/api/v1/settings",
+                     R"({"apps":{"order":[{"id":"a","durationSeconds":99999}]}})").status), 422);
+
+    // Nothing was written on the way to being refused.
+    NOTRIX_CHECK(fixture.config.apps.order.empty());
+}

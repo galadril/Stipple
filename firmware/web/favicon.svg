@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later
+
+     A pixel clock, drawn as pixels.
+
+     SVG rather than an .ico because the asset table embedded in the firmware
+     takes text only - the generator emits raw string literals, deliberately
+     using no tool beyond CMake. An icon is also the one image a browser asks
+     for whether or not anybody offered it, so not having one is not an option:
+     it is a 404 in the device's own log every time somebody opens the page.
+
+     Sixteen units square, so every rectangle lands on a whole pixel at the
+     sizes a browser actually renders this. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"
+     shape-rendering="crispEdges">
+  <rect width="16" height="16" rx="3" fill="#0d1117"/>
+  <!-- 1 -->
+  <rect x="2" y="4" width="1" height="1" fill="#e6edf3"/>
+  <rect x="3" y="4" width="1" height="7" fill="#e6edf3"/>
+  <rect x="2" y="10" width="3" height="1" fill="#e6edf3"/>
+  <!-- colon, in the accent the clock itself uses -->
+  <rect x="6" y="6" width="1" height="1" fill="#00beff"/>
+  <rect x="6" y="9" width="1" height="1" fill="#00beff"/>
+  <!-- 0 -->
+  <rect x="9" y="4" width="3" height="1" fill="#e6edf3"/>
+  <rect x="9" y="5" width="1" height="5" fill="#e6edf3"/>
+  <rect x="11" y="5" width="1" height="5" fill="#e6edf3"/>
+  <rect x="9" y="10" width="3" height="1" fill="#e6edf3"/>
+</svg>

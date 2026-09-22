@@ -134,6 +134,7 @@ private:
 
     Response handleSettings(const Request& request);
     Response handleReboot(const Request& request);
+    Response handleReset(const Request& request, std::uint64_t nowMillis);
 
     Response handleDisplayFrame(const Request& request);
     Response handleInput(const Request& request, std::uint64_t nowMillis);

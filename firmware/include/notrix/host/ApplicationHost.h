@@ -241,7 +241,12 @@ private:
     /// enabled flags and durations that went with it.
     void applyStoredAppOrder();
 
-    /// Write the order out when the registry says it changed.
+    /// Whether the stored order still describes the live registry. False
+    /// means the settings changed from outside - a restored backup, say.
+    bool storedOrderMatchesRegistry() const;
+
+    /// Write the order out when the registry says it changed, and apply it
+    /// when the settings changed instead.
     void persistAppOrderIfChanged();
 
     /// Copy the registry's current order back into settings, ready to persist.

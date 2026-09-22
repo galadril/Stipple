@@ -592,27 +592,66 @@ void ApplicationHost::applyStoredAppOrder() {
     logger_.info(lastTickMillis_, "restored app order");
 }
 
+bool ApplicationHost::storedOrderMatchesRegistry() const {
+    const std::vector<config::AppPreference>& stored = settings_.apps.order;
+
+    std::size_t at = 0;
+    for (int i = 0; i < registry_.count(); ++i) {
+        const app::App* app = registry_.at(i);
+        if (app == nullptr || app->source == app::AppSource::Temporary) {
+            continue;  // never recorded, so never compared
+        }
+        if (at >= stored.size()) {
+            return false;
+        }
+        const config::AppPreference& preference = stored[at];
+        if (preference.id != app->id || preference.enabled != app->enabled ||
+            preference.durationSeconds != app->durationSeconds) {
+            return false;
+        }
+        ++at;
+    }
+    return at == stored.size();
+}
+
 void ApplicationHost::persistAppOrderIfChanged() {
     // Watched on the registry's own revision rather than hooked into every
     // path that can change it. The API, MQTT and anything added later all
     // mutate the same registry, and one watcher cannot be forgotten by a
     // caller the way five notifications could.
-    if (registry_.revision() == persistedAppRevision_) {
+    if (registry_.revision() != persistedAppRevision_) {
+        persistedAppRevision_ = registry_.revision();
+
+        // Safe mode deliberately loads no apps, so its registry is not a view
+        // of what the user arranged - writing it back would erase the
+        // arrangement precisely when the device is least able to explain
+        // itself.
+        if (bootMode_ != BootMode::Normal) {
+            return;
+        }
+
+        rememberAppOrder();
+        if (!configStore_.save(settings_)) {
+            logger_.error(lastTickMillis_, "could not persist app order");
+        }
         return;
     }
+
+    // The registry did not change, so if the stored order no longer describes
+    // it, the settings changed from somewhere else - a restored backup, or an
+    // API call that set the whole document. Those have to reach the live
+    // registry or a restore would appear to do nothing until the next reboot,
+    // which is the same defect the app duration had.
+    if (bootMode_ != BootMode::Normal || settings_.apps.order.empty()) {
+        return;
+    }
+    if (storedOrderMatchesRegistry()) {
+        return;
+    }
+    applyStoredAppOrder();
+    // Absorb the moves just made, so this does not read them back as a change
+    // the registry made and write the same order out again.
     persistedAppRevision_ = registry_.revision();
-
-    // Safe mode deliberately loads no apps, so its registry is not a view of
-    // what the user arranged - writing it back would erase the arrangement
-    // precisely when the device is least able to explain itself.
-    if (bootMode_ != BootMode::Normal) {
-        return;
-    }
-
-    rememberAppOrder();
-    if (!configStore_.save(settings_)) {
-        logger_.error(lastTickMillis_, "could not persist app order");
-    }
 }
 
 void ApplicationHost::rememberAppOrder() {

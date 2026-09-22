@@ -780,6 +780,118 @@
         });
     }
 
+    // --- backup, restore, reset ---------------------------------------------
+
+    function wireMaintenance() {
+        var backup = $('backup');
+        if (backup) {
+            backup.addEventListener('click', function () {
+                // Fetched fresh rather than serialising the copy this page is
+                // holding: what gets saved should be what the device says it
+                // has, not what a browser tab thinks it set an hour ago.
+                send('GET', '/api/v1/settings')
+                    .then(function (current) {
+                        var name = (current.deviceName || 'notrix') + '-' + stamp() + '.json';
+                        var blob = new Blob([JSON.stringify(current, null, 2)],
+                                            { type: 'application/json' });
+                        var url = URL.createObjectURL(blob);
+                        var link = el('a');
+                        link.href = url;
+                        link.download = name;
+                        link.click();
+                        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+                        toast('Backup saved');
+                    })
+                    .catch(fail);
+            });
+        }
+
+        var restore = $('restore');
+        var file = $('restore-file');
+        if (restore && file) {
+            restore.addEventListener('click', function () { file.click(); });
+
+            file.addEventListener('change', function () {
+                var chosen = file.files && file.files[0];
+                if (!chosen) { return; }
+                var reader = new FileReader();
+
+                reader.onload = function () {
+                    var parsed;
+                    try {
+                        parsed = JSON.parse(reader.result);
+                    } catch (error) {
+                        // Said plainly rather than sent to the device to be
+                        // refused: the file never was settings, and the device
+                        // has nothing useful to add.
+                        file.value = '';
+                        return toast('That file is not a backup', true);
+                    }
+                    if (!parsed || typeof parsed !== 'object') {
+                        file.value = '';
+                        return toast('That file is not a backup', true);
+                    }
+
+                    // Sent whole. The device validates every field and refuses
+                    // the request if any of them is wrong, which is a better
+                    // guarantee than this page picking through it - and it
+                    // means a backup from a newer firmware fails loudly rather
+                    // than half-applying.
+                    send('PATCH', '/api/v1/settings', parsed)
+                        .then(function () {
+                            file.value = '';
+                            return Promise.all([loadSettings(), loadApps()]);
+                        })
+                        .then(function () {
+                            refreshTimezone();
+                            describePassword();
+                            previewTopic();
+                            toast('Restored - the MQTT password needs typing in again');
+                        })
+                        .catch(function (error) {
+                            file.value = '';
+                            fail(error);
+                        });
+                };
+
+                reader.onerror = function () {
+                    file.value = '';
+                    toast('Could not read that file', true);
+                };
+                reader.readAsText(chosen);
+            });
+        }
+
+        function resetWith(includeApps, question) {
+            return function () {
+                if (!window.confirm(question)) { return; }
+                send('POST', '/api/v1/system/reset', { apps: includeApps })
+                    .then(function () {
+                        return Promise.all([loadSettings(), loadApps()]);
+                    })
+                    .then(function () {
+                        refreshTimezone();
+                        describePassword();
+                        previewTopic();
+                        toast(includeApps ? 'Settings and apps reset' : 'Settings reset');
+                    })
+                    .catch(fail);
+            };
+        }
+
+        var reset = $('reset');
+        if (reset) {
+            reset.addEventListener('click', resetWith(false,
+                'Put every setting back to its default? Apps and icons are kept.'));
+        }
+
+        var resetAll = $('reset-all');
+        if (resetAll) {
+            resetAll.addEventListener('click', resetWith(true,
+                'Reset every setting AND remove installed apps and icons? The built-in apps stay.'));
+        }
+    }
+
     // --- tabs ---------------------------------------------------------------
 
     // Which panel is open decides what gets polled, so a page left open on
@@ -1551,6 +1663,7 @@
         wireNotify();
         wireMqtt();
         wireReboot();
+        wireMaintenance();
         wireControls();
         wireCapture();
         wireColorPickers();

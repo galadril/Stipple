@@ -111,8 +111,24 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .beginObject()
         .member("defaultDurationSeconds", settings.apps.defaultDurationSeconds)
         .member("transitions", settings.apps.transitions)
-        .member("transition", settings.apps.transition)
-        .endObject()
+        .member("transition", settings.apps.transition);
+
+    // The arrangement, which is a setting like any other.
+    //
+    // It was stored to flash and left out of this document, so a backup
+    // silently omitted the app order and a restore could not bring it back -
+    // a field that persists but cannot be read is a field nobody can save.
+    writer.key("order").beginArray();
+    for (const config::AppPreference& preference : settings.apps.order) {
+        writer.beginObject()
+            .member("id", preference.id)
+            .member("enabled", preference.enabled)
+            .member("durationSeconds", preference.durationSeconds)
+            .endObject();
+    }
+    writer.endArray();
+
+    writer.endObject()
         .key("clock")
         .beginObject()
         .member("twentyFourHour", settings.clock.twentyFourHour)
@@ -207,6 +223,7 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
         case Resource::AssetItem: return handleAssetItem(request, route.id);
         case Resource::Settings: return handleSettings(request);
         case Resource::SystemReboot: return handleReboot(request);
+        case Resource::SystemReset: return handleReset(request, nowMillis);
         case Resource::DisplayFrame: return handleDisplayFrame(request);
         case Resource::Input: return handleInput(request, nowMillis);
         case Resource::Unknown: break;
@@ -1221,6 +1238,35 @@ Response ApiServer::handleSettings(const Request& request) {
         if (const json::Value transitions = apps["transitions"]; transitions.isBoolean()) {
             updated.apps.transitions = transitions.toBool(true);
         }
+        if (const json::Value order = apps["order"]; order.isArray()) {
+            // Replaced wholesale rather than merged. An order is a sequence,
+            // and merging two sequences has no meaning that a caller could
+            // predict.
+            std::vector<config::AppPreference> wanted;
+            const int count = order.size();
+            if (count > config::kMaxRememberedApps) {
+                return unprocessable("'apps.order' lists more apps than this device can hold");
+            }
+            for (int i = 0; i < count; ++i) {
+                const json::Value entry = order[i];
+                if (!entry.isObject()) {
+                    return unprocessable("'apps.order' entries must be objects");
+                }
+                config::AppPreference preference;
+                preference.id = entry["id"].toString(std::string());
+                if (preference.id.empty()) {
+                    return unprocessable("'apps.order' entries need an 'id'");
+                }
+                preference.enabled = entry["enabled"].toBool(true);
+                const std::int64_t seconds = entry["durationSeconds"].toInt(0);
+                if (seconds < 0 || seconds > 3600) {
+                    return unprocessable("'apps.order' durationSeconds is outside 0-3600");
+                }
+                preference.durationSeconds = static_cast<int>(seconds);
+                wanted.push_back(std::move(preference));
+            }
+            updated.apps.order = std::move(wanted);
+        }
         if (const json::Value style = apps["transition"]; style.isString()) {
             // Only names that round-trip, like the clock face and the
             // visualiser style. Falling back silently would leave a client
@@ -1379,6 +1425,78 @@ Response ApiServer::handleSettings(const Request& request) {
 
     JsonWriter writer;
     writeSettings(writer, *context_.config);
+    return ok(writer.take());
+}
+
+Response ApiServer::handleReset(const Request& request, std::uint64_t nowMillis) {
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+    if (context_.config == nullptr || context_.configStore == nullptr) {
+        return serverError("configuration unavailable");
+    }
+
+    // "apps": true also clears installed apps and stored icons. Off by default,
+    // and deliberately a separate flag rather than a second endpoint: somebody
+    // resetting settings to sort out a display problem should not silently lose
+    // the apps an integration spent a week pushing.
+    bool includeApps = false;
+    if (!request.body.empty()) {
+        Body body(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+        if (!body.valid()) {
+            return badRequest(std::string("invalid JSON: ") + body.errorText());
+        }
+        const json::Value fields = body.root();
+        if (!fields.isObject()) {
+            return badRequest("body must be a JSON object");
+        }
+        includeApps = fields["apps"].toBool(false);
+    }
+
+    // The device name survives. It is how somebody tells one of these from
+    // another on the network, it is not a setting that can be "wrong", and
+    // losing it means finding the device again before you can fix whatever you
+    // were resetting.
+    const std::string name = context_.config->deviceName;
+
+    // So does the app arrangement, unless the apps go too. It belongs with the
+    // apps rather than with the settings - and clearing it here cleared only
+    // the stored copy, leaving the running device in the user's order until it
+    // next rebooted and silently reverted. A reset that takes effect at an
+    // unpredictable point in the future is worse than one that does nothing.
+    std::vector<config::AppPreference> order;
+    if (!includeApps) {
+        order = context_.config->apps.order;
+    }
+
+    *context_.config = config::Config{};
+    context_.config->deviceName = name;
+    context_.config->apps.order = std::move(order);
+
+    if (includeApps && context_.apps != nullptr) {
+        // System apps survive clear(), which is what guarantees the panel still
+        // shows something afterwards.
+        context_.apps->clear();
+        if (context_.icons != nullptr) {
+            context_.icons->clear();
+        }
+        if (context_.carousel != nullptr) {
+            context_.carousel->tick(nowMillis);
+        }
+    }
+
+    if (!context_.configStore->save(*context_.config)) {
+        // Reported rather than swallowed: the running device is now on
+        // defaults either way, and a caller that believes the reset persisted
+        // when it did not will be surprised by the next boot.
+        return serverError("settings reset but could not be saved");
+    }
+
+    JsonWriter writer;
+    writer.beginObject()
+        .member("status", "reset")
+        .member("apps", includeApps)
+        .endObject();
     return ok(writer.take());
 }
 

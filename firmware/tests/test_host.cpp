@@ -1858,3 +1858,46 @@ NOTRIX_TEST(Host, WithoutAWallClockTheStandardOffsetIsUsed) {
     NOTRIX_CHECK_FALSE(platform.clock().wallClockValid());
     NOTRIX_CHECK_EQ(host.clockStyle().utcOffsetSeconds, 3600);
 }
+
+NOTRIX_TEST(Host, ARestoredOrderReachesTheRegistryWithoutARestart) {
+    // Restoring a backup writes settings; the apps on screen are in the
+    // registry. Without this the arrangement would come back only on the next
+    // reboot - the same defect the app duration had, in a place where it is
+    // even less visible.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    capabilities.microphone = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+    NOTRIX_REQUIRE(host.apps().count() >= 3);
+
+    // An arrangement arriving from outside, exactly as a restore delivers it.
+    const std::string wanted = host.apps().at(host.apps().count() - 1)->id;
+    notrix::config::AppPreference first;
+    first.id = wanted;
+    host.settings().apps.order.clear();
+    host.settings().apps.order.push_back(first);
+
+    run(host, platform, 1000);
+
+    NOTRIX_CHECK_EQ(host.apps().at(0)->id, wanted);
+}
+
+NOTRIX_TEST(Host, AnOrderThatAlreadyMatchesIsNotRewritten) {
+    // The two directions must not fight. If applying an order counted as a
+    // registry change, and writing it back counted as a settings change, the
+    // device would save its configuration on every single tick.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 1000);
+
+    const int before = host.logger().count();
+    run(host, platform, 6000);
+
+    // No errors, and nothing churning: a save failure would log, and a loop
+    // would show up as a stream of them.
+    NOTRIX_CHECK_EQ(host.logger().count(), before);
+}
