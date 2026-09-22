@@ -6,6 +6,7 @@
 #include "notrix/apps/VisualizerApp.h"
 #include "notrix/asset/IconStore.h"
 #include "notrix/graphics/Canvas.h"
+#include "notrix/time/Timezone.h"
 #include "notrix/input/Navigator.h"
 #include "notrix/platform/simulator/SimulatorPlatform.h"
 #include "support/TestFramework.h"
@@ -1787,4 +1788,73 @@ NOTRIX_TEST(Host, ALongerDurationAlsoTakesEffectImmediately) {
     const std::string before = host.carousel().active()->id;
     run(host, platform, 20000);
     NOTRIX_CHECK_EQ(host.carousel().active()->id, before);
+}
+
+NOTRIX_TEST(Host, ATimezoneRuleBeatsTheStoredOffset) {
+    // The bug this replaces: a fixed offset is right for about half the year
+    // anywhere that observes daylight saving, and wrong the rest of it.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().clock.utcOffsetSeconds = 0;
+    host.settings().clock.timezone = "CET-1CEST,M3.5.0,M10.5.0/3";
+
+    // Deep winter: one hour ahead of UTC.
+    platform.simulatedClock().setWallClock(
+        notrix::timezone_::daysFromCivil(2026, 1, 15) * 86400);
+    run(host, platform, 300);
+    NOTRIX_CHECK_EQ(host.clockStyle().utcOffsetSeconds, 3600);
+
+    // Deep summer: two.
+    platform.simulatedClock().setWallClock(
+        notrix::timezone_::daysFromCivil(2026, 7, 15) * 86400);
+    run(host, platform, 600);
+    NOTRIX_CHECK_EQ(host.clockStyle().utcOffsetSeconds, 7200);
+}
+
+NOTRIX_TEST(Host, WithoutATimezoneTheStoredOffsetStillApplies) {
+    // Every device configured before timezones existed has one of these, and
+    // nothing should have to be re-entered to keep working.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().clock.timezone.clear();
+    host.settings().clock.utcOffsetSeconds = 5 * 3600;
+    platform.simulatedClock().setWallClock(
+        notrix::timezone_::daysFromCivil(2026, 7, 15) * 86400);
+    run(host, platform, 300);
+
+    NOTRIX_CHECK_EQ(host.clockStyle().utcOffsetSeconds, 5 * 3600);
+}
+
+NOTRIX_TEST(Host, AnUnparseableRuleFallsBackAndSaysSo) {
+    // Falling back silently would leave somebody certain they had set a
+    // timezone and puzzled twice a year.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().clock.utcOffsetSeconds = 3 * 3600;
+    host.settings().clock.timezone = "not a timezone";
+    run(host, platform, 300);
+
+    NOTRIX_CHECK_EQ(host.clockStyle().utcOffsetSeconds, 3 * 3600);
+    NOTRIX_CHECK(logContains(host, "timezone rule not understood"));
+}
+
+NOTRIX_TEST(Host, WithoutAWallClockTheStandardOffsetIsUsed) {
+    // Before NTP answers there is no date, so there is no way to know which
+    // side of a changeover we are on. Standard time is the honest answer; a
+    // coin toss dressed as a summer offset is not.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().clock.timezone = "CET-1CEST,M3.5.0,M10.5.0/3";
+    run(host, platform, 300);  // wall clock never set
+
+    NOTRIX_CHECK_FALSE(platform.clock().wallClockValid());
+    NOTRIX_CHECK_EQ(host.clockStyle().utcOffsetSeconds, 3600);
 }

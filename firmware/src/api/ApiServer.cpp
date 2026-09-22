@@ -8,6 +8,7 @@
 #include "notrix/core/Base64.h"
 #include "notrix/render/FrameScheduler.h"
 #include "notrix/render/Transition.h"
+#include "notrix/time/Timezone.h"
 #include "notrix/render/Overlay.h"
 #include "notrix/graphics/Framebuffer.h"
 #include "notrix/asset/IconStore.h"
@@ -117,6 +118,7 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .member("twentyFourHour", settings.clock.twentyFourHour)
         .member("utcOffsetSeconds", settings.clock.utcOffsetSeconds)
         .member("theme", settings.clock.theme)
+        .member("timezone", settings.clock.timezone)
         .member("leadingZero", settings.clock.leadingZero)
         .member("showAmPm", settings.clock.showAmPm);
 
@@ -1253,6 +1255,19 @@ Response ApiServer::handleSettings(const Request& request) {
     if (const json::Value clock = root["clock"]; clock.isObject()) {
         if (const json::Value twentyFour = clock["twentyFourHour"]; twentyFour.isBoolean()) {
             updated.clock.twentyFourHour = twentyFour.toBool(true);
+        }
+        if (const json::Value zone = clock["timezone"]; zone.isString()) {
+            // Validated here rather than discovered at render time. An empty
+            // string is the documented way to say "use the fixed offset", so
+            // it is accepted; anything else has to be a rule this device can
+            // actually follow, or the clock would be quietly wrong for half
+            // the year with nothing to show for it.
+            const std::string spec = zone.toString();
+            notrix::timezone_::Timezone parsed;
+            if (!spec.empty() && !notrix::timezone_::Timezone::parse(spec, parsed)) {
+                return unprocessable("'clock.timezone' is not a POSIX timezone rule");
+            }
+            updated.clock.timezone = spec;
         }
         if (const json::Value tick = clock["tick"]; tick.isBoolean()) {
             updated.clock.tick = tick.toBool(false);

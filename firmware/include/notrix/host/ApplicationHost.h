@@ -24,6 +24,7 @@
 #include "notrix/render/FrameScheduler.h"
 #include "notrix/render/Transition.h"
 #include "notrix/scene/Scene.h"
+#include "notrix/time/Timezone.h"
 
 namespace notrix {
 namespace host {
@@ -226,6 +227,13 @@ private:
     /// The knob press, inside settings: toggles what can be toggled.
     void activateCurrentSetting();
 
+    /// Re-parse the timezone rule when it changes, and say so in the log.
+    void applyTimeSettings();
+
+    /// Seconds to add to UTC right now, from the timezone rule where one is
+    /// configured and from the stored offset where it is not.
+    int currentUtcOffsetSeconds() const;
+
     /// Keep the carousel in step with the stored app settings.
     void applyCarouselSettings();
 
@@ -280,6 +288,12 @@ private:
     /// Whether settings were open on the previous tick, so the tick that closes
     /// them does not immediately bill the carousel for the time spent inside.
     bool wasInSettings_ = false;
+
+    /// The parsed timezone and the string it came from, so a rule is parsed
+    /// once per change rather than once per rendered frame.
+    timezone_::Timezone timezone_;
+    std::string timezoneSpec_;
+    bool timezoneValid_ = false;
 
     /// When the on-screen adjustment readout stops being drawn, or 0 when
     /// nothing is showing. Pressing − or + while browsing has to show what

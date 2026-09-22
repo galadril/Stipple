@@ -899,6 +899,7 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
     persistIconsIfChanged();
     persistAppOrderIfChanged();
     applyCarouselSettings();
+    applyTimeSettings();
 
     if (splashActive_) {
         if (splashElapsed(nowMillis)) {
@@ -1153,8 +1154,51 @@ apps::ClockStyle ApplicationHost::clockStyle() const noexcept {
     style.dateSeparator = apps::dateSeparatorFromName(settings_.clock.dateSeparator);
     style.dateYear = apps::dateYearFromName(settings_.clock.dateYear);
     style.blinkPeriodMillis = settings_.clock.blinkPeriodMillis;
-    style.utcOffsetSeconds = settings_.clock.utcOffsetSeconds;
+    style.utcOffsetSeconds = currentUtcOffsetSeconds();
     return style;
+}
+
+void ApplicationHost::applyTimeSettings() {
+    // Parsed once per change rather than once per frame. clockStyle() runs on
+    // every render, and re-parsing a rule string to get the same answer sixty
+    // times a second would be work for nothing - and it is why this is a tick
+    // job rather than something clockStyle() does for itself.
+    if (settings_.clock.timezone == timezoneSpec_) {
+        return;
+    }
+    timezoneSpec_ = settings_.clock.timezone;
+    timezoneValid_ = timezone_::Timezone::parse(timezoneSpec_, timezone_);
+
+    if (timezoneSpec_.empty()) {
+        return;
+    }
+    if (!timezoneValid_) {
+        // Worth saying out loud. A rule that does not parse falls back to the
+        // stored offset, and ignoring it silently would leave somebody certain
+        // they had set a timezone and puzzled twice a year.
+        logger_.warn(lastTickMillis_, "timezone rule not understood; using the fixed offset");
+        return;
+    }
+    logger_.info(lastTickMillis_,
+                 timezone_.observesDaylight() ? "timezone set, with daylight saving"
+                                              : "timezone set, fixed offset");
+}
+
+int ApplicationHost::currentUtcOffsetSeconds() const {
+    // The rule wins where there is one, and the stored offset is the fallback
+    // for the large part of the world that does not observe daylight saving -
+    // and for every device configured before timezones existed.
+    if (!timezoneValid_) {
+        return settings_.clock.utcOffsetSeconds;
+    }
+    const platform::ISystemClock& clock = platform_.clock();
+    if (!clock.wallClockValid()) {
+        // Without a date there is no way to know which side of a changeover we
+        // are on, so the standard offset is the honest answer rather than a
+        // coin toss.
+        return timezone_.standardOffsetSeconds();
+    }
+    return timezone_.offsetSeconds(clock.unixSeconds());
 }
 
 bool ApplicationHost::refreshActiveScene() {

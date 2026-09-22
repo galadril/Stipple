@@ -398,8 +398,18 @@
             </select>
         </div>
         <div class="field">
+            <label for="timezone">Timezone</label>
+            <select id="timezone" data-setting="clock.timezone"></select>
+            <p class="help" id="timezone-help">
+                Follows daylight saving on its own.
+            </p>
+        </div>
+        <div class="field" id="offset-field">
             <label for="utcOffsetSeconds">UTC offset</label>
             <select id="utcOffsetSeconds" data-setting="clock.utcOffsetSeconds"></select>
+            <p class="help">
+                Used only when no timezone is chosen.
+            </p>
         </div>
     </div>
     <div class="field">

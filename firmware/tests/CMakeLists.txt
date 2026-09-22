@@ -28,6 +28,7 @@ add_executable(notrix_tests
     test_mcu_protocol.cpp
     test_navigator.cpp
     test_tone.cpp
+    test_timezone.cpp
 )
 
 target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

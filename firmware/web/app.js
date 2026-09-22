@@ -210,6 +210,71 @@
         }
     }
 
+    // Zones as POSIX rules, not names.
+    //
+    // There is no timezone database on the device - no /usr/share/zoneinfo -
+    // and shipping one would cost megabytes on an 8 MiB partition and go stale
+    // the moment a government moved a date. A rule is one line and describes
+    // the changeover rather than its consequences.
+    //
+    // A short list on purpose. Somewhere in this list is right for almost
+    // everybody, and a menu of four hundred entries on a page for a clock is a
+    // worse answer than a menu of twenty.
+    var ZONES = [
+        ['', 'Fixed offset (below)'],
+        ['UTC0', 'UTC'],
+        ['GMT0BST,M3.5.0/1,M10.5.0', 'United Kingdom, Ireland, Portugal'],
+        ['CET-1CEST,M3.5.0,M10.5.0/3', 'Central Europe (Amsterdam, Berlin, Paris)'],
+        ['EET-2EEST,M3.5.0/3,M10.5.0/4', 'Eastern Europe (Athens, Helsinki)'],
+        ['MSK-3', 'Moscow'],
+        ['EST5EDT,M3.2.0,M11.1.0', 'US Eastern'],
+        ['CST6CDT,M3.2.0,M11.1.0', 'US Central'],
+        ['MST7MDT,M3.2.0,M11.1.0', 'US Mountain'],
+        ['MST7', 'Arizona (no daylight saving)'],
+        ['PST8PDT,M3.2.0,M11.1.0', 'US Pacific'],
+        ['AST4ADT,M3.2.0,M11.1.0', 'Atlantic Canada'],
+        ['<-03>3', 'Brazil (Sao Paulo)'],
+        ['<-05>5', 'Colombia, Peru'],
+        ['IST-5:30', 'India'],
+        ['<+04>-4', 'Gulf (Dubai)'],
+        ['CST-8', 'China, Singapore, Hong Kong'],
+        ['JST-9', 'Japan'],
+        ['KST-9', 'Korea'],
+        ['AEST-10AEDT,M10.1.0,M4.1.0/3', 'Sydney, Melbourne'],
+        ['AEST-10', 'Brisbane (no daylight saving)'],
+        ['NZST-12NZDT,M9.5.0,M4.1.0/3', 'New Zealand'],
+        ['SAST-2', 'South Africa']
+    ];
+
+    function fillZones() {
+        var select = $('timezone');
+        if (!select) { return; }
+        ZONES.forEach(function (zone) {
+            select.appendChild(new Option(zone[1], zone[0]));
+        });
+        select.addEventListener('change', refreshTimezone);
+    }
+
+    // The offset only matters when no rule is chosen, so it says so rather than
+    // sitting there looking equally important.
+    function refreshTimezone() {
+        var select = $('timezone');
+        var offset = $('offset-field');
+        var help = $('timezone-help');
+        if (!select || !offset) { return; }
+
+        var chosen = select.value !== '';
+        offset.style.opacity = chosen ? '0.45' : '';
+        var control = $('utcOffsetSeconds');
+        if (control) { control.disabled = chosen; }
+
+        if (help) {
+            help.textContent = chosen
+                ? 'Follows daylight saving on its own.'
+                : 'No timezone chosen, so the fixed offset below is used - which will be an hour out for half the year anywhere that changes its clocks.';
+        }
+    }
+
     // --- mqtt ---------------------------------------------------------------
     //
     // The password is the one setting that does not round-trip: the API accepts
@@ -1480,6 +1545,7 @@
 
     function start() {
         fillOffsets();
+        fillZones();
         bindControls();
         wireTabs();
         wireNotify();
@@ -1499,6 +1565,7 @@
             .then(function () {
                 describePassword();
                 previewTopic();
+                refreshTimezone();
                 markConnection(true);
                 // Fill the tiles immediately rather than leaving the page
                 // blank until the first poll four seconds later.

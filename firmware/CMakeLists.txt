@@ -34,6 +34,7 @@ add_library(notrix_core
     src/json/Json.cpp
     src/scene/Scene.cpp
     src/audio/Tone.cpp
+    src/time/Timezone.cpp
     src/core/Base64.cpp
     src/core/Checksum.cpp
     src/core/Log.cpp

@@ -144,7 +144,26 @@ struct AppSettings {
 
 struct ClockSettings {
     bool twentyFourHour = true;
+
+    /// Fallback offset, used when `timezone` is empty or unparseable.
+    ///
+    /// Kept rather than replaced: a fixed offset is the right answer for the
+    /// large part of the world that does not observe daylight saving, and it
+    /// is what every device configured before timezones existed already has
+    /// stored. Nothing should have to be re-entered to keep working.
     int utcOffsetSeconds = 0;
+
+    /// A POSIX TZ rule, e.g. "CET-1CEST,M3.5.0,M10.5.0/3".
+    ///
+    /// When set and parseable this wins, and the clock follows daylight saving
+    /// on its own. Empty means "use the offset above", which is what an
+    /// unconfigured device and every older one does.
+    ///
+    /// A rule rather than a zone name because there is no timezone database on
+    /// this hardware - no /usr/share/zoneinfo, no /etc/localtime - and shipping
+    /// one would cost megabytes on an 8 MiB partition and go stale the moment a
+    /// government moved a date. See notrix::timezone_::Timezone.
+    std::string timezone;
 
     /// Clock face, by name (see apps::clockThemeFromName). Stored as a string
     /// rather than an enum so that configuration does not depend on the app
