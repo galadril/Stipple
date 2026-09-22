@@ -526,3 +526,15 @@ input[type="color"] {
 #join-pick { flex: 2 1 12em; min-width: 0; }
 #join-password { flex: 1 1 8em; min-width: 0; }
 #join-other-row input { flex: 1 1 auto; }
+
+/* Shown once, to somebody who has just plugged a clock in. Loud enough to
+   read at a glance and not so loud it looks like an error - nothing has gone
+   wrong, the device simply has not been told anything yet. */
+.notice {
+    padding: 10px 12px;
+    margin: 0 0 14px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: rgba(0, 200, 255, 0.08);
+    color: var(--text);
+}

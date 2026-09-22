@@ -191,6 +191,18 @@ public:
     void clearNotice() noexcept;
     bool showingNotice() const noexcept { return !noticeTitle_.empty(); }
 
+    /// Nothing was stored when this device started: it has never been set up.
+    ///
+    /// A state, not a wizard (ADR 0018). Nothing about the device behaves
+    /// differently because of it - the clock still runs, the apps still
+    /// rotate - but the panel explains itself and the configuration page
+    /// opens on the step that matters instead of on the live view.
+    ///
+    /// It stops being true the moment anything is saved, which is the first
+    /// thing a person does. There is no "finish setup" button, because a
+    /// button somebody has to find is a step that can be missed.
+    bool firstRun() const noexcept { return firstRun_; }
+
     /// True while the boot splash is still showing.
     bool showingSplash() const noexcept { return splashActive_; }
 
@@ -406,6 +418,7 @@ private:
     bool transitionActive_ = false;
 
     bool splashActive_ = false;
+    bool firstRun_ = false;
 
     /// Empty when there is nothing to say. Held rather than passed per frame
     /// because the detail line scrolls, and scrolling needs a start time.

@@ -229,6 +229,11 @@ int main(int argc, char** argv) {
 
     bool reportedHealthy = false;
 
+    // Long enough for a lease on a slow network, short enough that somebody
+    // holding a new clock does not conclude it is broken. A device that
+    // decided after five seconds would host every time the router was slow.
+    constexpr std::uint64_t kStrandedMillis = 45000;
+
     bool hotspotStarted = false;
     bool hotspotShowing = false;
 
@@ -287,9 +292,29 @@ int main(int argc, char** argv) {
         // failed on that tool staying alive rather than on anything about
         // hosting: when it stopped, nothing reverted and the device was
         // left with no access point and no station.
-        if (hotspotAfter >= 0 && !hotspotStarted &&
-            now >= started + static_cast<std::uint64_t>(hotspotAfter) * 1000u) {
+        // Three reasons to host, and only the first is a test.
+        //
+        //   --hotspot=N   asked for explicitly
+        //   rescue        somebody held both buttons; stored, so it survives
+        //                 the reboot they reach for next
+        //   nowhere to go a device with no address and nothing configured
+        //
+        // The last one is what a new owner meets: an unconfigured clock that
+        // cannot reach a network has no other way to explain itself, and
+        // waiting for somebody to guess is not a plan.
+        const bool askedByFlag =
+            hotspotAfter >= 0 &&
+            now >= started + static_cast<std::uint64_t>(hotspotAfter) * 1000u;
+        const bool askedByRescue = host.settings().network.hotspotRequested;
+        const bool nowhereToGo =
+            host.firstRun() && !platform.dhcp().bound() &&
+            now >= started + kStrandedMillis;
+
+        if (!hotspotStarted && (askedByFlag || askedByRescue || nowhereToGo)) {
             hotspotStarted = true;
+            if (nowhereToGo && !askedByFlag && !askedByRescue) {
+                host.logger().info(now, "no network and nothing configured; hosting");
+            }
             if (hotspotSeconds > 0) {
                 platform.hotspot().setRevertMillis(
                     static_cast<std::uint64_t>(hotspotSeconds) * 1000u);

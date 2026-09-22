@@ -40,6 +40,7 @@ api::ApiContext ApplicationHost::makeContext() noexcept {
     context.icons = &icons_;
     context.config = &settings_;
     context.configStore = &configStore_;
+    context.firstRun = &firstRun_;
     context.platform = &platform_;
     context.logger = &logger_;
     context.frame = &framebuffer_;
@@ -144,6 +145,16 @@ bool ApplicationHost::initialize() {
     } else {
         const config::LoadReport report = configStore_.load(settings_);
         logger_.info(startedAt, config::describe(report.status));
+
+        // Nothing stored means nobody has ever set this device up. Corrupt
+        // storage deliberately does not count: that device *was* configured,
+        // and telling its owner it is brand new would be both wrong and the
+        // least helpful thing to say while they are trying to work out what
+        // happened to their settings.
+        firstRun_ = report.status == config::LoadStatus::DefaultsMissing;
+        if (firstRun_) {
+            logger_.info(startedAt, "first run: nothing configured yet");
+        }
     }
     applyBrightness();
     if (platform_.audio() != nullptr) {
@@ -1617,6 +1628,16 @@ api::Response ApplicationHost::handle(const api::Request& request) {
     }
 
     const api::Response response = apiServer_.handle(request, lastTickMillis_);
+
+    // Any successful change ends the first run.
+    //
+    // A state, not a wizard: there is no "finish setup" button, because a
+    // button somebody has to find is a step that can be missed. Hooking the
+    // save calls instead would have missed this entirely - the API persists
+    // through its own handle on the store.
+    if (request.method != api::Method::Get && response.status < 400) {
+        firstRun_ = false;
+    }
 
     // Settings are shared by pointer with the API, so a PATCH may have pointed
     // MQTT at a different broker. Re-reading is cheap and does nothing when

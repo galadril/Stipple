@@ -312,6 +312,16 @@
 </section>
 
 <section class="panel" id="panel-system">
+
+    <!-- Shown once, on a device nobody has configured yet. It is a state and
+         not a wizard: nothing is blocked behind it, and it stops appearing
+         the moment anything is saved rather than when a button is pressed. A
+         button somebody has to find is a step that can be missed. -->
+    <p class="notice" id="first-run" hidden>
+        <strong>Welcome.</strong> This device has not been set up yet. Choose a
+        network below, and set a password under Access if anyone else uses this
+        network. Everything else already works - the clock is running.
+    </p>
     <h2>System</h2>
     <div class="field">
         <label for="deviceName">Device name</label>

@@ -2290,3 +2290,73 @@ NOTRIX_TEST(Host, TheRescueGestureClearsTheLockout) {
     NOTRIX_CHECK(host.settings().web.password.empty());
     NOTRIX_CHECK_EQ(host.handle(request).status, 200);
 }
+
+NOTRIX_TEST(Host, ADeviceWithNothingStoredIsOnItsFirstRun) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    NOTRIX_CHECK(host.firstRun());
+
+    // And says so where the page can see it, because that is what decides
+    // whether it opens on the network step or on a live view of a clock
+    // showing the wrong time.
+    notrix::api::Request request;
+    request.method = notrix::api::Method::Get;
+    request.path = "/api/v1/device";
+    const std::string body = host.handle(request).body;
+    NOTRIX_CHECK(body.find("\"firstRun\":true") != std::string::npos);
+}
+
+NOTRIX_TEST(Host, FirstRunEndsWhenAnythingIsSaved) {
+    // A state, not a wizard. There is no "finish setup" button, because a
+    // button somebody has to find is a step that can be missed.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    NOTRIX_CHECK(host.firstRun());
+
+    notrix::api::Request patch;
+    patch.method = notrix::api::Method::Patch;
+    patch.path = "/api/v1/settings";
+    patch.body = R"({"display":{"brightness":90}})";
+    NOTRIX_CHECK_EQ(host.handle(patch).status, 200);
+
+    NOTRIX_CHECK_FALSE(host.firstRun());
+
+    notrix::api::Request request;
+    request.method = notrix::api::Method::Get;
+    request.path = "/api/v1/device";
+    NOTRIX_CHECK(host.handle(request).body.find("\"firstRun\":false") != std::string::npos);
+}
+
+NOTRIX_TEST(Host, ADeviceThatHasBeenConfiguredIsNotOnItsFirstRun) {
+    SimulatorPlatform platform;
+    {
+        ApplicationHost host(platform, quietConfig());
+        host.initialize();
+        notrix::api::Request patch;
+        patch.method = notrix::api::Method::Patch;
+        patch.path = "/api/v1/settings";
+        patch.body = R"({"display":{"brightness":90}})";
+        host.handle(patch);
+        host.shutdown();
+    }
+
+    ApplicationHost restarted(platform, quietConfig());
+    restarted.initialize();
+    NOTRIX_CHECK_FALSE(restarted.firstRun());
+}
+
+NOTRIX_TEST(Host, CorruptStorageIsNotAFirstRun) {
+    // That device *was* configured, and telling its owner it is brand new
+    // would be both wrong and the least helpful thing to say while they are
+    // working out what happened to their settings.
+    SimulatorPlatform platform;
+    platform.storage().write(notrix::config::ConfigStore::kPrimaryKey, "{ not json");
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    NOTRIX_CHECK_FALSE(host.firstRun());
+}

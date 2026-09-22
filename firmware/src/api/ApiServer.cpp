@@ -392,6 +392,11 @@ Response ApiServer::handleDevice(const Request& request) {
     writer.member("version", kVersion);
     writer.member("apiVersion", kApiVersion);
 
+    // A device nobody has set up yet. The page opens on the network step
+    // rather than on a live view of a clock showing the wrong time - not a
+    // modal and not a wizard, the same page in a different order (ADR 0018).
+    writer.member("firstRun", context_.firstRun != nullptr && *context_.firstRun);
+
     writer.key("display").beginObject();
     writer.member("width", Framebuffer::kWidth);
     writer.member("height", Framebuffer::kHeight);

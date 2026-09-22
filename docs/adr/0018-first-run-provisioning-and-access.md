@@ -1,6 +1,6 @@
 # 0018 — Getting on the network, and keeping people off it
 
-- **Status:** Accepted; amended after the first live test
+- **Status:** Implemented; amended twice after live testing
 - **Date:** 2026-09-22
 
 ## Context
@@ -217,7 +217,10 @@ been up for a full lease period without a restart, so nobody has seen it.
    chosen, device joined and came back on the LAN.
 6. ~~Access control~~ — done. HTTP Basic, off by default, covering the page
    and the API through one gate in `ApplicationHost::handle`.
-7. First run — the last one.
+7. ~~First run~~ — done.
+
+**All seven are built.** Every one of them has run on real hardware except
+the first-run state itself, which needs a device with nothing stored.
 
 ### And a rule about testing this
 

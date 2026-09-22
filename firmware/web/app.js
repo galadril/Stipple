@@ -399,8 +399,17 @@
 
     // --- device -------------------------------------------------------------
 
+    var firstRunSeen = false;
+
     function loadDevice() {
         return send('GET', '/api/v1/device').then(function (device) {
+            // A state, not a wizard: nothing is blocked behind it, and it
+            // stops appearing the moment anything is saved rather than when
+            // a button is pressed.
+            firstRunSeen = !!device.firstRun;
+            var welcome = $('first-run');
+            if (welcome) { welcome.hidden = !firstRunSeen; }
+
             $('device-name').textContent = device.name || 'notrix';
             $('device-version').textContent = 'v' + device.version;
 
@@ -2094,6 +2103,13 @@
 
         Promise.all([loadSettings(), loadDevice()])
             .then(function () {
+                // A device nobody has set up opens on the step that matters
+                // rather than on a live view of a clock showing the wrong
+                // time (ADR 0018). Not a modal and not a wizard - the same
+                // page, in a different order.
+                if (firstRunSeen) {
+                    showPanel('panel-system');
+                }
                 describePassword();
                 previewTopic();
                 refreshTimezone();

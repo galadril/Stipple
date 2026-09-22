@@ -50,6 +50,13 @@ namespace api {
 /// exactly the subset it needs and a null pointer means "this build does not
 /// offer that", not a crash.
 struct ApiContext {
+    /// Whether this device has never been configured.
+    ///
+    /// A pointer to the host's own flag rather than a copy: it stops being
+    /// true the moment anything is saved, and a copy taken at construction
+    /// would still be claiming first run after the first save.
+    const bool* firstRun = nullptr;
+
     app::AppRegistry* apps = nullptr;
     app::Carousel* carousel = nullptr;
     notify::NotificationQueue* notifications = nullptr;
