@@ -382,46 +382,72 @@ input[type="color"] {
 /* A row of small readings above the live view. Deliberately not a table: these
    are glanced at, not read, and a grid that reflows to one column on a phone
    is better than a table that scrolls sideways. */
+/* One row, the same width as the panel above it.
+   624px is 52 pixels at 12 each - the canvas's own ceiling - so the readings
+   line up with the thing they describe instead of with the section. */
 .tiles {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(122px, 1fr));
-    gap: 10px;
-    margin-bottom: 18px;
+    display: flex;
+    gap: 6px;
+    max-width: 624px;
+    margin-top: 10px;
 }
 
 .tile {
+    flex: 1 1 0;
+    min-width: 0;            /* or a long value stretches its column */
     background: var(--bg);
     border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 10px 12px;
+    border-radius: 6px;
+    padding: 7px 8px;
+}
+
+/* Below this the row would be six columns of about sixty pixels, which is
+   narrower than the words in them. Wrapping is the honest failure. */
+@media (max-width: 560px) {
+    .tiles { flex-wrap: wrap; }
+    .tile { flex: 1 1 96px; }
 }
 
 .tile .label {
     display: block;
-    font-size: 11px;
-    letter-spacing: 0.06em;
+    font-size: 10px;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .tile .value {
     display: block;
-    margin-top: 4px;
-    font-size: 19px;
+    margin-top: 3px;
+    font-size: 16px;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* What a tile says when it has nothing to say. Dimmed rather than hidden: a
    missing reading is information, and a tile that vanishes makes the row jump
    about as things connect. */
-.tile.unknown .value { color: var(--muted); font-size: 15px; }
+.tile.unknown .value { color: var(--muted); font-size: 13px; }
 
-.tile .note { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
+.tile .note {
+    display: block;
+    margin-top: 1px;
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 
 .tile .meter {
     display: block;
     height: 3px;
-    margin-top: 7px;
+    margin-top: 6px;
     border-radius: 2px;
     background: var(--line);
     overflow: hidden;

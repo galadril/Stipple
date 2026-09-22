@@ -361,10 +361,14 @@
         if (can.battery) {
             var battery = device.battery || {};
             if (battery.known) {
-                var volts = battery.millivolts
-                    ? (battery.millivolts / 1000).toFixed(2) + ' V' : '';
-                var charging = battery.charging ? 'charging' : '';
-                var note = [charging, volts].filter(Boolean).join(' · ');
+                // One of the two, not both: the column is about a hundred
+                // pixels wide and "charging · 3.15 V" does not fit in it.
+                // Charging is the fact that explains a percentage moving, so
+                // it wins when it applies.
+                var note = battery.charging
+                    ? 'charging'
+                    : (battery.millivolts
+                        ? (battery.millivolts / 1000).toFixed(2) + ' V' : '');
                 host.appendChild(tile('Battery', battery.percent + '%', note,
                     battery.percent * 10,
                     battery.percent <= 20 && !battery.charging ? 'low' : 'ok'));
@@ -378,17 +382,22 @@
         if (can.microphone) {
             var mic = device.microphone || {};
             if (mic.known) {
-                host.appendChild(tile('Microphone', mic.amplitude, 'level',
+                host.appendChild(tile('Mic', mic.amplitude, 'level',
                     Math.min(1000, Math.round(mic.amplitude / 32.767))));
             } else {
-                host.appendChild(tile('Microphone', null, 'not streaming'));
+                host.appendChild(tile('Mic', null, 'not streaming'));
             }
         }
 
         var network = device && device.network;
         if (network && network.connected) {
-            host.appendChild(tile('Wi-Fi', network.ipv4 || 'connected',
-                network.rssiDbm ? network.rssiDbm + ' dBm' : ''));
+            // Signal leads where the adapter reports one, otherwise just that
+            // the link is up. The address goes in the note: it is the longest
+            // string on the row and the least glanced at, and it is already
+            // spelled out in full under System.
+            host.appendChild(tile('Wi-Fi',
+                network.rssiDbm ? network.rssiDbm + ' dBm' : 'up',
+                network.ipv4 || ''));
         } else if (network) {
             host.appendChild(tile('Wi-Fi', null, 'not connected'));
         }

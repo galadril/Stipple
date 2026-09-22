@@ -31,13 +31,6 @@
 <main>
 
 <section class="panel" id="panel-display">
-    <h2>Status</h2>
-    <!-- Above the live view on purpose: this is the tab the page opens on, and
-         "is it alright?" is the question somebody has before they have any
-         other one. Everything here is polled state, so each tile says when it
-         does not know rather than showing a plausible zero. -->
-    <div class="tiles" id="status-tiles"></div>
-
     <h2>Live view</h2>
     <div class="field">
         <!-- Drawn at 10x with a 1px gap per pixel, so this reads as a matrix of
@@ -52,6 +45,14 @@
             <button class="btn" id="live-rec" type="button"
                     title="Record the panel to an animated view">Record</button>
         </div>
+
+        <!-- Under the panel and the same width as it, so the readings read as
+             belonging to the thing above them rather than as a separate
+             section. One row: these are glanced at together, and a wrapped
+             grid made the eye hunt. Everything here is polled state, so each
+             tile says when it does not know rather than showing a plausible
+             zero. -->
+        <div class="tiles" id="status-tiles"></div>
     </div>
 
     <h2>Controls</h2>
