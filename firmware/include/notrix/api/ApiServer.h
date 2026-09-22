@@ -137,6 +137,7 @@ private:
     Response handleReset(const Request& request, std::uint64_t nowMillis);
     Response handleNetwork(const Request& request);
     Response handleNetworkScan(const Request& request);
+    Response handleNetworkJoin(const Request& request);
 
     Response handleDisplayFrame(const Request& request);
     Response handleInput(const Request& request, std::uint64_t nowMillis);

@@ -898,6 +898,43 @@
         return state.leaseState + ', ' + text + ' left';
     }
 
+    var joinPolling = null;
+
+    function showJoin(join) {
+        var note = $('join-note');
+        if (!note) { return; }
+        if (!join) { note.textContent = ''; return; }
+
+        if (join.stage === 'succeeded') {
+            note.textContent = 'Connected to ' + join.ssid + '.';
+        } else if (join.stage === 'failed') {
+            // The device writes this sentence for the person who typed the
+            // password, so it is shown as-is rather than mapped to a code.
+            note.textContent = 'Could not join ' + join.ssid + ': ' + join.detail;
+        } else {
+            note.textContent = 'Joining ' + join.ssid + ' - ' + join.detail + '...';
+        }
+    }
+
+    function watchJoin() {
+        if (joinPolling) { return; }
+        joinPolling = setInterval(function () {
+            // This deliberately keeps polling through the failures. Joining
+            // takes the radio away, so the requests in the middle of it are
+            // *expected* to fail - giving up on the first one would report a
+            // failure for every successful join.
+            send('GET', '/api/v1/network').then(function (state) {
+                showJoin(state.join);
+                if (state.join && (state.join.stage === 'succeeded' ||
+                                   state.join.stage === 'failed')) {
+                    clearInterval(joinPolling);
+                    joinPolling = null;
+                    loadNetwork();
+                }
+            }).catch(function () { /* the radio is busy; ask again */ });
+        }, 2000);
+    }
+
     function loadNetwork() {
         return send('GET', '/api/v1/network').then(function (state) {
             var facts = $('network-facts');
@@ -963,12 +1000,45 @@
                 body.appendChild(el('span', 'sub', detail.join(' · ')));
                 row.appendChild(body);
 
+                // Picking a row fills the name in; it does not join on the
+                // spot. A mis-tap should never be able to take the device
+                // off the network it is reachable on.
+                row.className = 'pick';
+                row.addEventListener('click', function () {
+                    var field = $('join-ssid');
+                    if (field) { field.value = network.ssid; }
+                    var pass = $('join-password');
+                    if (pass) {
+                        pass.value = '';
+                        pass.disabled = !network.secured;
+                        if (network.secured) { pass.focus(); }
+                    }
+                });
+
                 list.appendChild(row);
             });
 
             if (!networks.length && state.canScan) {
                 list.appendChild(el('li', null, 'Nothing found yet - press Scan.'));
             }
+
+            // Said plainly. A remembered list presented as a current one
+            // would have somebody wondering why the network they can see on
+            // their phone is missing from the clock.
+            var stale = $('network-stale');
+            if (!stale) {
+                stale = el('p', 'muted');
+                stale.id = 'network-stale';
+                list.parentNode.insertBefore(stale, list.nextSibling);
+            }
+            if (state.networksAreLive === false && networks.length) {
+                stale.textContent = 'This list is from before the hotspot started - ' +
+                                    'one radio cannot host and scan at the same time.';
+            } else {
+                stale.textContent = '';
+            }
+
+            showJoin(state.join);
         });
     }
 
@@ -992,6 +1062,44 @@
                     scan.disabled = false;
                     scan.textContent = 'Scan';
                 });
+        });
+
+        var go = $('join-go');
+        if (!go) { return; }
+
+        go.addEventListener('click', function () {
+            var ssid = ($('join-ssid') || {}).value || '';
+            var password = ($('join-password') || {}).value || '';
+            var note = $('join-note');
+
+            if (!ssid.trim()) {
+                if (note) { note.textContent = 'A network name is needed.'; }
+                return;
+            }
+
+            // Said before anything happens, because the next thing that
+            // happens is the device leaving the network this page arrived
+            // over. A page that just went quiet would read as a crash.
+            if (note) {
+                note.textContent = 'Joining ' + ssid + '. This page will lose contact ' +
+                                   'with the device for up to a minute.';
+            }
+            go.disabled = true;
+
+            send('POST', '/api/v1/network/join', { ssid: ssid, password: password })
+                .then(function () {
+                    // The password is not kept in the field afterwards. It is
+                    // stored on the device and the API never gives it back,
+                    // so leaving it visible in a browser is the only place it
+                    // would linger.
+                    var pass = $('join-password');
+                    if (pass) { pass.value = ''; }
+                    watchJoin();
+                })
+                .catch(function (err) {
+                    if (note) { note.textContent = (err && err.message) || 'Could not start.'; }
+                })
+                .then(function () { go.disabled = false; });
         });
     }
 

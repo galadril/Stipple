@@ -34,6 +34,7 @@ add_executable(notrix_tests
     test_wpa_replies.cpp
     test_dhcp.cpp
     test_ipv4_udp.cpp
+    test_wpa_commands.cpp
 )
 
 target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

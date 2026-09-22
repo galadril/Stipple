@@ -233,6 +233,7 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
         case Resource::SystemReset: return handleReset(request, nowMillis);
         case Resource::Network: return handleNetwork(request);
         case Resource::NetworkScan: return handleNetworkScan(request);
+        case Resource::NetworkJoin: return handleNetworkJoin(request);
         case Resource::DisplayFrame: return handleDisplayFrame(request);
         case Resource::Input: return handleInput(request, nowMillis);
         case Resource::Unknown: break;
@@ -1558,6 +1559,28 @@ Response ApiServer::handleNetwork(const Request& request) {
     // in range" - which are different answers and look identical in an empty
     // list (ADR 0013).
     writer.member("canScan", network.canScan());
+    writer.member("canJoin", network.canJoin());
+
+    // False means the list below is remembered from before the radio became
+    // an access point, not what is in range now. One radio cannot do both,
+    // and the moment somebody needs to pick a network is exactly when the
+    // device is hosting one.
+    writer.member("networksAreLive", network.networksAreLive());
+
+    const platform::INetworkManager::JoinProgress join = network.joinProgress();
+    if (join.stage != platform::INetworkManager::JoinProgress::Stage::Idle) {
+        const char* stage = "working";
+        if (join.stage == platform::INetworkManager::JoinProgress::Stage::Succeeded) {
+            stage = "succeeded";
+        } else if (join.stage == platform::INetworkManager::JoinProgress::Stage::Failed) {
+            stage = "failed";
+        }
+        writer.key("join").beginObject()
+            .member("stage", stage)
+            .member("ssid", join.ssid)
+            .member("detail", join.detail)
+            .endObject();
+    }
 
     writer.key("networks").beginArray();
     for (const platform::WirelessNetwork& found : network.networks()) {
@@ -1594,6 +1617,65 @@ Response ApiServer::handleNetworkScan(const Request& request) {
     // it here. The caller asks again for the results.
     JsonWriter writer;
     writer.beginObject().member("status", "scanning").endObject();
+    Response response = ok(writer.take());
+    response.status = 202;
+    return response;
+}
+
+Response ApiServer::handleNetworkJoin(const Request& request) {
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+    if (context_.platform == nullptr || context_.platform->network() == nullptr) {
+        return error(501, "not_supported", "this platform has no network interface");
+    }
+
+    platform::INetworkManager& network = *context_.platform->network();
+    if (!network.canJoin()) {
+        return error(501, "not_supported", "this platform cannot join networks");
+    }
+
+    Body body(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+    if (!body.valid()) {
+        return badRequest(std::string("invalid JSON: ") + body.errorText());
+    }
+
+    const json::Value root = body.root();
+    if (!root.isObject()) {
+        return badRequest("body must be a JSON object");
+    }
+
+    const json::Value ssidValue = root["ssid"];
+    if (!ssidValue.isString()) {
+        return badRequest("'ssid' is required");
+    }
+    const std::string ssid = ssidValue.toString();
+
+    // Absent means an open network, which is a real thing and not the same as
+    // a forgotten field. The reply says which was assumed, so a mistyped key
+    // does not look like a successful join to an open network.
+    const json::Value passwordValue = root["password"];
+    if (!passwordValue.isNull() && !passwordValue.isString()) {
+        return badRequest("'password' must be a string");
+    }
+    const std::string password = passwordValue.isString() ? passwordValue.toString()
+                                                          : std::string();
+
+    if (!network.beginJoin(ssid, password)) {
+        // The reason lives in the progress, because it is written for the
+        // person who typed the password rather than for a log.
+        return error(400, "invalid_request", network.joinProgress().detail);
+    }
+
+    // 202, and the password is not echoed back - not even redacted. A
+    // settings page that repeats a Wi-Fi password is one screenshot away
+    // from giving it away, and backups are taken from this API (§22).
+    JsonWriter writer;
+    writer.beginObject()
+        .member("status", "joining")
+        .member("ssid", ssid)
+        .member("secured", !password.empty())
+        .endObject();
     Response response = ok(writer.take());
     response.status = 202;
     return response;

@@ -19,6 +19,7 @@
 #include <utility>
 
 #include "notrix/platform/tc002/WirelessStats.h"
+#include "notrix/platform/tc002/WpaCommands.h"
 #include "notrix/platform/tc002/WpaReplies.h"
 
 namespace notrix {
@@ -364,7 +365,13 @@ bool Tc002Network::beginScan() {
 std::vector<WirelessNetwork> Tc002Network::networks() const {
     std::vector<WirelessNetwork> out;
     if (!connected()) {
-        return out;
+        // The supplicant is not answering, which on this device usually means
+        // the radio is busy being an access point - and that is exactly the
+        // moment somebody is trying to pick a network. So the last scan is
+        // served instead of an empty list, marked as remembered rather than
+        // passed off as what is in range now (ADR 0013).
+        live_ = false;
+        return remembered_;
     }
 
     const std::string current = wpa::parseStatus(control_.ask("STATUS")).ssid;
@@ -377,7 +384,228 @@ std::vector<WirelessNetwork> Tc002Network::networks() const {
         network.current = !current.empty() && found.ssid == current;
         out.push_back(std::move(network));
     }
+
+    // Only a scan that found something replaces the memory. A scan returning
+    // nothing is far more often a radio that was busy than a street with no
+    // networks in it, and forgetting on that basis would lose the list right
+    // when the hotspot needs it.
+    if (!out.empty()) {
+        remembered_ = out;
+    }
+    live_ = true;
     return out;
+}
+
+// --- joining -----------------------------------------------------------------
+
+bool Tc002Network::canJoin() const {
+    // Not connected(). The supplicant is deliberately stopped while the
+    // hotspot is up, and that is precisely when a person is standing in front
+    // of the configuration page wanting to join something. Reporting "this
+    // device cannot join networks" there would be false.
+    return true;
+}
+
+INetworkManager::JoinProgress Tc002Network::joinProgress() const {
+    JoinProgress progress;
+    progress.ssid = joinSsid_;
+    progress.detail = joinDetail_;
+    switch (stage_) {
+        case Stage::Idle:
+            progress.stage = JoinProgress::Stage::Idle;
+            break;
+        case Stage::Done:
+            progress.stage = JoinProgress::Stage::Succeeded;
+            break;
+        case Stage::Failed:
+            progress.stage = JoinProgress::Stage::Failed;
+            break;
+        default:
+            progress.stage = JoinProgress::Stage::Working;
+            break;
+    }
+    return progress;
+}
+
+void Tc002Network::fail(const std::string& why) {
+    forgetAddedNetwork();
+    stage_ = Stage::Failed;
+    joinDetail_ = why;
+    joinPassword_.clear();
+}
+
+void Tc002Network::forgetAddedNetwork() {
+    if (addedNetworkId_ < 0) {
+        return;
+    }
+    // Removed, and deliberately *not* saved.
+    //
+    // ADR 0018: the device appends and never replaces, and only a join that
+    // produced an address is written down. Leaving the stored file untouched
+    // is what makes a wrong password fall back to the network that was
+    // already working rather than stranding a device nobody can reach.
+    if (connected()) {
+        control_.ask("REMOVE_NETWORK " + std::to_string(addedNetworkId_));
+        control_.ask("RECONNECT");
+    }
+    addedNetworkId_ = -1;
+}
+
+bool Tc002Network::beginJoin(const std::string& ssid, const std::string& password) {
+    if (stage_ != Stage::Idle && stage_ != Stage::Done && stage_ != Stage::Failed) {
+        joinDetail_ = "already joining a network";
+        return false;
+    }
+
+    std::string problem = wpa::ssidProblem(ssid);
+    if (problem.empty() && !password.empty()) {
+        problem = wpa::passphraseProblem(password);
+    }
+    if (!problem.empty()) {
+        // Refused before anything moves, so the radio is untouched and the
+        // person gets a sentence they can act on.
+        stage_ = Stage::Failed;
+        joinSsid_ = ssid;
+        joinDetail_ = problem;
+        return false;
+    }
+
+    joinSsid_ = ssid;
+    joinPassword_ = password;
+    joinDetail_ = "starting";
+    addedNetworkId_ = -1;
+    askedForAddress_ = false;
+    stage_ = Stage::Settling;
+    stageDeadlineMillis_ = 0;
+    return true;
+}
+
+bool Tc002Network::configureNetwork() {
+    const int id = wpa::parseNetworkId(control_.ask("ADD_NETWORK"));
+    if (id < 0) {
+        return false;
+    }
+    addedNetworkId_ = id;
+
+    if (!wpa::succeeded(control_.ask(wpa::setNetworkHex(id, "ssid", joinSsid_)))) {
+        return false;
+    }
+
+    if (joinPassword_.empty()) {
+        if (!wpa::succeeded(control_.ask(wpa::setNetworkRaw(id, "key_mgmt", "NONE")))) {
+            return false;
+        }
+    } else if (!wpa::succeeded(control_.ask(wpa::setPassphrase(id, joinPassword_)))) {
+        return false;
+    }
+
+    // Higher than anything stored, so the network just chosen wins without
+    // the one that was working having to be removed first.
+    control_.ask(wpa::setNetworkRaw(id, "priority", std::to_string(wpa::kJoinPriority)));
+
+    if (!wpa::succeeded(control_.ask("ENABLE_NETWORK " + std::to_string(id)))) {
+        return false;
+    }
+    control_.ask("SELECT_NETWORK " + std::to_string(id));
+    return true;
+}
+
+void Tc002Network::poll(std::uint64_t nowMillis) {
+    switch (stage_) {
+        case Stage::Idle:
+        case Stage::Done:
+        case Stage::Failed:
+            return;
+
+        case Stage::Settling: {
+            if (stageDeadlineMillis_ == 0) {
+                // A moment before anything moves. The request that started
+                // this very likely arrived over the access point it is about
+                // to shut down, and the reply has to get out first.
+                stageDeadlineMillis_ = nowMillis + 1500u;
+                joinDetail_ = "taking the radio back";
+                return;
+            }
+            if (nowMillis < stageDeadlineMillis_) {
+                return;
+            }
+            if (hotspot_ != nullptr && hotspot_->running()) {
+                // stop() restarts the supplicant, and the lease with it.
+                hotspot_->stop();
+            }
+            control_.close();
+            stage_ = Stage::Restoring;
+            stageDeadlineMillis_ = nowMillis + 15000u;
+            joinDetail_ = "waiting for Wi-Fi to come back";
+            return;
+        }
+
+        case Stage::Restoring: {
+            if (connected()) {
+                stage_ = Stage::Configuring;
+                joinDetail_ = "saving the network";
+                return;
+            }
+            if (nowMillis >= stageDeadlineMillis_) {
+                fail("the Wi-Fi service did not come back");
+            }
+            return;
+        }
+
+        case Stage::Configuring: {
+            if (!configureNetwork()) {
+                fail("this device would not accept the network");
+                return;
+            }
+            stage_ = Stage::Associating;
+            stageDeadlineMillis_ = nowMillis + 30000u;
+            joinDetail_ = "connecting";
+            return;
+        }
+
+        case Stage::Associating: {
+            if (wpa::parseStatus(control_.ask("STATUS")).associated) {
+                stage_ = Stage::Addressing;
+                stageDeadlineMillis_ = nowMillis + 30000u;
+                joinDetail_ = "asking for an address";
+                return;
+            }
+            if (nowMillis >= stageDeadlineMillis_) {
+                // The overwhelmingly common cause, and worth naming rather
+                // than reporting a timeout nobody can act on.
+                fail("could not connect - check the password");
+            }
+            return;
+        }
+
+        case Stage::Addressing: {
+            // An association is not a connection. ADR 0018 keeps only a join
+            // that produced an address, because a device associated to a
+            // network it cannot be reached on is the failure that looks like
+            // success.
+            if (!askedForAddress_) {
+                askedForAddress_ = true;
+                if (dhcp_ != nullptr) {
+                    // const_cast rather than carrying a second non-const
+                    // pointer: this object holds the read-only view for
+                    // status(), and this is the one moment it has to act.
+                    const_cast<Tc002Dhcp*>(dhcp_)->restart();
+                }
+            }
+            if (dhcp_ != nullptr && dhcp_->bound()) {
+                control_.ask("SAVE_CONFIG");
+                addedNetworkId_ = -1;  // kept on purpose; nothing left to undo
+                stage_ = Stage::Done;
+                joinDetail_ = "connected";
+                joinPassword_.clear();
+                return;
+            }
+            if (nowMillis >= stageDeadlineMillis_) {
+                fail("connected, but the network gave out no address");
+            }
+            return;
+        }
+    }
 }
 
 // --- platform ---------------------------------------------------------------

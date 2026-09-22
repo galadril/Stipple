@@ -519,3 +519,8 @@ input[type="color"] {
 }
 
 .app-config-row .field:last-child { margin-bottom: 10px; }
+
+/* A scan row is a choice, so it has to look like one. Picking it fills the
+   name into the join field rather than joining on the spot. */
+.list li.pick { cursor: pointer; }
+.list li.pick:hover { background: rgba(255, 255, 255, 0.05); }

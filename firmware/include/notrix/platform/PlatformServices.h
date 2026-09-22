@@ -111,6 +111,55 @@ public:
 
     /// What the last completed scan found. Empty until one has.
     virtual std::vector<WirelessNetwork> networks() const { return {}; }
+
+    /// False when the list above is remembered rather than current.
+    ///
+    /// **One radio cannot host an access point and scan at the same time**,
+    /// and the moment a person most needs to pick a network is exactly when
+    /// the device is hosting one. So the last scan taken before the radio
+    /// changed job is kept and served, and said to be old rather than
+    /// presented as what is in range now.
+    virtual bool networksAreLive() const { return true; }
+
+    /// Whether this platform can join a network at all. False on the
+    /// simulator and on anything wired.
+    virtual bool canJoin() const { return false; }
+
+    /// Where a join has got to.
+    struct JoinProgress {
+        enum class Stage {
+            /// Nothing has been asked for.
+            Idle,
+            /// Working on it. `detail` says which part.
+            Working,
+            Succeeded,
+            Failed,
+        };
+        Stage stage = Stage::Idle;
+        std::string ssid;
+        /// What is happening, or why it stopped. Written for a person to
+        /// read, because the only person who will read it is the one whose
+        /// password did not work.
+        std::string detail;
+    };
+
+    /// Ask to join. Returns false when it could not even be started - a
+    /// password this device cannot set, or a platform that cannot join -
+    /// with the reason in `joinProgress().detail`.
+    ///
+    /// Returns immediately. Joining takes tens of seconds and blueprint §16
+    /// does not allow that on the render loop, so the answer arrives through
+    /// `joinProgress()`. It also has to return before the work starts for a
+    /// blunter reason: the request may well have arrived over the very
+    /// access point that joining is about to shut down, and the reply has to
+    /// get out first.
+    virtual bool beginJoin(const std::string& ssid, const std::string& password) {
+        (void)ssid;
+        (void)password;
+        return false;
+    }
+
+    virtual JoinProgress joinProgress() const { return {}; }
 };
 
 struct BatteryStatus {

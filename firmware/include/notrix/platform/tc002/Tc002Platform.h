@@ -103,6 +103,27 @@ public:
     bool beginScan() override;
     std::vector<WirelessNetwork> networks() const override;
 
+    bool networksAreLive() const override { return live_; }
+
+    bool canJoin() const override;
+    bool beginJoin(const std::string& ssid, const std::string& password) override;
+    JoinProgress joinProgress() const override;
+
+    /// Drive the join, once a frame. Nothing here blocks.
+    ///
+    /// Joining is the longest-running thing this device does - a stopped
+    /// hotspot, a restarted supplicant, an association and a lease, tens of
+    /// seconds end to end - so it is a state machine polled from the loop
+    /// like the MCU and the transports, not a call that waits.
+    void poll(std::uint64_t nowMillis);
+
+    /// What the hotspot is, so a join can take the radio back off it.
+    ///
+    /// A join arriving over the hotspot has to shut that hotspot down before
+    /// it can do anything, which is also why beginJoin returns before the
+    /// work starts.
+    void observe(Tc002Hotspot* hotspot) noexcept { hotspot_ = hotspot; }
+
     /// Where the lease comes from, so status() can report it.
     ///
     /// A pointer rather than ownership: the client belongs to the platform
@@ -112,7 +133,43 @@ public:
     void observe(const Tc002Dhcp* dhcp) noexcept { dhcp_ = dhcp; }
 
 private:
+    /// What a join is doing. Kept out of the header's public face because
+    /// callers ask through joinProgress(), which reports it in words.
+    enum class Stage {
+        Idle,
+        /// Waiting a moment so the HTTP reply is out before the radio moves.
+        Settling,
+        /// Hotspot down, waiting for the supplicant to answer again.
+        Restoring,
+        /// Writing the network block.
+        Configuring,
+        /// Waiting for the association.
+        Associating,
+        /// Associated; waiting for an address, which is what proves it.
+        Addressing,
+        Done,
+        Failed,
+    };
+
+    void fail(const std::string& why);
+    void forgetAddedNetwork();
+    bool configureNetwork();
+
     const Tc002Dhcp* dhcp_ = nullptr;
+    Tc002Hotspot* hotspot_ = nullptr;
+
+    /// The last scan, kept so it can still be shown while the radio is busy
+    /// being an access point.
+    mutable std::vector<WirelessNetwork> remembered_;
+    mutable bool live_ = true;
+
+    Stage stage_ = Stage::Idle;
+    std::string joinSsid_;
+    std::string joinPassword_;
+    std::string joinDetail_;
+    std::uint64_t stageDeadlineMillis_ = 0;
+    int addedNetworkId_ = -1;
+    bool askedForAddress_ = false;
 
     /// Opened on first use and kept.
     ///
@@ -145,6 +202,7 @@ public:
     /// belongs here rather than in open().
     Tc002Platform() {
         network_.observe(&dhcp_);
+        network_.observe(&hotspot_);
         // The hotspot cannot give the radio back without this: restoring
         // wpa_supplicant gets an association, and nothing else on this
         // device turns an association into an address.
@@ -218,6 +276,11 @@ public:
     /// and already calls tick() every frame, so the deadline is enforced by
     /// something that is definitely still running.
     Tc002Hotspot& hotspot() noexcept { return hotspot_; }
+
+    /// Concrete, because joining is polled from the loop and
+    /// INetworkManager has no poll() - the interface describes what core is
+    /// allowed to ask for, not how the adapter keeps its promises.
+    Tc002Network& wifi() noexcept { return network_; }
 
 private:
     Tc002Display display_;

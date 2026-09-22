@@ -275,6 +275,12 @@ int main(int argc, char** argv) {
         // before NOTRIX started - and it expires.
         platform.dhcp().tick(now);
 
+        // Joining a network is the longest-running thing this device does:
+        // a hotspot to shut down, a supplicant to restart, an association
+        // and then a lease, tens of seconds end to end. Polled here for the
+        // same reason as everything else - none of it may block a frame.
+        platform.wifi().poll(now);
+
         // The hotspot, ticked by the thing that is definitely still
         // running. This used to be a detached tool, and both live tests
         // failed on that tool staying alive rather than on anything about

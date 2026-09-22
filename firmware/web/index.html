@@ -326,6 +326,19 @@
     </div>
     <ul class="list" id="network-list"></ul>
 
+    <!-- Typing a name by hand is not a fallback for when the list fails.
+         A hidden network never appears in any list, and while the device is
+         hosting its own access point it cannot scan at all - which is
+         precisely when somebody is standing here trying to join one. -->
+    <div class="row" id="network-join">
+        <input id="join-ssid" type="text" placeholder="Network name" autocomplete="off"
+               spellcheck="false" maxlength="32">
+        <input id="join-password" type="password" placeholder="Password (blank if open)"
+               autocomplete="new-password" maxlength="63">
+        <button class="btn" id="join-go" type="button">Join</button>
+    </div>
+    <p class="muted" id="join-note"></p>
+
     <h2>Backup</h2>
     <p class="help">
         Downloads every setting as a file. The MQTT password is not in it

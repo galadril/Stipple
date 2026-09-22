@@ -207,6 +207,10 @@ RouteMatch matchRoute(std::string_view path) {
             match.resource = Resource::NetworkScan;
             return match;
         }
+        if (head == "network" && parts[3] == "join") {
+            match.resource = Resource::NetworkJoin;
+            return match;
+        }
         if (head == "display" && parts[3] == "frame") {
             match.resource = Resource::DisplayFrame;
             return match;
