@@ -305,10 +305,21 @@ int main(int argc, char** argv) {
         const bool askedByFlag =
             hotspotAfter >= 0 &&
             now >= started + static_cast<std::uint64_t>(hotspotAfter) * 1000u;
-        const bool askedByRescue = host.settings().network.hotspotRequested;
-        const bool nowhereToGo =
-            host.firstRun() && !platform.dhcp().bound() &&
-            now >= started + kStrandedMillis;
+        // Both of the non-test reasons mean the same thing - this device
+        // has no way for anybody to reach it - so both wait for the same
+        // evidence rather than for a stored opinion.
+        //
+        // The rescue flag on its own was not enough of a reason. It is set
+        // when somebody holds both buttons, it persists so it survives the
+        // reboot they reach for next, and honouring it unconditionally meant
+        // a device that had been rescued once hosted a setup network on
+        // every boot from then on - seen on hardware, where it looked like a
+        // crash. If an address turns up, the device is reachable and setup
+        // mode has nothing left to do.
+        const bool unreachable =
+            !platform.dhcp().bound() && now >= started + kStrandedMillis;
+        const bool askedByRescue = host.settings().network.hotspotRequested && unreachable;
+        const bool nowhereToGo = host.firstRun() && unreachable;
 
         if (!hotspotStarted && (askedByFlag || askedByRescue || nowhereToGo)) {
             hotspotStarted = true;
@@ -340,6 +351,12 @@ int main(int argc, char** argv) {
         if (hotspotShowing && !platform.hotspot().running()) {
             hotspotShowing = false;
             host.clearNotice();
+        }
+
+        // Back on a network, so setup mode is over and must not come back
+        // after the next reboot.
+        if (platform.dhcp().bound() && !platform.hotspot().running()) {
+            host.clearHotspotRequest();
         }
         const std::string hotspotEvent = platform.hotspot().takeEvent();
         if (!hotspotEvent.empty()) {

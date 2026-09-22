@@ -1321,3 +1321,35 @@ CLAUDE.md says USB-C on this device is mass storage and not a flashing path.
 That is true of its **default role** and not of the port, and the distinction
 matters: it means there is a way into a device whose Wi-Fi is broken, which
 is the failure this project keeps running into.
+
+## How the vendor application is actually loaded
+
+Blueprint §7.1 says `/bin/zkgui` "loads the application from
+`/res/lib/libzkgui.so` at runtime". The conclusion is right and the mechanism
+is not, and the difference matters to anyone trying to replace it.
+
+**`zkgui` does not link `libzkgui.so`.** Its dynamic section has twenty-five
+`NEEDED` entries and that is not among them. It is a nine-kilobyte launcher
+over three singletons:
+
+```
+EasyUIContext::getInstance / initEasyUI / runEasyUI / deinitEasyUI
+NetManager::getInstance / start
+HardwareManager::getInstance
+```
+
+from `libeasyui.so`, `libzknet.so` and `libzkhardware.so`.
+
+**The application is `dlopen`ed.** Confirmed by starting the stock app and
+reading `/proc/<pid>/maps`: `/res/lib/libzkgui.so` is mapped by a process
+whose `NEEDED` list does not mention it.
+
+`libeasyui.so` imports `dlopen` and `dlsym` and contains no `libzkgui`
+string anywhere, so the path is constructed at runtime rather than stored -
+most plausibly from the program name, which would make `/bin/zkgui` load
+`/res/lib/libzkgui.so` by convention. That is a guess and is flagged as one.
+
+Still unknown, and it is the thing that decides whether NOTRIX can persist as
+a drop-in replacement: **which symbol is looked up after the library is
+opened.** Until that is known, building NOTRIX as `libzkgui.so` is not
+something anyone can attempt.

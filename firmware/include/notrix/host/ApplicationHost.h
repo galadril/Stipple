@@ -203,6 +203,19 @@ public:
     /// button somebody has to find is a step that can be missed.
     bool firstRun() const noexcept { return firstRun_; }
 
+    /// Forget that setup mode was asked for, and persist that.
+    ///
+    /// ADR 0018 always said the flag is cleared once a real network is
+    /// joined. It was set and persisted and never cleared, so a single use
+    /// of the rescue gesture turned into a device that hosted a setup
+    /// network on every boot from then on - seen on real hardware, where it
+    /// looked like a crash.
+    ///
+    /// Not exposed through the API: it is internal state, not a setting
+    /// somebody should be able to toggle from a page that may itself only be
+    /// reachable because the flag is set.
+    void clearHotspotRequest();
+
     /// True while the boot splash is still showing.
     bool showingSplash() const noexcept { return splashActive_; }
 
@@ -268,6 +281,7 @@ private:
 
     /// Clear the way back in: access password gone, hotspot requested.
     void performRescue();
+
 
     /// Whether the overnight dimming window applies right now.
     bool nightModeActive() const;

@@ -582,6 +582,21 @@ void ApplicationHost::applyCarouselSettings() {
 
 // --- rescue -------------------------------------------------------------------
 
+void ApplicationHost::clearHotspotRequest() {
+    if (!settings_.network.hotspotRequested) {
+        return;
+    }
+    settings_.network.hotspotRequested = false;
+    if (!configStore_.save(settings_)) {
+        // Worth saying. If this does not persist the device is fine now and
+        // back in setup mode after the next reboot, which is the failure
+        // this function exists to end.
+        logger_.error(lastTickMillis_, "could not clear setup mode");
+        return;
+    }
+    logger_.info(lastTickMillis_, "on a network again; setup mode cleared");
+}
+
 void ApplicationHost::performRescue() {
     // Deliberately narrow. This clears the way back in and nothing else:
     // somebody locked out of a clock wants their apps and settings to still be
