@@ -125,6 +125,37 @@
             dark &mdash; so it never covers the time.
         </p>
     </div>
+
+    <h2>Overnight</h2>
+    <div class="field">
+        <label class="check">
+            <input type="checkbox" id="night-enabled" data-setting="display.night.enabled">
+            Dim on a schedule
+        </label>
+        <p class="help">
+            A panel bright enough to read across a kitchen is too bright to
+            sleep next to. Times are local, so the window follows the timezone.
+        </p>
+    </div>
+    <div class="row" id="night-fields">
+        <div class="field">
+            <label for="night-start">From</label>
+            <input type="time" id="night-start">
+        </div>
+        <div class="field">
+            <label for="night-end">Until</label>
+            <input type="time" id="night-end">
+        </div>
+        <div class="field">
+            <label for="night-brightness">Brightness</label>
+            <input type="range" id="night-brightness" min="0" max="255"
+                   data-setting="display.night.brightness">
+            <output for="night-brightness" id="night-brightness-out">16</output>
+            <p class="help">Zero switches the panel off until morning.</p>
+        </div>
+    </div>
+
+    <h2>Sound</h2>
     <div class="field">
         <label for="volume">Volume</label>
         <input type="range" id="volume" min="0" max="100" data-setting="audio.volumePercent">

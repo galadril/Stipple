@@ -18,8 +18,38 @@ namespace config {
 /// panel's actual range instead of forcing a conversion at every use.
 inline constexpr int kCurrentSchemaVersion = 2;
 
+/// Dimming on a schedule.
+///
+/// The one display setting a clock on a bedside table actually needs. A panel
+/// bright enough to read across a kitchen is far too bright to sleep next to,
+/// and the alternative people reach for is unplugging it - which is also how
+/// they stop using it.
+///
+/// Times are local minutes after midnight, so the window follows the timezone
+/// rather than UTC. Storing an hour and a minute separately would invite two
+/// fields to disagree; storing a timestamp would need a date this has no
+/// business knowing.
+struct NightSettings {
+    bool enabled = false;
+
+    /// 0-1439. A window that wraps midnight is the normal case rather than an
+    /// edge case, so `start` greater than `end` is expected, not an error.
+    int startMinutes = 22 * 60;
+    int endMinutes = 7 * 60;
+
+    /// What the panel dims to. Zero is allowed and means off, which is a
+    /// legitimate thing to want overnight - and distinct from `enabled:false`,
+    /// which means the schedule does not apply at all.
+    std::uint8_t brightness = 16;
+};
+
 struct DisplaySettings {
     std::uint8_t brightness = 128;
+
+    /// Overnight dimming. Overrides the brightness above while it applies,
+    /// without overwriting it - so the morning gets the panel back exactly as
+    /// the user left it rather than at whatever the night value was.
+    NightSettings night;
 
     /// Panel on or off, without cutting power. Off still renders and presents —
     /// a black frame, so the panel is genuinely dark rather than holding the

@@ -1901,3 +1901,147 @@ NOTRIX_TEST(Host, AnOrderThatAlreadyMatchesIsNotRewritten) {
     // would show up as a stream of them.
     NOTRIX_CHECK_EQ(host.logger().count(), before);
 }
+
+// --- overnight dimming --------------------------------------------------------
+
+namespace {
+
+/// A unix timestamp at a given UTC time of day, on a fixed date.
+std::uint64_t atUtcHour(int hour, int minute = 0) {
+    return static_cast<std::uint64_t>(
+        notrix::timezone_::daysFromCivil(2026, 6, 15) * 86400 + hour * 3600 + minute * 60);
+}
+
+}  // namespace
+
+NOTRIX_TEST(Host, NightModeDimsInsideItsWindow) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.brightness = 200;
+    host.settings().display.night.enabled = true;
+    host.settings().display.night.startMinutes = 22 * 60;
+    host.settings().display.night.endMinutes = 7 * 60;
+    host.settings().display.night.brightness = 10;
+
+    platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(23)));
+    run(host, platform, 400);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 10);
+
+    // And the setting itself is untouched, so the morning gets the panel back
+    // exactly as the user left it.
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), 200);
+}
+
+NOTRIX_TEST(Host, NightModeWindowWrapsMidnight) {
+    // The normal case for a night, and the one a naive "between two times"
+    // check reports backwards - bright all night and dim all day.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.brightness = 200;
+    host.settings().display.night.enabled = true;
+    host.settings().display.night.startMinutes = 22 * 60;
+    host.settings().display.night.endMinutes = 7 * 60;
+    host.settings().display.night.brightness = 10;
+
+    const struct { int hour; int expected; } moments[] = {
+        {21, 200},  // before it starts
+        {22, 10},   // the moment it starts
+        {3, 10},    // the small hours
+        {6, 10},    // still dim
+        {7, 200},   // the moment it ends
+        {12, 200},  // midday
+    };
+
+    std::uint64_t now = 1000;
+    for (const auto& moment : moments) {
+        platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(moment.hour)));
+        now += 400;
+        run(host, platform, now);
+        NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()),
+                        moment.expected);
+    }
+}
+
+NOTRIX_TEST(Host, NightModeFollowsLocalTimeNotUtc) {
+    // The window is what somebody set looking at their own clock. Applying it
+    // in UTC would dim a device in Sydney over lunch.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.brightness = 200;
+    host.settings().clock.timezone = "AEST-10";  // ten hours ahead
+    host.settings().display.night.enabled = true;
+    host.settings().display.night.startMinutes = 22 * 60;
+    host.settings().display.night.endMinutes = 7 * 60;
+    host.settings().display.night.brightness = 10;
+
+    // 13:00 UTC is 23:00 local, which is inside the window.
+    platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(13)));
+    run(host, platform, 400);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 10);
+
+    // 23:00 UTC is 09:00 local, which is not.
+    platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(23)));
+    run(host, platform, 900);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 200);
+}
+
+NOTRIX_TEST(Host, ChangingBrightnessAtNightDoesNotUndim) {
+    // Somebody pressing + at 3am wants the panel brighter now, and expects the
+    // schedule to still be there tomorrow. The setting moves; what is on the
+    // panel stays where the schedule put it until the window ends.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.brightness = 200;
+    host.settings().display.night.enabled = true;
+    host.settings().display.night.startMinutes = 22 * 60;
+    host.settings().display.night.endMinutes = 7 * 60;
+    host.settings().display.night.brightness = 10;
+
+    platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(3)));
+    run(host, platform, 400);
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 500, 900);
+    run(host, platform, 1600);
+
+    NOTRIX_CHECK(host.settings().display.brightness > 200);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 10);
+}
+
+NOTRIX_TEST(Host, WithoutAWallClockNothingIsDimmed) {
+    // Dimming because NTP has not answered yet would look exactly like a fault.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.brightness = 200;
+    host.settings().display.night.enabled = true;
+    host.settings().display.night.brightness = 10;
+    run(host, platform, 400);
+
+    NOTRIX_CHECK_FALSE(platform.clock().wallClockValid());
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 200);
+}
+
+NOTRIX_TEST(Host, AWindowOfNoLengthDimsNothing) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.brightness = 200;
+    host.settings().display.night.enabled = true;
+    host.settings().display.night.startMinutes = 8 * 60;
+    host.settings().display.night.endMinutes = 8 * 60;
+    host.settings().display.night.brightness = 10;
+
+    platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(8)));
+    run(host, platform, 400);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 200);
+}

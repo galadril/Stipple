@@ -143,7 +143,7 @@ bool ApplicationHost::initialize() {
         const config::LoadReport report = configStore_.load(settings_);
         logger_.info(startedAt, config::describe(report.status));
     }
-    platform_.display().setBrightness(settings_.display.brightness);
+    applyBrightness();
     if (platform_.audio() != nullptr) {
         platform_.audio()->setVolume(config::volumeToByte(settings_.audio.volumePercent));
     }
@@ -458,7 +458,7 @@ void ApplicationHost::adjustBrightness(int steps) {
     int level = static_cast<int>(settings_.display.brightness) + step * steps;
     level = level < 0 ? 0 : (level > 255 ? 255 : level);
     settings_.display.brightness = static_cast<std::uint8_t>(level);
-    platform_.display().setBrightness(settings_.display.brightness);
+    applyBrightness();
 
     // Turning the panel up is also the obvious way to ask for it back after
     // switching it off, and leaving it dark would look like the button had
@@ -559,6 +559,53 @@ void ApplicationHost::applyCarouselSettings() {
     app::CarouselConfig carousel;
     carousel.defaultDurationSeconds = settings_.apps.defaultDurationSeconds;
     carousel_.setConfig(carousel);
+}
+
+// --- overnight dimming --------------------------------------------------------
+
+bool ApplicationHost::nightModeActive() const {
+    const config::NightSettings& night = settings_.display.night;
+    if (!night.enabled) {
+        return false;
+    }
+
+    const platform::ISystemClock& clock = platform_.clock();
+    if (!clock.wallClockValid()) {
+        // Without a date there is no local time, and dimming a panel because
+        // NTP has not answered yet would look exactly like a fault.
+        return false;
+    }
+
+    const std::int64_t local = clock.unixSeconds() + currentUtcOffsetSeconds();
+    // Floor rather than truncate: a local time west of UTC before the epoch is
+    // negative, and so is a device whose clock has not been set properly.
+    const std::int64_t dayStart = (local >= 0 ? local / 86400 : (local - 86399) / 86400) * 86400;
+    const int minutes = static_cast<int>((local - dayStart) / 60);
+
+    if (night.startMinutes == night.endMinutes) {
+        return false;  // a window of no length is not a window
+    }
+    if (night.startMinutes < night.endMinutes) {
+        return minutes >= night.startMinutes && minutes < night.endMinutes;
+    }
+    // Wrapping midnight, which is the normal case for a night: the window is
+    // everything outside the two times rather than between them.
+    return minutes >= night.startMinutes || minutes < night.endMinutes;
+}
+
+void ApplicationHost::applyBrightness() {
+    // The night value overrides the setting without overwriting it, so the
+    // morning gets the panel back exactly as the user left it rather than at
+    // whatever it was dimmed to. Which is also why brightness is pushed from
+    // here rather than written straight to the display when the setting
+    // changes - there are now two things that decide it.
+    const std::uint8_t wanted = nightModeActive() ? settings_.display.night.brightness
+                                                  : settings_.display.brightness;
+    if (wanted == appliedBrightness_) {
+        return;
+    }
+    appliedBrightness_ = wanted;
+    platform_.display().setBrightness(wanted);
 }
 
 // --- app order ---------------------------------------------------------------
@@ -939,6 +986,7 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
     persistAppOrderIfChanged();
     applyCarouselSettings();
     applyTimeSettings();
+    applyBrightness();
 
     if (splashActive_) {
         if (splashElapsed(nowMillis)) {

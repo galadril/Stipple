@@ -275,6 +275,81 @@
         }
     }
 
+
+    // --- overnight dimming ---------------------------------------------------
+    //
+    // The two time fields are not data-setting bound, because an <input
+    // type="time"> speaks "HH:MM" and the device stores minutes after
+    // midnight. Storing the string instead would put parsing on the firmware,
+    // which is the wrong side of the wire for it.
+
+    function minutesFromTime(text) {
+        var parts = /^(\d{1,2}):(\d{2})/.exec(text || '');
+        if (!parts) { return null; }
+        var hours = parseInt(parts[1], 10);
+        var minutes = parseInt(parts[2], 10);
+        if (hours > 23 || minutes > 59) { return null; }
+        return hours * 60 + minutes;
+    }
+
+    function timeFromMinutes(total) {
+        var value = Math.max(0, Math.min(1439, total | 0));
+        function two(n) { return (n < 10 ? '0' : '') + n; }
+        return two(Math.floor(value / 60)) + ':' + two(value % 60);
+    }
+
+    function refreshNight() {
+        var enabled = $('night-enabled');
+        var fields = $('night-fields');
+        if (!enabled || !fields) { return; }
+
+        // Dimmed rather than hidden: a schedule that vanishes when switched
+        // off gives no clue what switching it on would do.
+        var on = enabled.checked;
+        fields.style.opacity = on ? '' : '0.45';
+        ['night-start', 'night-end', 'night-brightness'].forEach(function (id) {
+            var control = $(id);
+            if (control) { control.disabled = !on; }
+        });
+    }
+
+    function wireNight() {
+        var start = $('night-start');
+        var end = $('night-end');
+        var enabled = $('night-enabled');
+
+        function sendTime(control, key) {
+            return function () {
+                var minutes = minutesFromTime(control.value);
+                if (minutes === null) {
+                    // Put back what the device has rather than sending
+                    // nonsense: the field is already showing something the
+                    // browser could not make sense of.
+                    control.value = timeFromMinutes(
+                        pathGet(settings, 'display.night.' + key) || 0);
+                    return toast('That is not a time', true);
+                }
+                var patch = { display: { night: {} } };
+                patch.display.night[key] = minutes;
+                send('PATCH', '/api/v1/settings', patch)
+                    .then(function (updated) { settings = updated; toast('Saved'); })
+                    .catch(fail);
+            };
+        }
+
+        if (start) { start.addEventListener('change', sendTime(start, 'startMinutes')); }
+        if (end) { end.addEventListener('change', sendTime(end, 'endMinutes')); }
+        if (enabled) { enabled.addEventListener('change', refreshNight); }
+    }
+
+    function writeNight() {
+        var night = pathGet(settings, 'display.night');
+        if (!night) { return; }
+        if ($('night-start')) { $('night-start').value = timeFromMinutes(night.startMinutes); }
+        if ($('night-end')) { $('night-end').value = timeFromMinutes(night.endMinutes); }
+        refreshNight();
+    }
+
     // --- mqtt ---------------------------------------------------------------
     //
     // The password is the one setting that does not round-trip: the API accepts
@@ -844,6 +919,7 @@
                         })
                         .then(function () {
                             refreshTimezone();
+                            writeNight();
                             describePassword();
                             previewTopic();
                             toast('Restored - the MQTT password needs typing in again');
@@ -871,6 +947,7 @@
                     })
                     .then(function () {
                         refreshTimezone();
+                        writeNight();
                         describePassword();
                         previewTopic();
                         toast(includeApps ? 'Settings and apps reset' : 'Settings reset');
@@ -1659,6 +1736,7 @@
         fillOffsets();
         fillZones();
         bindControls();
+        wireNight();
         wireTabs();
         wireNotify();
         wireMqtt();
@@ -1680,6 +1758,7 @@
                 previewTopic();
                 refreshTimezone();
                 markConnection(true);
+                writeNight();
                 // Fill the tiles immediately rather than leaving the page
                 // blank until the first poll four seconds later.
                 poll();

@@ -576,3 +576,41 @@ NOTRIX_TEST(Config, AnOrderEntryWithNoIdIsSkippedOnLoad) {
     NOTRIX_REQUIRE(read.apps.order.size() == 1);
     NOTRIX_CHECK_EQ(read.apps.order[0].id, std::string("clock"));
 }
+
+NOTRIX_TEST(Config, NightSettingsRoundTrip) {
+    // Nesting matters: the serialiser wrote this at the top level while the
+    // parser read it from inside "display", so it saved and never came back -
+    // and nothing else in the suite would have noticed.
+    SimulatorPlatform platform;
+    ConfigStore store(platform.storage());
+
+    Config written;
+    written.display.night.enabled = true;
+    written.display.night.startMinutes = 23 * 60 + 15;
+    written.display.night.endMinutes = 6 * 60 + 30;
+    written.display.night.brightness = 9;
+    NOTRIX_REQUIRE(store.save(written));
+
+    Config read;
+    store.load(read);
+
+    NOTRIX_CHECK(read.display.night.enabled);
+    NOTRIX_CHECK_EQ(read.display.night.startMinutes, 23 * 60 + 15);
+    NOTRIX_CHECK_EQ(read.display.night.endMinutes, 6 * 60 + 30);
+    NOTRIX_CHECK_EQ(static_cast<int>(read.display.night.brightness), 9);
+}
+
+NOTRIX_TEST(Config, ATimeOutsideADayIsClamped) {
+    SimulatorPlatform platform;
+    ConfigStore store(platform.storage());
+
+    Config written;
+    written.display.night.startMinutes = 99999;
+    written.display.night.endMinutes = -5;
+    NOTRIX_REQUIRE(store.save(written));
+
+    Config read;
+    store.load(read);
+    NOTRIX_CHECK(read.display.night.startMinutes >= 0 && read.display.night.startMinutes <= 1439);
+    NOTRIX_CHECK(read.display.night.endMinutes >= 0 && read.display.night.endMinutes <= 1439);
+}

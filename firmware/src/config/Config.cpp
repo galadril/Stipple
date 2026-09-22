@@ -19,6 +19,18 @@ std::uint8_t clampToByte(std::int64_t value) noexcept {
     return static_cast<std::uint8_t>(value);
 }
 
+/// 0-1439. A time of day cannot be outside a day, and a stored document that
+/// says otherwise is corrupt rather than interesting.
+int clampMinutes(std::int64_t value) noexcept {
+    if (value < 0) {
+        return 0;
+    }
+    if (value > 1439) {
+        return 1439;
+    }
+    return static_cast<int>(value);
+}
+
 int clampDuration(std::int64_t value) noexcept {
     if (value < 1) {
         return 1;
@@ -118,7 +130,15 @@ std::string buildBody(const Config& config) {
     body += config.display.power ? "true" : "false";
     body += ",\"overlay\":";
     appendEscaped(body, config.display.overlay);
-    body += '}';
+    body += ",\"night\":{\"enabled\":";
+    body += config.display.night.enabled ? "true" : "false";
+    body += ",\"startMinutes\":";
+    body += std::to_string(config.display.night.startMinutes);
+    body += ",\"endMinutes\":";
+    body += std::to_string(config.display.night.endMinutes);
+    body += ",\"brightness\":";
+    body += std::to_string(static_cast<int>(config.display.night.brightness));
+    body += "}}";
 
     body += ",\"audio\":{\"volumePercent\":";
     body += std::to_string(static_cast<int>(config.audio.volumePercent));
@@ -306,6 +326,15 @@ bool ConfigStore::deserialize(std::string_view payload,
                                     ? clampToByte((rawBrightness * 255 + 50) / 100)
                                     : clampToByte(rawBrightness);
     parsed.display.power = display["power"].toBool(parsed.display.power);
+
+    const json::Value night = display["night"];
+    parsed.display.night.enabled = night["enabled"].toBool(parsed.display.night.enabled);
+    parsed.display.night.startMinutes =
+        clampMinutes(night["startMinutes"].toInt(parsed.display.night.startMinutes));
+    parsed.display.night.endMinutes =
+        clampMinutes(night["endMinutes"].toInt(parsed.display.night.endMinutes));
+    parsed.display.night.brightness = clampToByte(
+        night["brightness"].toInt(static_cast<std::int64_t>(parsed.display.night.brightness)));
     parsed.display.overlay = display["overlay"].toString(parsed.display.overlay);
 
     const json::Value audio = body["audio"];

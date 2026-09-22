@@ -86,6 +86,13 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .member("brightness", static_cast<int>(settings.display.brightness))
         .member("power", settings.display.power)
         .member("overlay", settings.display.overlay)
+        .key("night")
+        .beginObject()
+        .member("enabled", settings.display.night.enabled)
+        .member("startMinutes", settings.display.night.startMinutes)
+        .member("endMinutes", settings.display.night.endMinutes)
+        .member("brightness", static_cast<int>(settings.display.night.brightness))
+        .endObject()
         .endObject()
         .key("audio")
         .beginObject()
@@ -1159,6 +1166,40 @@ Response ApiServer::handleSettings(const Request& request) {
                 return unprocessable("'display.overlay' is not a known overlay");
             }
             updated.display.overlay = name;
+        }
+        if (const json::Value night = display["night"]; night.isObject()) {
+            if (const json::Value enabled = night["enabled"]; enabled.isBoolean()) {
+                updated.display.night.enabled = enabled.toBool(false);
+            }
+            // A time of day cannot be outside a day. Refused rather than
+            // clamped: a caller that sent 1500 meant something, and quietly
+            // turning it into 23:59 would be answering a question it did not
+            // ask.
+            const auto readMinutes = [&night](const char* key, int& into) {
+                const json::Value value = night[key];
+                if (!value.isNumber()) {
+                    return true;
+                }
+                const std::int64_t minutes = value.toInt(-1);
+                if (minutes < 0 || minutes > 1439) {
+                    return false;
+                }
+                into = static_cast<int>(minutes);
+                return true;
+            };
+            if (!readMinutes("startMinutes", updated.display.night.startMinutes)) {
+                return unprocessable("'display.night.startMinutes' must be 0-1439");
+            }
+            if (!readMinutes("endMinutes", updated.display.night.endMinutes)) {
+                return unprocessable("'display.night.endMinutes' must be 0-1439");
+            }
+            if (const json::Value level = night["brightness"]; level.isNumber()) {
+                const std::int64_t value = level.toInt(-1);
+                if (value < 0 || value > 255) {
+                    return unprocessable("'display.night.brightness' must be 0-255");
+                }
+                updated.display.night.brightness = static_cast<std::uint8_t>(value);
+            }
         }
     }
 

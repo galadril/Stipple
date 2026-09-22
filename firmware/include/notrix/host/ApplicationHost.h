@@ -234,6 +234,12 @@ private:
     /// configured and from the stored offset where it is not.
     int currentUtcOffsetSeconds() const;
 
+    /// Whether the overnight dimming window applies right now.
+    bool nightModeActive() const;
+
+    /// Push whichever brightness should be in force to the panel.
+    void applyBrightness();
+
     /// Keep the carousel in step with the stored app settings.
     void applyCarouselSettings();
 
@@ -293,6 +299,11 @@ private:
     /// Whether settings were open on the previous tick, so the tick that closes
     /// them does not immediately bill the carousel for the time spent inside.
     bool wasInSettings_ = false;
+
+    /// What the panel was last told, so brightness is pushed on change rather
+    /// than on every tick. 256 is deliberately not a valid byte: it means
+    /// nothing has been pushed yet, so the first tick always sends one.
+    int appliedBrightness_ = 256;
 
     /// The parsed timezone and the string it came from, so a rule is parsed
     /// once per change rather than once per rendered frame.
