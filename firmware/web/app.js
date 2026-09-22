@@ -1055,6 +1055,80 @@
         }
     }
 
+    function describeStaged(state) {
+        var note = $('restore-state');
+        if (!note) { return; }
+        if (!state) {
+            note.textContent = 'This build cannot stage a recovery image.';
+            return;
+        }
+        if (state.stagedBytes > 0) {
+            note.textContent = 'An image is staged at ' + state.path + ' (' +
+                               Math.round(state.stagedBytes / 1024) + ' KB). ' +
+                               'Holding reset during power-up installs it.';
+        } else {
+            note.textContent = 'Nothing staged at ' + state.path + '.';
+        }
+    }
+
+    function loadRestoreState() {
+        return send('GET', '/api/v1/system/restore-image')
+            .then(describeStaged)
+            .catch(function () { describeStaged(null); });
+    }
+
+    function wireRestoreImage() {
+        var button = $('restore-upload');
+        if (!button) { return; }
+
+        button.addEventListener('click', function () {
+            var picker = $('restore-file');
+            var note = $('restore-state');
+            var file = picker && picker.files && picker.files[0];
+            if (!file) {
+                if (note) { note.textContent = 'Choose an image first.'; }
+                return;
+            }
+
+            button.disabled = true;
+            if (note) {
+                note.textContent = 'Uploading ' + Math.round(file.size / 1024) +
+                                   ' KB and checking it...';
+            }
+
+            // Sent as raw bytes, not base64 in JSON. A three-megabyte image
+            // would become four megabytes of text, on a device with about
+            // seventeen free.
+            file.arrayBuffer().then(function (bytes) {
+                return fetch('/api/v1/system/restore-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/octet-stream' },
+                    body: bytes,
+                });
+            }).then(function (response) {
+                return response.json().then(function (body) {
+                    if (!response.ok) {
+                        throw new Error((body.error && body.error.message) ||
+                                        ('HTTP ' + response.status));
+                    }
+                    return body;
+                });
+            }).then(function (body) {
+                if (note) {
+                    note.textContent = 'Staged ' + Math.round(body.bytes / 1024) +
+                                       ' KB at ' + body.path + '. Nothing was ' +
+                                       'flashed. Holding reset during power-up ' +
+                                       'installs it.';
+                }
+                if (picker) { picker.value = ''; }
+            }).catch(function (err) {
+                // Shown as-is. The device writes these for a person: "the
+                // file is damaged", "built for a different device".
+                if (note) { note.textContent = 'Refused: ' + (err.message || 'failed'); }
+            }).then(function () { button.disabled = false; });
+        });
+    }
+
     function wireAccess() {
         var save = $('access-save');
         var clear = $('access-clear');
@@ -1344,7 +1418,10 @@
         // Refreshed when the tab is open rather than on its own timer. A scan
         // list goes stale slowly, and polling one costs the device a socket
         // round trip for a page nobody is looking at.
-        if (activePanel === 'panel-system') { return loadNetwork().catch(function () {}); }
+        if (activePanel === 'panel-system') {
+            loadRestoreState();
+            return loadNetwork().catch(function () {});
+        }
         return Promise.resolve();
     }
 
@@ -2091,6 +2168,7 @@
         wireMaintenance();
         wireNetwork();
         wireAccess();
+        wireRestoreImage();
         wireControls();
         wireCapture();
         wireColorPickers();

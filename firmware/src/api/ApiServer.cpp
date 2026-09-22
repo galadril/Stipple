@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/api/ApiServer.h"
 
+#include "notrix/update/UpdateImage.h"
+
 #include <vector>
 
 #include "notrix/api/JsonWriter.h"
@@ -193,7 +195,16 @@ bool ApiServer::authorised(const Request& request) const {
 Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
     // Size is checked before anything looks at the body, so an oversized
     // payload costs a length comparison rather than a parse.
-    if (request.body.size() > options_.maxBodyBytes) {
+    //
+    // A firmware image is the one thing that legitimately dwarfs every other
+    // request, so it gets its own ceiling rather than raising the general
+    // one - which would let any request allocate megabytes on a device with
+    // 36 MB of RAM.
+    const bool isImageUpload =
+        matchRoute(request.path).resource == Resource::SystemRestoreImage;
+    const std::size_t bodyCeiling =
+        isImageUpload ? options_.maxImageBytes : options_.maxBodyBytes;
+    if (request.body.size() > bodyCeiling) {
         return payloadTooLarge();
     }
 
@@ -245,6 +256,7 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
         case Resource::Network: return handleNetwork(request);
         case Resource::NetworkScan: return handleNetworkScan(request);
         case Resource::NetworkJoin: return handleNetworkJoin(request);
+        case Resource::SystemRestoreImage: return handleRestoreImage(request);
         case Resource::DisplayFrame: return handleDisplayFrame(request);
         case Resource::Input: return handleInput(request, nowMillis);
         case Resource::Unknown: break;
@@ -1736,6 +1748,63 @@ Response ApiServer::handleNetworkJoin(const Request& request) {
     Response response = ok(writer.take());
     response.status = 202;
     return response;
+}
+
+Response ApiServer::handleRestoreImage(const Request& request) {
+    if (context_.platform == nullptr) {
+        return serverError("no platform");
+    }
+    platform::IUpgradeManager* upgrade = context_.platform->upgrade();
+    if (upgrade == nullptr) {
+        return error(501, "not_supported", "this platform cannot stage a firmware image");
+    }
+
+    if (request.method == Method::Get) {
+        // What is staged, so a page can say whether the recovery button
+        // would do something useful.
+        JsonWriter writer;
+        writer.beginObject()
+            .member("path", upgrade->stagingPath())
+            .member("stagedBytes", static_cast<std::int64_t>(upgrade->stagedBytes()))
+            .member("maxBytes", static_cast<std::int64_t>(options_.maxImageBytes))
+            .endObject();
+        return ok(writer.take());
+    }
+
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+
+    // Checked here rather than only by the device's loader. An image that
+    // fails is rejected while somebody is watching a web page, instead of at
+    // the moment they are holding the reset button on a clock that will not
+    // start - which is the whole asymmetry that makes checking twice worth
+    // the few hundred milliseconds.
+    const update::Report report = update::inspect(request.body);
+    if (!report.ok) {
+        return unprocessable(report.problem);
+    }
+
+    std::string problem;
+    if (!upgrade->stage(request.body, problem)) {
+        return error(503, "unavailable", problem.empty() ? "could not stage the image"
+                                                         : problem);
+    }
+
+    JsonWriter writer;
+    writer.beginObject()
+        .member("status", "staged")
+        .member("path", upgrade->stagingPath())
+        .member("bytes", static_cast<std::int64_t>(request.body.size()))
+        .member("payloadMd5", report.payloadMd5)
+        .member("squashfs", report.squashfs)
+        // Said plainly, because the difference matters and is not obvious.
+        .member("flashed", false)
+        .member("note",
+                "Staged only. Nothing has been written to flash. Holding the "
+                "reset button during power-up will install this image.")
+        .endObject();
+    return ok(writer.take());
 }
 
 Response ApiServer::handleReset(const Request& request, std::uint64_t nowMillis) {

@@ -199,6 +199,10 @@ RouteMatch matchRoute(std::string_view path) {
             match.resource = Resource::SystemReboot;
             return match;
         }
+        if (head == "system" && parts[3] == "restore-image") {
+            match.resource = Resource::SystemRestoreImage;
+            return match;
+        }
         if (head == "system" && parts[3] == "reset") {
             match.resource = Resource::SystemReset;
             return match;

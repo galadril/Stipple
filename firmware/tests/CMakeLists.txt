@@ -36,6 +36,8 @@ add_executable(notrix_tests
     test_ipv4_udp.cpp
     test_wpa_commands.cpp
     test_basic_auth.cpp
+    test_md5.cpp
+    test_update_image.cpp
 )
 
 target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

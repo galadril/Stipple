@@ -94,6 +94,19 @@ struct ApiOptions {
     /// from the network and must not be able to exhaust RAM (§38).
     std::size_t maxBodyBytes = 16u * 1024u;
 
+    /// The ceiling for a firmware image, which is the one thing that
+    /// legitimately dwarfs every other request.
+    ///
+    /// Separate from `maxBodyBytes` rather than raising it: everything else
+    /// on this API is small, and a single limit generous enough for a
+    /// firmware image would let any request allocate megabytes. This device
+    /// has 36 MB of RAM and roughly 17 MB of it free.
+    ///
+    /// Four MiB, because the res partition is eight and an image for it is
+    /// compressed - the factory one is 2.8 MB. Anything past this is not a
+    /// firmware image for this device.
+    std::size_t maxImageBytes = 4u * 1024u * 1024u;
+
     /// Token budget for parsing a request body.
     int maxJsonTokens = 512;
 };
@@ -145,6 +158,7 @@ private:
     Response handleNetwork(const Request& request);
     Response handleNetworkScan(const Request& request);
     Response handleNetworkJoin(const Request& request);
+    Response handleRestoreImage(const Request& request);
 
     Response handleDisplayFrame(const Request& request);
     Response handleInput(const Request& request, std::uint64_t nowMillis);

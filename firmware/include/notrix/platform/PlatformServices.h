@@ -162,6 +162,40 @@ public:
     virtual JoinProgress joinProgress() const { return {}; }
 };
 
+/// Staging a firmware image where the device's own loader will find it.
+///
+/// **This does not flash anything, and deliberately cannot.** It writes a
+/// file to the USB mass-storage volume, which is where the vendor loader
+/// looks for `update.img` when the reset button is held during power-up.
+/// Actually triggering an update is a separate thing, gated by ADR 0008,
+/// and it is not on this interface.
+///
+/// The reason it is worth having on its own is smaller and more useful than
+/// flashing: **a TC002 ships with a recovery image on its USB volume that is
+/// not necessarily the firmware it is running.** On the unit NOTRIX was
+/// developed against, holding reset installs an older one. Staging a
+/// captured image turns that button from a downgrade into a real recovery -
+/// without writing a single byte of flash.
+class IUpgradeManager {
+public:
+    virtual ~IUpgradeManager() = default;
+
+    /// Where the staged image would go, for a UI to show.
+    virtual std::string stagingPath() const = 0;
+
+    /// Write `image` where the loader looks. The caller has already checked
+    /// it; this does not re-check, because a platform adapter is the wrong
+    /// place to know what a valid image looks like.
+    ///
+    /// Returns false with `problem` set. Failure must leave whatever was
+    /// there before intact: a half-written recovery image is worse than an
+    /// out-of-date one, because it looks present.
+    virtual bool stage(std::string_view image, std::string& problem) = 0;
+
+    /// What is staged now, if anything - size in bytes, or 0.
+    virtual std::size_t stagedBytes() const = 0;
+};
+
 struct BatteryStatus {
     /// False means this device cannot report a battery at all, not that it is
     /// empty. Callers must tell those apart — a clock showing 0% because
@@ -277,6 +311,11 @@ public:
     /// Microphone. Null where the hardware cannot hear.
     virtual IMicrophone* microphone() { return nullptr; }
     virtual INetworkManager* network() { return nullptr; }
+
+    /// Null where firmware images cannot be staged at all, which is every
+    /// platform but the device. Reported as absence rather than a call that
+    /// silently does nothing (ADR 0013).
+    virtual IUpgradeManager* upgrade() { return nullptr; }
     virtual IRebooter* rebooter() { return nullptr; }
 
     /// HTTP transport. Null everywhere today: the device adapter arrives in

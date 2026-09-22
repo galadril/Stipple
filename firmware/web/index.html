@@ -354,6 +354,28 @@
     </div>
     <p class="muted" id="join-note"></p>
 
+    <h3>Recovery image</h3>
+    <!-- Not a firmware installer. This writes one file to the USB volume,
+         which is where the device's own loader looks when the reset button
+         is held during power-up.
+
+         It matters because a TC002 ships a recovery image that is not
+         necessarily the firmware it is running - on the unit NOTRIX was
+         developed against, holding reset installs an older one. Staging a
+         captured image turns that button from a downgrade into a real
+         recovery, and writes no flash at all. -->
+    <p class="muted" id="restore-state">Checking&hellip;</p>
+    <div class="row">
+        <input id="restore-file" type="file" accept=".img,application/octet-stream">
+        <button class="btn" id="restore-upload" type="button">Stage image</button>
+    </div>
+    <p class="muted">
+        Nothing is flashed. The image is checked here first &mdash; the same
+        header and payload checksums the device checks &mdash; and then written
+        to the USB volume. Make one for your device with
+        <code>dev.ps1 capture</code>.
+    </p>
+
     <h3>Access</h3>
     <!-- Off by default, and offered here rather than left to be discovered.
          A device that demanded a password before it would show a clock would

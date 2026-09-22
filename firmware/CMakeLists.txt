@@ -39,6 +39,7 @@ add_library(notrix_core
     src/net/DhcpClient.cpp
     src/core/Base64.cpp
     src/core/Checksum.cpp
+    src/core/Md5.cpp
     src/core/Log.cpp
     src/core/Rgb.cpp
     src/render/FrameScheduler.cpp
@@ -117,6 +118,7 @@ if(NOTRIX_DEVICE_BUILD)
         src/platform/tc002/Tc002Mcu.cpp
         src/platform/tc002/Tc002MqttClient.cpp
         src/platform/tc002/Tc002Platform.cpp
+        src/platform/tc002/Tc002Upgrade.cpp
         src/platform/tc002/WpaControl.cpp
     )
 

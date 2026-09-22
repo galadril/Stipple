@@ -9,6 +9,7 @@
 #include "notrix/platform/PlatformServices.h"
 #include "notrix/platform/tc002/Tc002Dhcp.h"
 #include "notrix/platform/tc002/Tc002Hotspot.h"
+#include "notrix/platform/tc002/Tc002Upgrade.h"
 #include "notrix/platform/tc002/Tc002Display.h"
 #include "notrix/platform/tc002/Tc002HttpServer.h"
 #include "notrix/platform/tc002/Tc002Input.h"
@@ -224,6 +225,10 @@ public:
 
     INetworkManager* network() override { return &network_; }
 
+    /// Always present on hardware: the storage volume the loader reads is
+    /// always there, whether or not anything has been staged on it.
+    IUpgradeManager* upgrade() override { return &upgrade_; }
+
     /// Non-null only once the MCU link is open. A device whose serial port
     /// could not be configured reports no battery rather than zero percent.
     IPowerSource* power() override { return mcu_.isOpen() ? &mcu_ : nullptr; }
@@ -294,6 +299,7 @@ private:
     Tc002HttpServer http_;
     Tc002Dhcp dhcp_;
     Tc002Hotspot hotspot_;
+    Tc002Upgrade upgrade_;
 };
 
 }  // namespace tc002
