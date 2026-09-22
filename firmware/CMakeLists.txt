@@ -108,6 +108,7 @@ if(NOTRIX_DEVICE_BUILD)
     add_library(notrix_platform_tc002
         src/platform/tc002/Tc002Audio.cpp
         src/platform/tc002/Tc002Display.cpp
+        src/platform/tc002/Tc002Hotspot.cpp
         src/platform/tc002/Tc002HttpServer.cpp
         src/platform/tc002/Tc002Input.cpp
         src/platform/tc002/Tc002Mcu.cpp
@@ -266,6 +267,19 @@ if(NOTRIX_DEVICE_BUILD)
     target_compile_options(notrix_mcu_probe PRIVATE
         -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
     target_link_options(notrix_mcu_probe PRIVATE -static)
+endif()
+
+# Brings the access point up, waits, and puts the network back on its own.
+#
+# A separate tool rather than a flag on the firmware, deliberately: the
+# firmware's trigger is a *stored* setting, and a device that boots into
+# hotspot mode because a test left a flag behind is the failure this is meant
+# to avoid.
+if(NOTRIX_DEVICE_BUILD)
+    add_executable(notrix_hotspot_test tools/hotspot_test/main.cpp)
+    target_link_libraries(notrix_hotspot_test PRIVATE
+        notrix_platform_tc002
+        notrix_warnings)
 endif()
 
 # Host-only frame previewer. Renders through the simulator adapter and writes

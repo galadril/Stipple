@@ -89,6 +89,20 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
 
+    // SIGHUP is ignored, deliberately.
+    //
+    // A clock is not a terminal job. Started over ADB it inherits that shell
+    // as its controlling terminal, and the shell going away - the network
+    // dropping, the laptop sleeping, somebody closing a window - sends SIGHUP
+    // and kills it. The device then sits dark for no reason anybody watching
+    // it could work out.
+    //
+    // It matters more than tidiness: the hotspot work deliberately takes Wi-Fi
+    // down, which takes ADB with it. A firmware that died at that moment could
+    // not bring the network back, and the only remaining way in would be a
+    // power cycle.
+    std::signal(SIGHUP, SIG_IGN);
+
     notrix::platform::tc002::Tc002Platform platform;
     if (!platform.open()) {
         std::fprintf(stderr,

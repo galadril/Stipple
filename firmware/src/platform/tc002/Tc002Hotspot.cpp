@@ -1,0 +1,209 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "notrix/platform/tc002/Tc002Hotspot.h"
+
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#include <cstdio>
+#include <cstring>
+
+namespace notrix {
+namespace platform {
+namespace tc002 {
+namespace {
+
+constexpr const char* kInterface = "wlan0";
+constexpr const char* kHostapdConf = "/tmp/notrix-hostapd.conf";
+constexpr const char* kDnsmasqConf = "/tmp/notrix-dnsmasq.conf";
+
+/// Open, not secured, and that is a decision rather than an oversight.
+///
+/// The hotspot exists so somebody can reach a device that has no network. A
+/// password on it would have to be one they already know, which means printed
+/// on the device or fixed in the firmware - and a fixed password shared by
+/// every NOTRIX in the world is worse than none, because it looks like
+/// security. It runs for ten minutes, serves one configuration page, and the
+/// worst it can leak is the list of networks already broadcasting their names.
+constexpr const char* kHostapdTemplate =
+    "interface=wlan0\n"
+    "driver=nl80211\n"
+    "ssid=%s\n"
+    "channel=6\n"
+    "hw_mode=g\n"
+    "ieee80211n=1\n"
+    "ignore_broadcast_ssid=0\n";
+
+constexpr const char* kDnsmasqTemplate =
+    "interface=wlan0\n"
+    "bind-interfaces\n"
+    "dhcp-range=192.168.4.10,192.168.4.60,255.255.255.0,12h\n"
+    "dhcp-option=3,192.168.4.1\n"
+    "dhcp-option=6,192.168.4.1\n"
+    // No upstream. This serves addresses so a phone will connect and stay
+    // connected; it is not a route to the internet and should not pretend to
+    // be one.
+    "no-resolv\n"
+    "log-facility=/tmp/notrix-dnsmasq.log\n";
+
+}  // namespace
+
+Tc002Hotspot::~Tc002Hotspot() { stop(); }
+
+bool Tc002Hotspot::writeFile(const char* path, const std::string& contents) const {
+    const int fd = ::open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) {
+        return false;
+    }
+    const ssize_t wrote = ::write(fd, contents.data(), contents.size());
+    ::close(fd);
+    return wrote == static_cast<ssize_t>(contents.size());
+}
+
+int Tc002Hotspot::run(const char* const argv[]) const {
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+        return -1;
+    }
+    if (pid == 0) {
+        // The child inherits nothing useful and should say nothing: a daemon
+        // writing to the panel process's stdout would end up in the log the
+        // web UI shows.
+        const int null = ::open("/dev/null", O_RDWR);
+        if (null >= 0) {
+            ::dup2(null, STDOUT_FILENO);
+            ::dup2(null, STDERR_FILENO);
+            if (null > STDERR_FILENO) {
+                ::close(null);
+            }
+        }
+        ::execv(argv[0], const_cast<char* const*>(argv));
+        ::_exit(127);
+    }
+
+    int status = 0;
+    if (::waitpid(pid, &status, 0) < 0) {
+        return -1;
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+int Tc002Hotspot::spawn(const char* const argv[]) const {
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+        return -1;
+    }
+    if (pid == 0) {
+        const int null = ::open("/dev/null", O_RDWR);
+        if (null >= 0) {
+            ::dup2(null, STDOUT_FILENO);
+            ::dup2(null, STDERR_FILENO);
+            if (null > STDERR_FILENO) {
+                ::close(null);
+            }
+        }
+        ::execv(argv[0], const_cast<char* const*>(argv));
+        ::_exit(127);
+    }
+    return static_cast<int>(pid);
+}
+
+bool Tc002Hotspot::start(const std::string& ssid, std::uint64_t nowMillis) {
+    if (running_) {
+        return true;
+    }
+
+    std::string hostapd;
+    hostapd.resize(512);
+    const int written = std::snprintf(&hostapd[0], hostapd.size(), kHostapdTemplate, ssid.c_str());
+    if (written <= 0) {
+        return false;
+    }
+    hostapd.resize(static_cast<std::size_t>(written));
+
+    if (!writeFile(kHostapdConf, hostapd) || !writeFile(kDnsmasqConf, kDnsmasqTemplate)) {
+        return false;
+    }
+
+    // The station has to go first. One radio cannot do both, and hostapd will
+    // simply fail to take an interface wpa_supplicant is holding.
+    const char* const stopSupplicant[] = {"/bin/setprop", "ctl.stop", "wpa_supplicant", nullptr};
+    run(stopSupplicant);
+
+    // /sbin/ifconfig, which is a busybox symlink - there is no /bin/ifconfig.
+    const char* const address[] = {"/sbin/ifconfig", kInterface, kAddress,
+                                   "netmask", "255.255.255.0", "up", nullptr};
+    if (run(address) != 0) {
+        stop();
+        return false;
+    }
+
+    const char* const startHostapd[] = {"/bin/hostapd", kHostapdConf, nullptr};
+    hostapdPid_ = spawn(startHostapd);
+    if (hostapdPid_ < 0) {
+        stop();
+        return false;
+    }
+
+    const char* const startDnsmasq[] = {"/bin/dnsmasq", "--keep-in-foreground",
+                                        "--conf-file=/tmp/notrix-dnsmasq.conf", nullptr};
+    dnsmasqPid_ = spawn(startDnsmasq);
+    if (dnsmasqPid_ < 0) {
+        stop();
+        return false;
+    }
+
+    running_ = true;
+    ssid_ = ssid;
+    startedAtMillis_ = nowMillis;
+    return true;
+}
+
+void Tc002Hotspot::stop() {
+    if (hostapdPid_ > 0) {
+        ::kill(hostapdPid_, SIGTERM);
+        ::waitpid(hostapdPid_, nullptr, 0);
+        hostapdPid_ = -1;
+    }
+    if (dnsmasqPid_ > 0) {
+        ::kill(dnsmasqPid_, SIGTERM);
+        ::waitpid(dnsmasqPid_, nullptr, 0);
+        dnsmasqPid_ = -1;
+    }
+
+    // The station gets the radio back whether or not this was running. stop()
+    // is also the failure path out of a half-started start(), and the one
+    // state that must never be left behind is "no access point and no
+    // station" - that is the device nobody can reach.
+    const char* const startSupplicant[] = {"/bin/setprop", "ctl.start", "wpa_supplicant", nullptr};
+    run(startSupplicant);
+
+    running_ = false;
+    ssid_.clear();
+    startedAtMillis_ = 0;
+}
+
+bool Tc002Hotspot::tick(std::uint64_t nowMillis) {
+    if (!running_) {
+        return false;
+    }
+    // A clock stepping backwards must not extend this forever.
+    if (nowMillis < startedAtMillis_) {
+        startedAtMillis_ = nowMillis;
+        return false;
+    }
+    if (nowMillis - startedAtMillis_ < kRevertMillis) {
+        return false;
+    }
+
+    // Given up on. A device that has been hosting for ten minutes with nobody
+    // connected has not been provisioned, it has been forgotten - and the
+    // network it could not join may well be back.
+    stop();
+    return true;
+}
+
+}  // namespace tc002
+}  // namespace platform
+}  // namespace notrix
