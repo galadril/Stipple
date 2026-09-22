@@ -490,3 +490,32 @@ input[type="color"] {
 }
 
 .btn-move:disabled { opacity: 0.3; cursor: default; }
+
+/* --- per-app settings ----------------------------------------------------- */
+
+/* Settings belong to the app they configure, so they open under it rather than
+   living in a tab of their own. Adding an app then means adding its settings in
+   one place instead of two. */
+.btn-gear { padding: 2px 8px; font-size: 13px; line-height: 1.6; }
+.btn-gear.on { border-color: var(--accent); color: var(--accent); }
+
+.list li.expanded {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-bottom: 0;
+    border-bottom-color: transparent;
+}
+
+/* Its own list item, not part of the row: the row is a flex line of controls,
+   and a block of fields dropped into it lays out like a car crash. */
+.app-config-row {
+    display: block;
+    padding: 14px 12px 4px;
+    border: 1px solid var(--line);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    margin-bottom: 8px;
+    background: var(--bg);
+}
+
+.app-config-row .field:last-child { margin-bottom: 10px; }

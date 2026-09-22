@@ -20,7 +20,6 @@
 
 <nav class="tabs" role="tablist">
     <button class="tab" data-panel="panel-display" role="tab" type="button">Display</button>
-    <button class="tab" data-panel="panel-clock" role="tab" type="button">Clock</button>
     <button class="tab" data-panel="panel-apps" role="tab" type="button">Apps</button>
     <button class="tab" data-panel="panel-notify" role="tab" type="button">Notify</button>
     <button class="tab" data-panel="panel-mqtt" role="tab" type="button">MQTT</button>
@@ -122,110 +121,6 @@
     </div>
 </section>
 
-<section class="panel" id="panel-clock">
-    <h2>Clock</h2>
-    <div class="field">
-        <label for="theme">Face</label>
-        <select id="theme" data-setting="clock.theme">
-            <option value="minimal">Minimal &mdash; HH:MM</option>
-            <option value="seconds">Seconds &mdash; HH:MM:SS</option>
-            <option value="date">Date below</option>
-            <option value="weekday">Weekday below</option>
-            <option value="secondsbar">Seconds bar</option>
-            <option value="calendar">Calendar</option>
-        </select>
-    </div>
-    <div class="row">
-        <div class="field">
-            <label for="twentyFourHour">24-hour</label>
-            <label class="switch">
-                <input type="checkbox" id="twentyFourHour" data-setting="clock.twentyFourHour">
-                <span>24h</span>
-            </label>
-        </div>
-        <div class="field">
-            <label for="leadingZero">Leading zero</label>
-            <label class="switch">
-                <input type="checkbox" id="leadingZero" data-setting="clock.leadingZero">
-                <span>07:05</span>
-            </label>
-        </div>
-        <div class="field">
-            <label for="showAmPm">AM/PM</label>
-            <label class="switch">
-                <input type="checkbox" id="showAmPm" data-setting="clock.showAmPm">
-                <span>Show</span>
-            </label>
-            <p class="help" id="ampm-help">12-hour faces only, where there is room.</p>
-        </div>
-    </div>
-    <div class="row">
-        <div class="field">
-            <label for="color">Digits</label>
-            <input type="color" id="color" data-setting="clock.color">
-        </div>
-        <div class="field">
-            <label for="accentColor">Accent</label>
-            <input type="color" id="accentColor" data-setting="clock.accentColor">
-            <p class="help">Colon, seconds bar, calendar header.</p>
-        </div>
-        <div class="field">
-            <label for="dateColor">Date</label>
-            <input type="color" id="dateColor" data-setting="clock.dateColor">
-        </div>
-    </div>
-    <div class="row">
-        <div class="field">
-            <label for="dateOrder">Date order</label>
-            <select id="dateOrder" data-setting="clock.dateOrder">
-                <option value="dayMonthYear">31.12</option>
-                <option value="monthDayYear">12.31</option>
-                <option value="yearMonthDay">Year first</option>
-            </select>
-        </div>
-        <div class="field">
-            <label for="dateSeparator">Separator</label>
-            <select id="dateSeparator" data-setting="clock.dateSeparator">
-                <option value="dot">31.12</option>
-                <option value="slash">31/12</option>
-                <option value="dash">31-12</option>
-            </select>
-        </div>
-        <div class="field">
-            <label for="dateYear">Year</label>
-            <select id="dateYear" data-setting="clock.dateYear">
-                <option value="none">Hidden</option>
-                <option value="twoDigit">26</option>
-                <option value="fourDigit">2026</option>
-            </select>
-        </div>
-    </div>
-    <div class="row">
-        <div class="field">
-            <label for="blinkPeriodMillis">Colon blink</label>
-            <select id="blinkPeriodMillis" data-setting="clock.blinkPeriodMillis" data-numeric="1">
-                <option value="0">Always lit</option>
-                <option value="500">Fast</option>
-                <option value="1000">One second</option>
-                <option value="2000">Slow</option>
-            </select>
-        </div>
-        <div class="field">
-            <label for="utcOffsetSeconds">UTC offset</label>
-            <select id="utcOffsetSeconds" data-setting="clock.utcOffsetSeconds"></select>
-        </div>
-    </div>
-    <div class="field">
-        <label class="check">
-            <input type="checkbox" id="clock-tick" data-setting="clock.tick">
-            Audible tick
-        </label>
-        <p class="help" id="clock-tick-help">
-            A quiet tick and tock once a second, only while the clock is on
-            screen. Off by default.
-        </p>
-    </div>
-</section>
 
 <section class="panel" id="panel-apps">
     <h2>Apps</h2>
@@ -243,6 +138,10 @@
             </label>
         </div>
     </div>
+    <p class="help">
+        Drag to reorder, or use the arrows. The gear opens an app's own
+        settings; the order and the switches are remembered across restarts.
+    </p>
     <ul class="list" id="app-list"></ul>
 </section>
 
@@ -379,6 +278,135 @@
     </div>
     <ol class="logview" id="logview"></ol>
 </section>
+
+
+<!-- Per-app settings.
+     Parked here rather than built when a row expands, so the controls exist in
+     the DOM at load and bindControls() binds them exactly once like every
+     other setting. app.js moves the matching panel into its row and back; it
+     never clones, because two copies of one control is two answers to the same
+     question. -->
+<div id="app-config-stash" hidden>
+    <div class="app-config" data-app="clock">
+    <div class="field">
+        <label for="theme">Face</label>
+        <select id="theme" data-setting="clock.theme">
+            <option value="minimal">Minimal &mdash; HH:MM</option>
+            <option value="seconds">Seconds &mdash; HH:MM:SS</option>
+            <option value="date">Date below</option>
+            <option value="weekday">Weekday below</option>
+            <option value="secondsbar">Seconds bar</option>
+            <option value="calendar">Calendar</option>
+        </select>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="twentyFourHour">24-hour</label>
+            <label class="switch">
+                <input type="checkbox" id="twentyFourHour" data-setting="clock.twentyFourHour">
+                <span>24h</span>
+            </label>
+        </div>
+        <div class="field">
+            <label for="leadingZero">Leading zero</label>
+            <label class="switch">
+                <input type="checkbox" id="leadingZero" data-setting="clock.leadingZero">
+                <span>07:05</span>
+            </label>
+        </div>
+        <div class="field">
+            <label for="showAmPm">AM/PM</label>
+            <label class="switch">
+                <input type="checkbox" id="showAmPm" data-setting="clock.showAmPm">
+                <span>Show</span>
+            </label>
+            <p class="help" id="ampm-help">12-hour faces only, where there is room.</p>
+        </div>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="color">Digits</label>
+            <input type="color" id="color" data-setting="clock.color">
+        </div>
+        <div class="field">
+            <label for="accentColor">Accent</label>
+            <input type="color" id="accentColor" data-setting="clock.accentColor">
+            <p class="help">Colon, seconds bar, calendar header.</p>
+        </div>
+        <div class="field">
+            <label for="dateColor">Date</label>
+            <input type="color" id="dateColor" data-setting="clock.dateColor">
+        </div>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="dateOrder">Date order</label>
+            <select id="dateOrder" data-setting="clock.dateOrder">
+                <option value="dayMonthYear">31.12</option>
+                <option value="monthDayYear">12.31</option>
+                <option value="yearMonthDay">Year first</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="dateSeparator">Separator</label>
+            <select id="dateSeparator" data-setting="clock.dateSeparator">
+                <option value="dot">31.12</option>
+                <option value="slash">31/12</option>
+                <option value="dash">31-12</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="dateYear">Year</label>
+            <select id="dateYear" data-setting="clock.dateYear">
+                <option value="none">Hidden</option>
+                <option value="twoDigit">26</option>
+                <option value="fourDigit">2026</option>
+            </select>
+        </div>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="blinkPeriodMillis">Colon blink</label>
+            <select id="blinkPeriodMillis" data-setting="clock.blinkPeriodMillis" data-numeric="1">
+                <option value="0">Always lit</option>
+                <option value="500">Fast</option>
+                <option value="1000">One second</option>
+                <option value="2000">Slow</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="utcOffsetSeconds">UTC offset</label>
+            <select id="utcOffsetSeconds" data-setting="clock.utcOffsetSeconds"></select>
+        </div>
+    </div>
+    <div class="field">
+        <label class="check">
+            <input type="checkbox" id="clock-tick" data-setting="clock.tick">
+            Audible tick
+        </label>
+        <p class="help" id="clock-tick-help">
+            A quiet tick and tock once a second, only while the clock is on
+            screen. Off by default.
+        </p>
+    </div>
+    </div>
+
+    <div class="app-config" data-app="visualizer">
+        <div class="field">
+            <label for="visualizer-style">Style</label>
+            <select id="visualizer-style" data-setting="visualizer.style">
+                <option value="wave">Wave &mdash; travelling, playful</option>
+                <option value="meter">Meter &mdash; a level rising from the bottom</option>
+                <option value="trace">Trace &mdash; scrolling history</option>
+            </select>
+            <p class="help">
+                All three draw the same reading. The panel reports loudness about
+                twenty times a second, not audio, so none of them is a waveform of
+                the room.
+            </p>
+        </div>
+    </div>
+</div>
 
 </main>
 

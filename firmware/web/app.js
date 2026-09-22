@@ -442,6 +442,28 @@
     // dragover fires on the row being passed over, not the one being moved.
     var dragging = null;
 
+    // Which app's settings are open, so rebuilding the list can put them back.
+    var expandedApp = null;
+
+    function configPanelFor(id) {
+        return document.querySelector('.app-config[data-app="' + id + '"]');
+    }
+
+    // Panels are moved, never cloned.
+    //
+    // They live in a hidden stash so bindControls() binds them once at load,
+    // like every other setting. Cloning would produce two controls bound to
+    // one setting, which is two answers to the same question and a race about
+    // which one is right.
+    function stashConfigPanels() {
+        var stash = $('app-config-stash');
+        if (!stash) { return; }
+        Array.prototype.forEach.call(
+            document.querySelectorAll('.app-config'), function (panel) {
+                if (panel.parentNode !== stash) { stash.appendChild(panel); }
+            });
+    }
+
     function moveApp(id, index) {
         return send('PATCH', '/api/v1/apps/' + encodeURIComponent(id), { position: index })
             .then(function () { return loadApps(); })
@@ -457,6 +479,9 @@
     function loadApps() {
         return send('GET', '/api/v1/apps').then(function (result) {
             var list = $('app-list');
+            // Rescued before the list is emptied, or clearing it would delete
+            // the bound controls along with the rows.
+            stashConfigPanels();
             list.textContent = '';
 
             var apps = result.apps || [];
@@ -496,6 +521,21 @@
                         .then(function () { toast('Showing ' + app.name); })
                         .catch(fail);
                 });
+
+                // Only where there is something to configure. A gear that opens
+                // an empty box is worse than no gear: it says the app has
+                // settings and then declines to name any.
+                var panel = configPanelFor(app.id);
+                var gear = null;
+                if (panel) {
+                    gear = el('button', 'btn btn-gear', '⚙');
+                    gear.type = 'button';
+                    gear.title = 'Settings for ' + app.name;
+                    gear.addEventListener('click', function () {
+                        expandedApp = expandedApp === app.id ? null : app.id;
+                        loadApps();
+                    });
+                }
 
                 // Buttons as well as dragging. Dragging does not exist on a
                 // touch screen without a pile of pointer-event code, and the
@@ -549,8 +589,21 @@
                 row.appendChild(body);
                 row.appendChild(up);
                 row.appendChild(down);
+                if (gear) { row.appendChild(gear); }
                 row.appendChild(show);
                 list.appendChild(row);
+
+                // The settings sit in their own list item under the app, not
+                // inside the row: the row is a flex line of controls, and a
+                // block of fields dropped into it lays out like a car crash.
+                if (panel && expandedApp === app.id) {
+                    row.classList.add('expanded');
+                    if (gear) { gear.classList.add('on'); }
+                    var holder = el('li', 'app-config-row');
+                    panel.hidden = false;
+                    holder.appendChild(panel);
+                    list.appendChild(holder);
+                }
             });
 
             if (!apps.length) {
