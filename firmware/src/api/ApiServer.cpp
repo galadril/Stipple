@@ -325,6 +325,29 @@ Response ApiServer::handleInput(const Request& request, std::uint64_t nowMillis)
         holdMillis = static_cast<std::uint64_t>(value);
     }
 
+    // "phase" sends one half of a press, so a caller can hold a button down
+    // across several requests.
+    //
+    // Without it the only thing reachable from outside is a complete press,
+    // which makes any gesture involving two buttons at once untestable except
+    // by standing in front of the device - and the rescue gesture is exactly
+    // that, on the one path that has to work when nothing else does.
+    if (const json::Value phase = root["phase"]; phase.isString()) {
+        const std::string half = phase.toString();
+        platform::InputEvent event;
+        event.source = source;
+        event.timestampMillis = nowMillis;
+        if (half == "down") {
+            event.phase = platform::ButtonPhase::Down;
+        } else if (half == "up") {
+            event.phase = platform::ButtonPhase::Up;
+        } else {
+            return unprocessable("'phase' must be 'down' or 'up'");
+        }
+        context_.input->inject(event);
+        return noContent();
+    }
+
     platform::InputEvent down;
     down.source = source;
     down.phase = platform::ButtonPhase::Down;

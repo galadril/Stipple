@@ -1109,3 +1109,33 @@ documented way back.
 9. Crash-loop visibility is now a Phase 7 requirement, not a nicety: the
    platform falls back to the vendor launcher after three failed start-ups, and
    that state must be reported rather than left looking like a failed install.
+
+## The Wi-Fi control interface
+
+`init.rc` starts the supplicant as:
+
+```
+wpa_supplicant -iwlan0 -Dnl80211 -c/data/misc/wifi/wpa_supplicant.conf                -C/dev/socket/ -e/data/misc/wifi/entropy.bin
+```
+
+so its **control socket is /dev/socket/wlan0**, a UNIX datagram socket taking
+plain text commands. There is no `wpa_cli` binary on the device, but none is
+needed: the socket is the whole interface, and a client binds a socket of its
+own — the daemon replies to the address it was sent from.
+
+`STATUS` returns `wpa_state`, `ssid` and `ip_address` among others.
+`SCAN_RESULTS` returns tab-separated rows of bssid, frequency, signal level,
+flags and SSID, after a header line naming those columns.
+
+**This matters for provisioning.** The alternative was editing
+`/data/misc/wifi/wpa_supplicant.conf` by hand — a persistent file, on the only
+path back to the device. The daemon owns that file, knows how to write it, and
+`ADD_NETWORK` / `SET_NETWORK` / `SAVE_CONFIG` let it do so. ADR 0018 takes that
+route for exactly that reason.
+
+`/data/misc/wifi/hostapd.conf` also exists, already configured with a WPA2 PSK
+— the vendor's own fallback access point. A hotspot mode has a working
+configuration to start from rather than one to invent.
+
+`/data/misc/wifi/` is persistent. `/tmp` is not, which is where a client socket
+belongs.

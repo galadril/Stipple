@@ -31,6 +31,7 @@ add_executable(notrix_tests
     test_timezone.cpp
     test_wireless_stats.cpp
     test_rescue.cpp
+    test_wpa_replies.cpp
 )
 
 target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

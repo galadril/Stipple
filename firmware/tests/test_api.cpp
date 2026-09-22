@@ -1155,3 +1155,41 @@ NOTRIX_TEST(Api, AMalformedOrderIsRefusedRatherThanPartlyApplied) {
     // Nothing was written on the way to being refused.
     NOTRIX_CHECK(fixture.config.apps.order.empty());
 }
+
+NOTRIX_TEST(Api, AButtonCanBeHeldAcrossRequests) {
+    // Without this the only thing reachable from outside is a complete press,
+    // which makes any two-button gesture untestable except by standing in
+    // front of the device - and the rescue gesture is exactly that, on the one
+    // path that has to work when nothing else does.
+    Fixture fixture;
+
+    NOTRIX_CHECK_EQ(static_cast<int>(
+        fixture.call("POST", "/api/v1/input", R"({"control":"minus","phase":"down"})").status),
+        204);
+    NOTRIX_REQUIRE(fixture.input.events.size() == 1);
+    NOTRIX_CHECK(fixture.input.events[0].phase == notrix::platform::ButtonPhase::Down);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(
+        fixture.call("POST", "/api/v1/input", R"({"control":"minus","phase":"up"})").status),
+        204);
+    NOTRIX_REQUIRE(fixture.input.events.size() == 2);
+    NOTRIX_CHECK(fixture.input.events[1].phase == notrix::platform::ButtonPhase::Up);
+}
+
+NOTRIX_TEST(Api, AnUnknownPhaseIsRefused) {
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(static_cast<int>(
+        fixture.call("POST", "/api/v1/input", R"({"control":"minus","phase":"sideways"})").status),
+        422);
+    NOTRIX_CHECK(fixture.input.events.empty());
+}
+
+NOTRIX_TEST(Api, WithoutAPhaseAPressIsStillCompleteBothWays) {
+    // The common case stays one request, because a web UI pressing a button
+    // should not have to remember to let go.
+    Fixture fixture;
+    fixture.call("POST", "/api/v1/input", R"({"control":"plus"})");
+    NOTRIX_REQUIRE(fixture.input.events.size() == 2);
+    NOTRIX_CHECK(fixture.input.events[0].phase == notrix::platform::ButtonPhase::Down);
+    NOTRIX_CHECK(fixture.input.events[1].phase == notrix::platform::ButtonPhase::Up);
+}
