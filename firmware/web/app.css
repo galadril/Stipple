@@ -219,9 +219,12 @@ input[type="color"] {
    clock into a blur, which is exactly what this view exists to avoid. */
 .live {
     width: 100%;
-    max-width: 624px;          /* 52 * 12 */
+    max-width: 936px;          /* 52 * 18 */
     height: auto;
-    aspect-ratio: 52 / 16;
+    /* The LED grid including its gaps: 52*18-2 by 16*18-2. Not 52/16, which
+       ignores the gaps and squashed the dots by a hair. Held here so the box
+       does not resize when the first frame arrives. */
+    aspect-ratio: 934 / 286;
     image-rendering: pixelated;
     background: #000;
     border: 1px solid var(--line, #2a2f3a);
@@ -383,12 +386,14 @@ input[type="color"] {
    are glanced at, not read, and a grid that reflows to one column on a phone
    is better than a table that scrolls sideways. */
 /* One row, the same width as the panel above it.
-   624px is 52 pixels at 12 each - the canvas's own ceiling - so the readings
-   line up with the thing they describe instead of with the section. */
+   936px is 52 pixels at 18 each - the canvas's own ceiling - so the readings
+   line up with the thing they describe instead of with the section. The two
+   numbers have to move together; a tile row that is wider or narrower than
+   the panel looks like a mistake rather than a choice. */
 .tiles {
     display: flex;
-    gap: 6px;
-    max-width: 624px;
+    gap: 8px;
+    max-width: 936px;
     margin-top: 10px;
 }
 
@@ -398,19 +403,19 @@ input[type="color"] {
     background: var(--bg);
     border: 1px solid var(--line);
     border-radius: 6px;
-    padding: 7px 8px;
+    padding: 9px 11px;
 }
 
-/* Below this the row would be six columns of about sixty pixels, which is
-   narrower than the words in them. Wrapping is the honest failure. */
-@media (max-width: 560px) {
+/* Below this the columns get narrower than the words in them. Wrapping is the
+   honest failure. */
+@media (max-width: 720px) {
     .tiles { flex-wrap: wrap; }
-    .tile { flex: 1 1 96px; }
+    .tile { flex: 1 1 100px; }
 }
 
 .tile .label {
     display: block;
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--muted);
@@ -422,7 +427,7 @@ input[type="color"] {
 .tile .value {
     display: block;
     margin-top: 3px;
-    font-size: 16px;
+    font-size: 18px;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     overflow: hidden;
@@ -436,8 +441,8 @@ input[type="color"] {
 
 .tile .note {
     display: block;
-    margin-top: 1px;
-    font-size: 10px;
+    margin-top: 2px;
+    font-size: 11px;
     color: var(--muted);
     white-space: nowrap;
     overflow: hidden;

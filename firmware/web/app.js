@@ -361,14 +361,13 @@
         if (can.battery) {
             var battery = device.battery || {};
             if (battery.known) {
-                // One of the two, not both: the column is about a hundred
-                // pixels wide and "charging · 3.15 V" does not fit in it.
-                // Charging is the fact that explains a percentage moving, so
-                // it wins when it applies.
-                var note = battery.charging
-                    ? 'charging'
-                    : (battery.millivolts
-                        ? (battery.millivolts / 1000).toFixed(2) + ' V' : '');
+                // Both, now there is room. The voltage is what says whether to
+                // believe the percentage, and the charge flag is what explains
+                // it moving - neither is redundant.
+                var volts = battery.millivolts
+                    ? (battery.millivolts / 1000).toFixed(2) + ' V' : '';
+                var note = [battery.charging ? 'charging' : '', volts]
+                    .filter(Boolean).join(' · ');
                 host.appendChild(tile('Battery', battery.percent + '%', note,
                     battery.percent * 10,
                     battery.percent <= 20 && !battery.charging ? 'low' : 'ok'));
@@ -391,13 +390,11 @@
 
         var network = device && device.network;
         if (network && network.connected) {
-            // Signal leads where the adapter reports one, otherwise just that
-            // the link is up. The address goes in the note: it is the longest
-            // string on the row and the least glanced at, and it is already
-            // spelled out in full under System.
-            host.appendChild(tile('Wi-Fi',
-                network.rssiDbm ? network.rssiDbm + ' dBm' : 'up',
-                network.ipv4 || ''));
+            // The address leads: it is the one reading here somebody might
+            // want to read out loud. It fits now that the row is as wide as
+            // the panel; when the panel was narrower this had to be the note.
+            host.appendChild(tile('Wi-Fi', network.ipv4 || 'connected',
+                network.rssiDbm ? network.rssiDbm + ' dBm' : ''));
         } else if (network) {
             host.appendChild(tile('Wi-Fi', null, 'not connected'));
         }
@@ -635,8 +632,13 @@
     // One LED per pixel, drawn with a gap. A 52x16 image scaled up is a smear;
     // what makes this read as a panel is the dark space between the pixels, so
     // the geometry is explicit rather than left to CSS scaling.
-    var LED_SIZE = 9;
-    var LED_GAP = 1;
+    // Sized so the canvas renders about 1:1 at its CSS ceiling of 936px
+    // (52 * 18). Drawing a 519px canvas and letting the browser stretch it to
+    // 936 gave uneven dots - a 9px LED scaled by 1.8 lands on half pixels, and
+    // image-rendering: pixelated then rounds different columns differently.
+    // The two numbers here and the max-width in app.css have to agree.
+    var LED_SIZE = 16;
+    var LED_GAP = 2;
     var LED_PITCH = LED_SIZE + LED_GAP;
 
     var lastFrame = null;   // the decoded RGB of the most recent frame
@@ -1099,6 +1101,16 @@
         var exact = true;
         var f, i;
 
+        // Black first, so it is always index 0.
+        //
+        // The GIF header already declares 0 as the background, and the gaps
+        // between LEDs are drawn in it - so seeding it here means the gap
+        // colour is guaranteed to have an index rather than depending on the
+        // panel happening to contain black. It almost always does; "almost"
+        // is not a good enough reason to skip four lines.
+        map[0] = 0;
+        palette.push([0, 0, 0]);
+
         for (f = 0; f < frames.length && exact; ++f) {
             var binary = frames[f];
             for (i = 0; i < pixelCount; ++i) {
@@ -1192,15 +1204,29 @@
         return out;
     }
 
-    function encodeGif(frames, width, height, delayCentis) {
+    function encodeGif(frames, width, height, delayCentis, cell, gap) {
+        // Scaled up, with the same LED grid the live view draws.
+        //
+        // The panel is 52x16, and a GIF of a 52x16 image is 52x16 - which is
+        // what this wrote until somebody tried to look at one. A viewer
+        // showing it at any size at all smears it, because scaling is the
+        // viewer's choice and most of them choose smoothly. Baking the
+        // upscale in is the only way to control how it looks, and drawing the
+        // gaps makes it a picture of a matrix rather than a blurry rectangle.
+        cell = cell || 1;
+        gap = gap === undefined ? 0 : gap;
+        var pitch = cell + gap;
+        var outWidth = width * pitch - gap;
+        var outHeight = height * pitch - gap;
+
         var pixelCount = width * height;
         var built = buildPalette(frames, pixelCount);
         var stream = new ByteStream();
         var i;
 
         stream.text('GIF89a');
-        stream.short(width);
-        stream.short(height);
+        stream.short(outWidth);
+        stream.short(outHeight);
         stream.byte(0xF7);   // global table, 256 entries
         stream.byte(0);      // background index
         stream.byte(0);      // default aspect ratio
@@ -1230,15 +1256,29 @@
 
             stream.byte(0x2C);
             stream.short(0); stream.short(0);
-            stream.short(width); stream.short(height);
+            stream.short(outWidth); stream.short(outHeight);
             stream.byte(0);              // no local table, not interlaced
 
-            var indices = new Array(pixelCount);
-            for (i = 0; i < pixelCount; ++i) {
-                indices[i] = paletteIndex(built,
-                                          binary.charCodeAt(i * 3),
-                                          binary.charCodeAt(i * 3 + 1),
-                                          binary.charCodeAt(i * 3 + 2));
+            // One byte per output pixel rather than a scaled copy of the RGB.
+            // At a cell of 11 that is 120 KB a frame instead of 360 KB, and a
+            // long recording is the case that matters.
+            var indices = new Uint8Array(outWidth * outHeight);
+            for (var sy = 0; sy < height; ++sy) {
+                for (var sx = 0; sx < width; ++sx) {
+                    var at = (sy * width + sx) * 3;
+                    var index = paletteIndex(built,
+                                             binary.charCodeAt(at),
+                                             binary.charCodeAt(at + 1),
+                                             binary.charCodeAt(at + 2));
+                    var top = sy * pitch;
+                    var left = sx * pitch;
+                    for (var dy = 0; dy < cell; ++dy) {
+                        var row = (top + dy) * outWidth + left;
+                        for (var dx = 0; dx < cell; ++dx) {
+                            indices[row + dx] = index;
+                        }
+                    }
+                }
             }
 
             stream.byte(8);
@@ -1263,7 +1303,10 @@
         // Played back at the rate it was captured, so what you watch is what
         // the panel did rather than an arbitrary speed.
         var delay = Math.max(2, Math.round(LIVE_INTERVAL_MS / 10));
-        var result = encodeGif(frames, lastFrame.width, lastFrame.height, delay);
+        // 11 and 1 gives 623 x 191 from a 52 x 16 panel: large enough to look
+        // at without a viewer scaling it, small enough that a minute of
+        // recording is still a file somebody can send.
+        var result = encodeGif(frames, lastFrame.width, lastFrame.height, delay, 11, 1);
 
         var blob = new Blob([result.bytes], { type: 'image/gif' });
         var url = URL.createObjectURL(blob);
