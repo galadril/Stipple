@@ -7,6 +7,7 @@
 #include <string_view>
 
 #include "notrix/platform/PlatformServices.h"
+#include "notrix/platform/tc002/Tc002Dhcp.h"
 #include "notrix/platform/tc002/Tc002Display.h"
 #include "notrix/platform/tc002/Tc002HttpServer.h"
 #include "notrix/platform/tc002/Tc002Input.h"
@@ -179,6 +180,12 @@ public:
     /// IHttpServer has no poll() — see Tc002HttpServer for why.
     Tc002HttpServer& http() noexcept { return http_; }
 
+    /// Concrete, and not behind INetworkManager, because holding a lease is
+    /// not something core should be able to ask for or turn off. It is what
+    /// makes the device reachable at all, on a platform that has nothing else
+    /// able to do it.
+    Tc002Dhcp& dhcp() noexcept { return dhcp_; }
+
 private:
     Tc002Display display_;
     Tc002Input input_;
@@ -189,6 +196,7 @@ private:
     Tc002Audio audio_;
     Tc002MqttClient mqtt_;
     Tc002HttpServer http_;
+    Tc002Dhcp dhcp_;
 };
 
 }  // namespace tc002

@@ -110,6 +110,7 @@ if(NOTRIX_DEVICE_BUILD)
         src/platform/tc002/Tc002Audio.cpp
         src/platform/tc002/Tc002Display.cpp
         src/platform/tc002/Tc002Hotspot.cpp
+        src/platform/tc002/Tc002Dhcp.cpp
         src/platform/tc002/Tc002HttpServer.cpp
         src/platform/tc002/Tc002Input.cpp
         src/platform/tc002/Tc002Mcu.cpp

@@ -25,7 +25,9 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
+#include <string>
 
 #include "notrix/core/Log.h"
 #include "notrix/host/ApplicationHost.h"
@@ -75,16 +77,34 @@ void sleepMillis(std::uint64_t millis) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    // Flags come out first, so they cannot be mistaken for the positional
+    // arguments they follow.
+    bool wantDhcp = true;
+    bool observeDhcp = false;
+    const char* positional[3] = {nullptr, nullptr, nullptr};
+    int positionals = 0;
+
+    for (int i = 1; i < argc; ++i) {
+        const char* argument = argv[i];
+        if (std::strcmp(argument, "--no-dhcp") == 0) {
+            wantDhcp = false;
+        } else if (std::strcmp(argument, "--dhcp-observe") == 0) {
+            observeDhcp = true;
+        } else if (positionals < 3) {
+            positional[positionals++] = argument;
+        }
+    }
+
     // Optional cap, mostly so a development run cannot outlive the terminal
     // that started it. Zero or absent means run until signalled.
-    const int seconds = (argc > 1) ? std::atoi(argv[1]) : 0;
+    const int seconds = (positionals > 0) ? std::atoi(positional[0]) : 0;
     // Absent means "leave the stored setting alone". An earlier version always
     // applied a default here, which silently overrode whatever the user had
     // chosen in the web UI - a development convenience quietly overwriting real
     // configuration is the same class of mistake as a control that lies.
-    const bool overrideBrightness = argc > 2;
+    const bool overrideBrightness = positionals > 1;
     const std::uint8_t brightness =
-        overrideBrightness ? static_cast<std::uint8_t>(std::atoi(argv[2])) : 0;
+        overrideBrightness ? static_cast<std::uint8_t>(std::atoi(positional[1])) : 0;
 
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
@@ -168,6 +188,24 @@ int main(int argc, char** argv) {
     } else {
         std::printf("  battery     : unavailable (MCU link not open)\n");
     }
+    if (wantDhcp) {
+        platform.dhcp().setObserveOnly(observeDhcp);
+        const bool started =
+            platform.dhcp().begin("wlan0", status.hostname, platform.clock().monotonicMillis());
+        std::printf("  dhcp        : %s%s%s\n",
+                    started ? "running" : "unavailable",
+                    observeDhcp ? " (observing, changes nothing)" : "",
+                    (started && platform.dhcp().usingFallback()) ? " (udp fallback)" : "");
+        const std::string opening = platform.dhcp().takeEvent();
+        if (!opening.empty()) {
+            std::printf("                %s\n", opening.c_str());
+        }
+    } else {
+        // Worth printing rather than leaving blank. A device with no client
+        // keeps working right up until the lease it inherited runs out, which
+        // is the failure this whole thing exists to stop.
+        std::printf("  dhcp        : off, on an inherited lease\n");
+    }
     std::printf("  clock face  : %s, utc%+d\n",
                 host.settings().clock.theme.c_str(),
                 host.settings().clock.utcOffsetSeconds / 3600);
@@ -218,6 +256,16 @@ int main(int argc, char** argv) {
         // arrives while a frame is half-rendered. MqttService owns reconnect
         // policy; this only pumps the socket.
         platform.mqtt()->poll(now);
+
+        // The lease. Nothing else on this device can obtain or renew one, so
+        // without this the address is whatever the vendor application got
+        // before NOTRIX started - and it expires.
+        platform.dhcp().tick(now);
+        const std::string leaseEvent = platform.dhcp().takeEvent();
+        if (!leaseEvent.empty()) {
+            std::printf("  %s\n", leaseEvent.c_str());
+            std::fflush(stdout);
+        }
 
         const std::uint32_t renderedBefore = host.frameStats().rendered;
 
