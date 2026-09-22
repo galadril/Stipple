@@ -11,6 +11,7 @@
 #include <netpacket/packet.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <cstdio>
@@ -199,6 +200,7 @@ bool Tc002Dhcp::begin(const char* interfaceName, const std::string& hostname,
         return false;
     }
 
+    hostname_ = hostname;
     client_.setHostname(hostname);
 
     // Ask for whatever is already configured. On this device that is the
@@ -225,6 +227,21 @@ bool Tc002Dhcp::begin(const char* interfaceName, const std::string& hostname,
         note("dhcp: asking for an address");
     }
     return true;
+}
+
+bool Tc002Dhcp::restart() {
+    if (interface_.empty()) {
+        return false;  // never begun, so there is nothing to come back to
+    }
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    const std::uint64_t millis = static_cast<std::uint64_t>(now.tv_sec) * 1000u +
+                                 static_cast<std::uint64_t>(now.tv_nsec) / 1000000u;
+
+    // Copied, because begin() calls end(), which is free to clear them.
+    const std::string interfaceName = interface_;
+    const std::string hostname = hostname_;
+    return begin(interfaceName.c_str(), hostname, millis);
 }
 
 void Tc002Dhcp::end() noexcept {

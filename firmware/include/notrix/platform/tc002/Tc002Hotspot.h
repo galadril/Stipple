@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <string>
 
+#include "notrix/platform/tc002/Tc002Dhcp.h"
+
 namespace notrix {
 namespace platform {
 namespace tc002 {
@@ -42,6 +44,33 @@ public:
     Tc002Hotspot(const Tc002Hotspot&) = delete;
     Tc002Hotspot& operator=(const Tc002Hotspot&) = delete;
 
+    /// Where the address comes back from when this gives the radio up.
+    ///
+    /// Not optional in practice, and the first live test is why. hostapd
+    /// came up, the revert stopped it and restarted wpa_supplicant, and the
+    /// device stayed unreachable until it was power-cycled - because on this
+    /// platform nothing else turns an association into an address. "Give the
+    /// radio back" is two steps, and only one of them was here.
+    void useDhcp(Tc002Dhcp* dhcp) noexcept { dhcp_ = dhcp; }
+
+    /// What went wrong, or what changed, once. Empty when there is nothing
+    /// new.
+    ///
+    /// The first test left no evidence at all: the dnsmasq log and the
+    /// generated configs were in /tmp, and the power cycle that recovered the
+    /// device took them with it. Anything diagnosing a network failure has to
+    /// report over a channel that does not depend on the network it is
+    /// breaking, so this is read by the loop and put on the panel and in the
+    /// ring log rather than written to a file nobody will get to.
+    std::string takeEvent();
+
+    /// Whether both daemons are still alive.
+    ///
+    /// An access point serving no addresses is worse than no access point:
+    /// a person connects to it, waits, and concludes the device is broken.
+    /// So a dead dnsmasq is a reason to revert, not a degraded mode.
+    bool serving() const noexcept { return running_ && hostapdPid_ > 0 && dnsmasqPid_ > 0; }
+
     /// Take the radio, and serve. Returns false if anything refused, having
     /// first put the station back - a half-started hotspot with no station is
     /// the state nobody can reach.
@@ -72,6 +101,14 @@ private:
 
     /// Start a daemon and keep its pid so it can be stopped again.
     int spawn(const char* const argv[]) const;
+
+    /// Reap either daemon if it has exited. Returns true if one had.
+    bool reapDead();
+
+    void note(const std::string& text);
+
+    Tc002Dhcp* dhcp_ = nullptr;
+    std::string event_;
 
     bool running_ = false;
     std::string ssid_;

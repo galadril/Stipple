@@ -59,6 +59,17 @@ public:
     /// hotspot calls before taking the radio.
     void end() noexcept;
 
+    /// Start again on the interface and hostname last used, reading the
+    /// clock itself.
+    ///
+    /// This is what the hotspot calls on its way out, and it is the half of
+    /// "give the radio back" that was missing the first time: restoring
+    /// wpa_supplicant gets an association, and on this device nothing else
+    /// turns an association into an address. Without it the revert leaves no
+    /// access point and no reachable station, which is the one state that
+    /// needs a power cycle.
+    bool restart();
+
     /// Call once per frame. Never blocks.
     void tick(std::uint64_t nowMillis);
 
@@ -110,6 +121,9 @@ private:
 
     net::dhcp::DhcpClient client_;
     std::string interface_;
+
+    /// Kept so restart() can come back the same way it went out.
+    std::string hostname_;
     std::string event_;
 
     bool running_ = false;

@@ -168,8 +168,23 @@ device nobody can reach. Rejected on that alone.
 The hotspot came up — the access point broadcast and was visible — and the
 test still failed twice over. Both failures were worth more than the feature.
 
-**No client could get an address.** `dnsmasq` did not serve DHCP. That alone
-is a bug to fix.
+**No client could get an address.** `dnsmasq` never ran at all — and the
+cause turned out to be two missing directories rather than anything about
+Wi-Fi. **This device has no `/var`.** dnsmasq refuses to start when it cannot
+create its lease file or its pid file, and both default to somewhere
+underneath it:
+
+```
+dnsmasq: cannot open or create lease file /var/lib/misc/dnsmasq.leases: No such file or directory
+dnsmasq: failed to open pidfile /var/run/dnsmasq.pid: No such file or directory
+```
+
+Two separate failures, and fixing only the first gets you the second. With
+the lease file in `/tmp` and the pid file disabled it starts clean and stays
+up. Checked on the device, not reasoned about.
+
+hostapd kept running throughout, which is exactly why this was invisible: the
+access point looked perfectly healthy to anyone standing in front of it.
 
 **The revert did not restore the network.** The access point stopped and
 `wpa_supplicant` came back, and the device stayed unreachable until it was

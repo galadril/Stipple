@@ -35,12 +35,29 @@ constexpr const char* kHostapdTemplate =
     "ieee80211n=1\n"
     "ignore_broadcast_ssid=0\n";
 
+/// Both path overrides below are the whole reason the first live test failed.
+///
+/// hostapd came up and the access point was visible; nothing could get an
+/// address, because dnsmasq was never running. **This device has no /var** -
+/// no /var/lib/misc, no /var/run, no /var at all - and dnsmasq refuses to
+/// start when it cannot create either its lease file or its pid file, both
+/// of which default to somewhere underneath it:
+///
+///   dnsmasq: cannot open or create lease file
+///            /var/lib/misc/dnsmasq.leases: No such file or directory
+///   dnsmasq: failed to open pidfile /var/run/dnsmasq.pid: No such file
+///
+/// Two separate failures, and fixing only the first gets you the second.
+/// With the lease file in /tmp and the pid file disabled it starts clean and
+/// stays up - checked on the device rather than reasoned about.
 constexpr const char* kDnsmasqTemplate =
     "interface=wlan0\n"
     "bind-interfaces\n"
     "dhcp-range=192.168.4.10,192.168.4.60,255.255.255.0,12h\n"
     "dhcp-option=3,192.168.4.1\n"
     "dhcp-option=6,192.168.4.1\n"
+    "dhcp-leasefile=/tmp/notrix-dnsmasq.leases\n"
+    "pid-file=\n"
     // No upstream. This serves addresses so a phone will connect and stay
     // connected; it is not a route to the internet and should not pretend to
     // be one.
@@ -50,6 +67,32 @@ constexpr const char* kDnsmasqTemplate =
 }  // namespace
 
 Tc002Hotspot::~Tc002Hotspot() { stop(); }
+
+void Tc002Hotspot::note(const std::string& text) { event_ = text; }
+
+std::string Tc002Hotspot::takeEvent() {
+    std::string taken;
+    taken.swap(event_);
+    return taken;
+}
+
+bool Tc002Hotspot::reapDead() {
+    bool died = false;
+    if (hostapdPid_ > 0 && ::waitpid(hostapdPid_, nullptr, WNOHANG) == hostapdPid_) {
+        hostapdPid_ = -1;
+        died = true;
+        note("hotspot: hostapd exited");
+    }
+    if (dnsmasqPid_ > 0 && ::waitpid(dnsmasqPid_, nullptr, WNOHANG) == dnsmasqPid_) {
+        dnsmasqPid_ = -1;
+        died = true;
+        // The exact failure the first live test hit, and the reason it was
+        // invisible: hostapd kept running, so the access point looked fine
+        // to anyone standing in front of it.
+        note("hotspot: dnsmasq exited, no addresses being served");
+    }
+    return died;
+}
 
 bool Tc002Hotspot::writeFile(const char* path, const std::string& contents) const {
     const int fd = ::open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
@@ -126,6 +169,12 @@ bool Tc002Hotspot::start(const std::string& ssid, std::uint64_t nowMillis) {
         return false;
     }
 
+    // Nothing to renew while there is no station, and a client still asking
+    // would be broadcasting into an interface that is about to change job.
+    if (dhcp_ != nullptr) {
+        dhcp_->end();
+    }
+
     // The station has to go first. One radio cannot do both, and hostapd will
     // simply fail to take an interface wpa_supplicant is holding.
     const char* const stopSupplicant[] = {"/bin/setprop", "ctl.stop", "wpa_supplicant", nullptr};
@@ -142,6 +191,7 @@ bool Tc002Hotspot::start(const std::string& ssid, std::uint64_t nowMillis) {
     const char* const startHostapd[] = {"/bin/hostapd", kHostapdConf, nullptr};
     hostapdPid_ = spawn(startHostapd);
     if (hostapdPid_ < 0) {
+        note("hotspot: hostapd would not start");
         stop();
         return false;
     }
@@ -150,6 +200,7 @@ bool Tc002Hotspot::start(const std::string& ssid, std::uint64_t nowMillis) {
                                         "--conf-file=/tmp/notrix-dnsmasq.conf", nullptr};
     dnsmasqPid_ = spawn(startDnsmasq);
     if (dnsmasqPid_ < 0) {
+        note("hotspot: dnsmasq would not start");
         stop();
         return false;
     }
@@ -157,6 +208,7 @@ bool Tc002Hotspot::start(const std::string& ssid, std::uint64_t nowMillis) {
     running_ = true;
     ssid_ = ssid;
     startedAtMillis_ = nowMillis;
+    note("hotspot: serving " + ssid + " on " + std::string(kAddress));
     return true;
 }
 
@@ -179,14 +231,33 @@ void Tc002Hotspot::stop() {
     const char* const startSupplicant[] = {"/bin/setprop", "ctl.start", "wpa_supplicant", nullptr};
     run(startSupplicant);
 
+    // And an address, which is the half that was missing. wpa_supplicant
+    // associates and stops there; on this device nothing else asks for an
+    // address, so a revert without this leaves a station nobody can reach -
+    // indistinguishable, from the outside, from the device being dead.
+    if (dhcp_ != nullptr) {
+        dhcp_->restart();
+    }
+
     running_ = false;
     ssid_.clear();
     startedAtMillis_ = 0;
+    if (event_.empty()) {
+        note("hotspot: stopped, station restored");
+    }
 }
 
 bool Tc002Hotspot::tick(std::uint64_t nowMillis) {
     if (!running_) {
         return false;
+    }
+
+    // An access point handing out no addresses is worse than no access
+    // point: somebody connects to it, waits, and concludes the clock is
+    // broken. So a dead daemon reverts rather than limping on.
+    if (reapDead()) {
+        stop();
+        return true;
     }
     // A clock stepping backwards must not extend this forever.
     if (nowMillis < startedAtMillis_) {

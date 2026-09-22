@@ -26,6 +26,7 @@
 
 #include <unistd.h>
 
+#include "notrix/platform/tc002/Tc002Dhcp.h"
 #include "notrix/platform/tc002/Tc002Hotspot.h"
 
 namespace {
@@ -62,7 +63,16 @@ int main(int argc, char** argv) {
     signal(SIGHUP, SIG_IGN);
     setsid();
 
+    // The client comes first and is handed over, because the revert needs it.
+    // Last time this tool stopped the access point, restarted wpa_supplicant
+    // and left a device nobody could reach: an association is not an address,
+    // and on this platform nothing else asks for one.
+    notrix::platform::tc002::Tc002Dhcp dhcp;
+    dhcp.begin("wlan0", "notrix", monotonicMillis());
+
     notrix::platform::tc002::Tc002Hotspot hotspot;
+    hotspot.useDhcp(&dhcp);
+
     const std::uint64_t startedAt = monotonicMillis();
 
     if (!hotspot.start(ssid, startedAt)) {
@@ -75,8 +85,21 @@ int main(int argc, char** argv) {
     const std::uint64_t until = startedAt + static_cast<std::uint64_t>(seconds) * 1000u;
     while (monotonicMillis() < until) {
         sleep(1);
+        // Ticked, so a daemon that died is noticed and reverts rather than
+        // leaving an access point that serves nothing for the full run.
+        if (hotspot.tick(monotonicMillis())) {
+            break;
+        }
     }
 
     hotspot.stop();
+
+    // Pumped afterwards so the restored client actually gets through a
+    // handshake before this process exits and stops calling it.
+    const std::uint64_t settle = monotonicMillis() + 20000u;
+    while (monotonicMillis() < settle && !dhcp.bound()) {
+        dhcp.tick(monotonicMillis());
+        usleep(50000);
+    }
     return 0;
 }
