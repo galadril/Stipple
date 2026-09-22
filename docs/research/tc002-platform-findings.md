@@ -1203,3 +1203,47 @@ application is invisible to everything else on the network.
 `/sbin/ifconfig` is a busybox symlink and there is no `/bin/ifconfig`, but
 none of it is needed: `SIOCSIFADDR`, `SIOCSIFNETMASK` and `SIOCADDRT` all
 work directly, which is better than parsing a tool's output anyway.
+
+## The flash layout, and why nothing here can write it yet
+
+```
+mtd0  0x00050000  BOOT0        mtd4  0x000b0000  config   (squashfs, ro)
+mtd1  0x001f0000  KERNEL       mtd5  0x00040000  MISC
+mtd2  0x00450000  rootfs (squashfs, ro)   mtd6  0x00800000  data (jffs2, rw)
+mtd3  0x00800000  res    (squashfs, ro)   mtd7  0x00880000  UDISK (vfat)
+```
+
+**`/data` is the only writable persistent filesystem** — 8 MiB of jffs2 on
+mtd6, mounted rw. `/`, `/res` and `/config` are all read-only squashfs.
+
+**Nothing in init runs anything from `/data`.** `/etc/init.rc` lives on the
+read-only rootfs, and every service it declares points at `/bin` or `/res`.
+So a program in `/data` cannot be started at boot, which is why NOTRIX is
+still a thing you run rather than a thing the device runs — and why
+persistence needs a write to mtd2 or mtd3.
+
+One line of init.rc is worth keeping in mind for later:
+
+```
+export LD_LIBRARY_PATH /tmp:/res/lib:/lib
+```
+
+`/tmp` comes *first*, so a library dropped there shadows the vendor's own.
+That is what makes the volatile trial mode work at all, and it is tmpfs, so
+it is also why that mode cannot be made to persist.
+
+### The device can be flashed; it has no tool that does
+
+`/dev/mtd/mtd0` through `mtd7` exist as character devices, mode `crw-------`
+and owned by root, which NOTRIX runs as. The read-only aliases `mtdNro` are
+there too, which is what a restore-image capture should read from.
+
+So the missing piece is a program, not a capability: `MEMGETINFO`, then
+`MEMERASE` per eraseblock, then write, then read back and compare. On the
+order of a hundred and fifty lines.
+
+That resolves half of what [ADR 0008](../adr/0008-installer-helper.md) is
+waiting on. It does **not** resolve the other half — the ADR requires a
+restore path that has been *demonstrated*, not one that ought to work, and
+demonstrating it means writing the tool and then using it to put a captured
+image back on a device that has been deliberately broken. The gates stand.
