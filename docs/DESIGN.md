@@ -175,6 +175,25 @@ animation first is the interface arguing.
 
 ---
 
+### The other two
+
+**Wipe** reveals the incoming frame column by column, travelling the way the
+knob went. Neither frame moves, so it reads as decisive where a slide reads as
+travel. It agrees with the slide about which way "next" is, or the knob would
+feel different depending on a setting.
+
+**Dissolve** turns pixels over in a fixed scattered order and has no direction
+at all. That is its point: it is the one style that does not claim where the
+next app came from.
+
+Both are a pure function of progress, like everything else here. The dissolve's
+order comes from a hash of the coordinate rather than a random number, or it
+would differ between the emulator and the device and could not be tested.
+
+**A notification always fades, whatever is configured.** A slide would say the
+notification is simply the next item in the rotation, and that is a statement
+about what a notification *is* rather than a preference.
+
 ## 7. Overlays
 
 An overlay draws *over* whatever app is showing, without replacing it — rain
@@ -205,7 +224,23 @@ Like every other animation, an overlay is a pure function of elapsed time
 (§5.2) so it stays golden-testable.
 
 The set stays small and physical — the things a pixel clock can suggest in a few
-pixels: rain, snow, storm, frost. Not a taxonomy of meteorological conditions.
+pixels. Not a taxonomy of meteorological conditions: "light rain showers" and
+"rain" look identical at this size, so offering both would be a lie told in a
+dropdown.
+
+**Weather:** rain, snow, storm, frost, fog, stars. **Occasion:** sparkle,
+confetti — because marking one is a thing a clock on a shelf gets asked to do.
+
+The test for adding another is whether it is *recognisable* at 52×16 and
+distinct from everything already there. A longer menu of things that look the
+same is not more choice.
+
+Two of them bend a rule each, deliberately. **Stars** never move — a sky that
+drifted would be a clock tumbling through space, which is a busier idea than
+intended — so they twinkle on their own periods instead, and no two share one.
+**Confetti** ignores the overlay palette and brings its own colours, because
+grey confetti is not confetti; it is the one overlay whose entire point is
+colour.
 
 ## 8. Interaction
 

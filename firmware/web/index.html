@@ -100,13 +100,21 @@
         </p>
     </div>
     <div class="field">
-        <label for="overlay">Weather overlay</label>
+        <label for="overlay">Overlay</label>
         <select id="overlay" data-setting="display.overlay">
             <option value="none">None</option>
-            <option value="rain">Rain</option>
-            <option value="snow">Snow</option>
-            <option value="storm">Storm</option>
-            <option value="frost">Frost</option>
+            <optgroup label="Weather">
+                <option value="rain">Rain</option>
+                <option value="snow">Snow</option>
+                <option value="storm">Storm</option>
+                <option value="frost">Frost</option>
+                <option value="fog">Fog</option>
+                <option value="stars">Stars</option>
+            </optgroup>
+            <optgroup label="Occasion">
+                <option value="sparkle">Sparkle</option>
+                <option value="confetti">Confetti</option>
+            </optgroup>
         </select>
         <p class="help">
             Drawn over whatever app is showing, and only on pixels it left
@@ -136,6 +144,21 @@
                 <input type="checkbox" id="transitions" data-setting="apps.transitions">
                 <span>Animate</span>
             </label>
+        </div>
+        <div class="field">
+            <label for="apps-transition">Transition</label>
+            <select id="apps-transition" data-setting="apps.transition">
+                <option value="slide">Slide</option>
+                <option value="fade">Fade</option>
+                <option value="wipe">Wipe</option>
+                <option value="dissolve">Dissolve</option>
+                <option value="none">Cut</option>
+            </select>
+            <p class="help">
+                Between apps. A notification always fades in, whatever this
+                says &mdash; sliding would make it look like the next app
+                rather than an interruption.
+            </p>
         </div>
     </div>
     <p class="help">

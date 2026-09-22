@@ -121,6 +121,122 @@ void drawFrost(Framebuffer& frame, std::uint64_t elapsedMillis, Rgb color) noexc
     }
 }
 
+
+/// Points that brighten and fade on their own slow cycle.
+///
+/// The only overlay that never moves. Stars that drifted would be a clock
+/// tumbling through space, which is a different and much busier idea.
+void drawStars(Framebuffer& frame, std::uint64_t elapsedMillis, Rgb color) noexcept {
+    constexpr int kCount = 14;
+    for (int i = 0; i < kCount; ++i) {
+        const std::uint32_t seed = scramble(static_cast<std::uint32_t>(i) * 2246822519u);
+        const int x = static_cast<int>(seed % static_cast<std::uint32_t>(Framebuffer::kWidth));
+        const int y = static_cast<int>((seed >> 8) % static_cast<std::uint32_t>(Framebuffer::kHeight));
+
+        // Each star keeps its own period, so they never pulse in unison - which
+        // would read as the panel flickering rather than as a sky.
+        const std::uint64_t period = 1700u + (seed >> 16) % 2300u;
+        const std::uint64_t phase = (elapsedMillis + (seed >> 4) % period) % period;
+
+        // Lit for rather less than half its cycle: a sky where every star is
+        // always on is a grid of dots.
+        if (phase * 3u > period) {
+            continue;
+        }
+        const bool bright = phase * 9u < period;
+        lightIfDark(frame, x, y, bright ? color : scale(color, 110));
+    }
+}
+
+/// Dim horizontal bands drifting sideways.
+void drawFog(Framebuffer& frame, std::uint64_t elapsedMillis, Rgb color) noexcept {
+    const Rgb dim = scale(color, 90);
+
+    // Only the rows above and below the type band, which for fog is most of the
+    // effect: it gathers at the edges and leaves the middle legible.
+    const int rows[] = {0, 1, 2, 3, 11, 12, 13, 14, 15};
+    for (int r = 0; r < static_cast<int>(sizeof(rows) / sizeof(rows[0])); ++r) {
+        const int y = rows[r];
+        const std::uint32_t seed = scramble(static_cast<std::uint32_t>(y) * 374761393u);
+
+        // Each band drifts at its own speed and direction, which is what stops
+        // it looking like a scrolling texture.
+        const int speed = 3 + static_cast<int>(seed % 5u);
+        const bool leftward = (seed & 0x100u) != 0;
+        const int shift =
+            static_cast<int>((elapsedMillis * static_cast<std::uint64_t>(speed)) / 1000u);
+
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            const int sampled = leftward ? x + shift : x - shift;
+            const std::uint32_t here =
+                scramble(static_cast<std::uint32_t>(sampled & 0x3f) ^ seed);
+            // Sparse: roughly one pixel in three, so it reads as haze rather
+            // than as a solid bar.
+            if (here % 3u != 0u) {
+                continue;
+            }
+            lightIfDark(frame, x, y, dim);
+        }
+    }
+}
+
+/// Brief bright glints.
+void drawSparkle(Framebuffer& frame, std::uint64_t elapsedMillis, Rgb color) noexcept {
+    constexpr int kCount = 10;
+    for (int i = 0; i < kCount; ++i) {
+        const std::uint32_t seed = scramble(static_cast<std::uint32_t>(i) * 2654435761u);
+
+        // Each glint occupies a slot of time and jumps somewhere new for the
+        // next one, so the position is a function of which slot we are in.
+        const std::uint64_t period = 900u + (seed % 1400u);
+        const std::uint64_t slot = elapsedMillis / period;
+        const std::uint64_t phase = elapsedMillis % period;
+
+        // On for a tenth of its slot. A sparkle that lingers is a dot.
+        if (phase * 10u > period) {
+            continue;
+        }
+
+        const std::uint32_t placed = scramble(seed ^ static_cast<std::uint32_t>(slot));
+        const int x = static_cast<int>(placed % static_cast<std::uint32_t>(Framebuffer::kWidth));
+        const int y = static_cast<int>((placed >> 8) % static_cast<std::uint32_t>(Framebuffer::kHeight));
+
+        lightIfDark(frame, x, y, colors::kWhite);
+        // A single cross arm, so it glints rather than blinks.
+        lightIfDark(frame, x - 1, y, color);
+        lightIfDark(frame, x + 1, y, color);
+    }
+}
+
+/// Tumbling coloured flecks.
+void drawConfetti(Framebuffer& frame, std::uint64_t elapsedMillis) noexcept {
+    // Its own palette, ignoring OverlayStyle::color. Grey confetti is not
+    // confetti, and this is the one overlay whose entire point is colour.
+    static constexpr Rgb kColors[] = {
+        rgb(230, 70, 90), rgb(240, 180, 40), rgb(80, 200, 120),
+        rgb(90, 150, 240), rgb(200, 110, 220),
+    };
+    constexpr int kPalette = static_cast<int>(sizeof(kColors) / sizeof(kColors[0]));
+
+    for (int x = 0; x < Framebuffer::kWidth; x += 5) {
+        const std::uint32_t seed = scramble(static_cast<std::uint32_t>(x) * 40503u);
+        const int speed = 9 + static_cast<int>(seed % 11u);
+        const int phase = static_cast<int>((seed >> 8) % 64u);
+
+        constexpr int kSpan = Framebuffer::kHeight + 8;
+        const int travelled =
+            static_cast<int>((elapsedMillis * static_cast<std::uint64_t>(speed)) / 1000u);
+        const int head = ((travelled + phase) % kSpan) - 4;
+
+        // Tumbling: the sideways offset changes as it falls, so a fleck flutters
+        // instead of dropping like a stone.
+        const int flutter = static_cast<int>(((static_cast<std::uint32_t>(head) + seed) / 2u) % 3u) - 1;
+
+        const Rgb color = kColors[(seed >> 3) % static_cast<std::uint32_t>(kPalette)];
+        lightIfDark(frame, x + flutter, head, color);
+    }
+}
+
 }  // namespace
 
 Overlay overlayFromName(std::string_view name) noexcept {
@@ -128,6 +244,10 @@ Overlay overlayFromName(std::string_view name) noexcept {
     if (name == "snow") return Overlay::Snow;
     if (name == "storm") return Overlay::Storm;
     if (name == "frost") return Overlay::Frost;
+    if (name == "stars") return Overlay::Stars;
+    if (name == "fog") return Overlay::Fog;
+    if (name == "sparkle") return Overlay::Sparkle;
+    if (name == "confetti") return Overlay::Confetti;
     return Overlay::None;
 }
 
@@ -137,6 +257,10 @@ const char* overlayName(Overlay overlay) noexcept {
         case Overlay::Snow: return "snow";
         case Overlay::Storm: return "storm";
         case Overlay::Frost: return "frost";
+        case Overlay::Stars: return "stars";
+        case Overlay::Fog: return "fog";
+        case Overlay::Sparkle: return "sparkle";
+        case Overlay::Confetti: return "confetti";
         case Overlay::None: break;
     }
     return "none";
@@ -148,6 +272,10 @@ Overlay overlayAt(int index) noexcept {
         case 2: return Overlay::Snow;
         case 3: return Overlay::Storm;
         case 4: return Overlay::Frost;
+        case 5: return Overlay::Stars;
+        case 6: return Overlay::Fog;
+        case 7: return Overlay::Sparkle;
+        case 8: return Overlay::Confetti;
         default: return Overlay::None;
     }
 }
@@ -176,6 +304,18 @@ void drawOverlay(Framebuffer& frame,
             return;
         case Overlay::Frost:
             drawFrost(frame, elapsedMillis, color);
+            return;
+        case Overlay::Stars:
+            drawStars(frame, elapsedMillis, color);
+            return;
+        case Overlay::Fog:
+            drawFog(frame, elapsedMillis, color);
+            return;
+        case Overlay::Sparkle:
+            drawSparkle(frame, elapsedMillis, color);
+            return;
+        case Overlay::Confetti:
+            drawConfetti(frame, elapsedMillis);
             return;
         case Overlay::None:
             return;

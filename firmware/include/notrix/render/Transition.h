@@ -19,7 +19,18 @@ enum class TransitionStyle : std::uint8_t {
     /// Crossfade through black. App to notification and back, where a slide
     /// would imply the notification is just the next item in the rotation.
     Fade,
+    /// The incoming frame is revealed column by column, travelling the way the
+    /// knob went. Sharper than a slide: nothing moves, the new thing simply
+    /// arrives across the panel.
+    Wipe,
+    /// Pixels change over in a fixed pseudo-random order. No direction, which
+    /// makes it the one style that does not imply where the next app is.
+    Dissolve,
 };
+
+/// Number of styles, for a settings UI that wants to list them.
+inline constexpr int kTransitionStyleCount = 5;
+TransitionStyle transitionStyleAt(int index) noexcept;
 
 TransitionStyle transitionStyleFromName(std::string_view name) noexcept;
 const char* transitionStyleName(TransitionStyle style) noexcept;

@@ -152,6 +152,8 @@ std::string buildBody(const Config& config) {
     body += std::to_string(config.apps.defaultDurationSeconds);
     body += ",\"transitions\":";
     body += config.apps.transitions ? "true" : "false";
+    body += ",\"transition\":";
+    appendEscaped(body, config.apps.transition);
     body += ",\"order\":[";
     for (std::size_t i = 0; i < config.apps.order.size(); ++i) {
         if (i > 0) {
@@ -331,6 +333,7 @@ bool ConfigStore::deserialize(std::string_view payload,
     parsed.apps.defaultDurationSeconds = clampDuration(
         apps["defaultDurationSeconds"].toInt(parsed.apps.defaultDurationSeconds));
     parsed.apps.transitions = apps["transitions"].toBool(parsed.apps.transitions);
+    parsed.apps.transition = apps["transition"].toString(parsed.apps.transition);
 
     // An order that cannot be read is dropped, not fatal. Losing the
     // arrangement of a carousel is a small annoyance; refusing to boot over it

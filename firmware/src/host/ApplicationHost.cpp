@@ -1284,11 +1284,16 @@ void ApplicationHost::beginTransition(std::uint64_t nowMillis,
     previousFrame_ = framebuffer_;
     transitionStartMillis_ = nowMillis;
     transitionDirection_ = direction;
-    // Notifications arrive rather than rotate, so they fade; the carousel
-    // slides (DESIGN.md section 6).
+    // Notifications arrive rather than rotate, so they always fade; the
+    // carousel uses whatever the user chose (DESIGN.md section 6).
+    //
+    // The notification case is deliberately not configurable. A slide would
+    // say the notification is simply the next item in the rotation, which is a
+    // statement about what a notification *is* rather than a preference - and
+    // getting it wrong makes an alarm look like an app.
     transitionStyle_ = notifications_.active() != nullptr
                            ? render::TransitionStyle::Fade
-                           : render::TransitionStyle::Slide;
+                           : render::transitionStyleFromName(settings_.apps.transition);
     transitionActive_ = true;
 }
 

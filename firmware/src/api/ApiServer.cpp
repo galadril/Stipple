@@ -7,6 +7,7 @@
 #include "notrix/app/AppRegistry.h"
 #include "notrix/core/Base64.h"
 #include "notrix/render/FrameScheduler.h"
+#include "notrix/render/Transition.h"
 #include "notrix/render/Overlay.h"
 #include "notrix/graphics/Framebuffer.h"
 #include "notrix/asset/IconStore.h"
@@ -109,6 +110,7 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .beginObject()
         .member("defaultDurationSeconds", settings.apps.defaultDurationSeconds)
         .member("transitions", settings.apps.transitions)
+        .member("transition", settings.apps.transition)
         .endObject()
         .key("clock")
         .beginObject()
@@ -1216,6 +1218,16 @@ Response ApiServer::handleSettings(const Request& request) {
         }
         if (const json::Value transitions = apps["transitions"]; transitions.isBoolean()) {
             updated.apps.transitions = transitions.toBool(true);
+        }
+        if (const json::Value style = apps["transition"]; style.isString()) {
+            // Only names that round-trip, like the clock face and the
+            // visualiser style. Falling back silently would leave a client
+            // believing it had chosen an animation it had not.
+            const std::string name = style.toString();
+            if (render::transitionStyleName(render::transitionStyleFromName(name)) != name) {
+                return unprocessable("'apps.transition' is not a known transition");
+            }
+            updated.apps.transition = name;
         }
     }
 

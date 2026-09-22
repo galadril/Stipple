@@ -241,16 +241,24 @@ NOTRIX_TEST(Transition, EndpointsAreExactlyTheTwoFrames) {
     const notrix::Framebuffer from = solid(notrix::rgb(255, 0, 0));
     const notrix::Framebuffer to = solid(notrix::rgb(0, 0, 255));
 
-    for (const TransitionStyle style :
-         {TransitionStyle::None, TransitionStyle::Slide, TransitionStyle::Fade}) {
-        notrix::Framebuffer out;
-        composite(out, from, to, style, TransitionDirection::Forward, 1000);
-        NOTRIX_CHECK(out == to);
+    // Every style, by index rather than by name. Listing them here meant a
+    // style added later was silently untested - which is how wipe and dissolve
+    // arrived with no endpoint check at all.
+    for (int i = 0; i < kTransitionStyleCount; ++i) {
+        const TransitionStyle style = transitionStyleAt(i);
+        for (const TransitionDirection direction :
+             {TransitionDirection::Forward, TransitionDirection::Backward}) {
+            notrix::Framebuffer out;
+            composite(out, from, to, style, direction, 1000);
+            NOTRIX_CHECK(out == to);
+
+            notrix::Framebuffer start;
+            composite(start, from, to, style, direction, 0);
+            // None is the destination at any progress, by definition.
+            NOTRIX_CHECK(start == (style == TransitionStyle::None ? to : from));
+        }
     }
 
-    notrix::Framebuffer start;
-    composite(start, from, to, TransitionStyle::Slide, TransitionDirection::Forward, 0);
-    NOTRIX_CHECK(start == from);
 }
 
 NOTRIX_TEST(Transition, ProgressIsClamped) {
@@ -314,11 +322,19 @@ NOTRIX_TEST(Transition, NoneIsTheDestinationImmediately) {
 
 NOTRIX_TEST(Transition, NamesRoundTrip) {
     using namespace notrix::render;
-    for (const TransitionStyle style :
-         {TransitionStyle::None, TransitionStyle::Slide, TransitionStyle::Fade}) {
+    for (int i = 0; i < kTransitionStyleCount; ++i) {
+        const TransitionStyle style = transitionStyleAt(i);
         NOTRIX_CHECK(transitionStyleFromName(transitionStyleName(style)) == style);
     }
     NOTRIX_CHECK(transitionStyleFromName("nonsense") == TransitionStyle::None);
+
+    // Every index maps to a distinct style, or a settings UI listing them by
+    // index would offer the same thing twice.
+    for (int i = 0; i < kTransitionStyleCount; ++i) {
+        for (int j = i + 1; j < kTransitionStyleCount; ++j) {
+            NOTRIX_CHECK(transitionStyleAt(i) != transitionStyleAt(j));
+        }
+    }
 }
 
 
@@ -434,4 +450,91 @@ NOTRIX_TEST(Overlay, NamesRoundTrip) {
         NOTRIX_CHECK(overlayFromName(overlayName(overlay)) == overlay);
     }
     NOTRIX_CHECK(overlayFromName("hurricane") == Overlay::None);
+}
+
+NOTRIX_TEST(Transition, WipeRevealsWithoutMovingEitherFrame) {
+    // The difference from a slide, and the reason to have both: here nothing
+    // travels, so each pixel is one frame or the other rather than a shifted
+    // copy.
+    using namespace notrix::render;
+    notrix::Framebuffer from;
+    notrix::Framebuffer to;
+    for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+            from.set(x, y, notrix::rgb(static_cast<std::uint8_t>(x * 4 + 1), 0, 0));
+            to.set(x, y, notrix::rgb(0, 0, static_cast<std::uint8_t>(x * 4 + 1)));
+        }
+    }
+
+    notrix::Framebuffer out;
+    composite(out, from, to, TransitionStyle::Wipe, TransitionDirection::Forward, 500);
+
+    for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+            const notrix::Rgb pixel = out.at(x, y);
+            NOTRIX_CHECK(pixel == from.at(x, y) || pixel == to.at(x, y));
+        }
+    }
+}
+
+NOTRIX_TEST(Transition, WipeArrivesFromTheSideTheContentWouldHaveTravelled) {
+    // A wipe that contradicted the slide would mean the two styles disagree
+    // about which way "next" is, and the knob would feel different depending
+    // on a setting.
+    using namespace notrix::render;
+    const notrix::Framebuffer from = solid(notrix::rgb(255, 0, 0));
+    const notrix::Framebuffer to = solid(notrix::rgb(0, 0, 255));
+
+    notrix::Framebuffer forward;
+    composite(forward, from, to, TransitionStyle::Wipe, TransitionDirection::Forward, 250);
+    NOTRIX_CHECK(forward.at(notrix::Framebuffer::kWidth - 1, 0) == to.at(0, 0));
+    NOTRIX_CHECK(forward.at(0, 0) == from.at(0, 0));
+
+    notrix::Framebuffer backward;
+    composite(backward, from, to, TransitionStyle::Wipe, TransitionDirection::Backward, 250);
+    NOTRIX_CHECK(backward.at(0, 0) == to.at(0, 0));
+    NOTRIX_CHECK(backward.at(notrix::Framebuffer::kWidth - 1, 0) == from.at(0, 0));
+}
+
+NOTRIX_TEST(Transition, DissolveTurnsPixelsOverGraduallyAndEvenly) {
+    using namespace notrix::render;
+    const notrix::Framebuffer from = solid(notrix::rgb(255, 0, 0));
+    const notrix::Framebuffer to = solid(notrix::rgb(0, 0, 255));
+
+    auto converted = [&](int permille) {
+        notrix::Framebuffer out;
+        composite(out, from, to, TransitionStyle::Dissolve, TransitionDirection::Forward, permille);
+        int count = 0;
+        for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+            for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+                if (out.at(x, y) == to.at(0, 0)) { ++count; }
+            }
+        }
+        return count;
+    };
+
+    const int total = notrix::Framebuffer::kWidth * notrix::Framebuffer::kHeight;
+    NOTRIX_CHECK_EQ(converted(0), 0);
+    NOTRIX_CHECK_EQ(converted(1000), total);
+
+    // Monotonic, and roughly in step with progress - a dissolve that did most
+    // of its work in the last tenth reads as a jump, not a dissolve.
+    NOTRIX_CHECK(converted(250) < converted(500));
+    NOTRIX_CHECK(converted(500) < converted(750));
+    NOTRIX_CHECK(converted(500) > total / 4);
+    NOTRIX_CHECK(converted(500) < (total * 3) / 4);
+}
+
+NOTRIX_TEST(Transition, DissolveIgnoresDirection) {
+    // It has none. That is the point: it is the one style that does not say
+    // where the next app came from.
+    using namespace notrix::render;
+    const notrix::Framebuffer from = solid(notrix::rgb(255, 0, 0));
+    const notrix::Framebuffer to = solid(notrix::rgb(0, 0, 255));
+
+    notrix::Framebuffer forward;
+    notrix::Framebuffer backward;
+    composite(forward, from, to, TransitionStyle::Dissolve, TransitionDirection::Forward, 400);
+    composite(backward, from, to, TransitionStyle::Dissolve, TransitionDirection::Backward, 400);
+    NOTRIX_CHECK(forward == backward);
 }

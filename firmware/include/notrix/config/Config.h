@@ -110,7 +110,23 @@ inline constexpr int kMaxRememberedApps = 32;
 
 struct AppSettings {
     int defaultDurationSeconds = 8;
+
+    /// Whether app changes animate at all. Kept as the master switch because
+    /// "off" is a thing people want for its own sake - a panel in a bedroom
+    /// that simply changes is less distracting than any animation, however
+    /// tasteful.
     bool transitions = true;
+
+    /// Which animation, when they do. By name (see
+    /// render::transitionStyleFromName), for the same reason the clock face
+    /// and the overlay are: an enum ordinal in a config file is unreadable,
+    /// and renumbering it silently changes what a device does.
+    ///
+    /// Applies to app-to-app changes only. A notification always fades in,
+    /// because a slide would imply it is simply the next item in the rotation
+    /// (DESIGN.md §6) - that is a statement about what a notification *is*,
+    /// not a preference.
+    std::string transition = "slide";
 
     /// Display order, first to last.
     ///
