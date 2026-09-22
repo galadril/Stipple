@@ -408,6 +408,20 @@ Response ApiServer::handleDevice(const Request& request) {
         if (!status.ssid.empty()) {
             writer.member("ssid", status.ssid);
         }
+
+        // The lease, where something is managing one. Its absence is the
+        // interesting case and is reported as absence: a device running on an
+        // address nothing is renewing looks identical to a healthy one right
+        // up until the address is taken back.
+        writer.member("leaseManaged", status.leaseKnown);
+        if (status.leaseKnown) {
+            writer.member("leaseState", status.leaseState);
+            if (status.leaseSeconds == 0xFFFFFFFFu) {
+                writer.member("leaseSeconds", -1);  // granted forever
+            } else {
+                writer.member("leaseSeconds", static_cast<std::int64_t>(status.leaseSeconds));
+            }
+        }
         writer.endObject();
     } else {
         // Null rather than a fabricated "disconnected": this platform has no
@@ -1524,6 +1538,20 @@ Response ApiServer::handleNetwork(const Request& request) {
     }
     if (status.signalKnown) {
         writer.member("rssiDbm", status.rssiDbm);
+    }
+
+    // The lease, where something is managing one. Its absence is the
+    // interesting case and is reported as absence: a device running on an
+    // address nothing is renewing looks identical to a healthy one right
+    // up until the address is taken back.
+    writer.member("leaseManaged", status.leaseKnown);
+    if (status.leaseKnown) {
+        writer.member("leaseState", status.leaseState);
+        if (status.leaseSeconds == 0xFFFFFFFFu) {
+        writer.member("leaseSeconds", -1);  // granted forever
+        } else {
+        writer.member("leaseSeconds", static_cast<std::int64_t>(status.leaseSeconds));
+        }
     }
 
     // Reported so a page can tell "this device cannot look" from "nothing is

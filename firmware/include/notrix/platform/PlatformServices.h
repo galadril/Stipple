@@ -51,6 +51,25 @@ struct NetworkStatus {
     /// The network joined, where the platform can say. Empty otherwise -
     /// which is normal on a wired or simulated device, not a failure.
     std::string ssid;
+
+    /// Whether this platform obtains and renews its own address.
+    ///
+    /// False does not mean "no address". It means nothing is renewing one,
+    /// which is a real and different state: a device can be perfectly
+    /// reachable on an address it inherited and lose it hours later when the
+    /// lease it never owned runs out. Reporting that as an ordinary
+    /// connection would hide the one fault nobody can diagnose afterwards
+    /// (ADR 0013).
+    bool leaseKnown = false;
+
+    /// Seconds left on it. Zero when not held; 0xFFFFFFFF when the server
+    /// granted one that never expires. Meaningful only when `leaseKnown`.
+    std::uint32_t leaseSeconds = 0;
+
+    /// What the client is doing, in its own words: bound, renewing,
+    /// rebinding, selecting. Kept verbatim, because a state a UI does not
+    /// recognise is exactly the one worth showing a person.
+    std::string leaseState;
 };
 
 /// One access point in range.

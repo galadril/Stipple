@@ -428,6 +428,7 @@
                 if (device.network.rssiDbm !== undefined) {
                     addFact(facts, 'Signal', device.network.rssiDbm + ' dBm');
                 }
+                addFact(facts, 'Lease', leaseFor(device.network));
             } else {
                 addFact(facts, 'Network', 'not connected');
             }
@@ -876,6 +877,27 @@
         return out;
     }
 
+    // How long is left on the address, in words a person reads rather than
+    // a number of seconds. The useful distinction is hours-and-days, not
+    // precision.
+    function leaseFor(state) {
+        if (!state.leaseManaged) {
+            // Deliberately not silence. A device running on an address
+            // nothing renews looks exactly like a healthy one until the
+            // address is taken back, and then nobody can reach it to find
+            // out why.
+            return 'not managed - running on an inherited address';
+        }
+        if (state.leaseSeconds === -1) { return state.leaseState + ', granted forever'; }
+        var left = state.leaseSeconds;
+        var text;
+        if (left >= 86400) { text = Math.floor(left / 86400) + 'd ' + Math.floor((left % 86400) / 3600) + 'h'; }
+        else if (left >= 3600) { text = Math.floor(left / 3600) + 'h ' + Math.floor((left % 3600) / 60) + 'm'; }
+        else if (left >= 60) { text = Math.floor(left / 60) + 'm'; }
+        else { text = left + 's'; }
+        return state.leaseState + ', ' + text + ' left';
+    }
+
     function loadNetwork() {
         return send('GET', '/api/v1/network').then(function (state) {
             var facts = $('network-facts');
@@ -888,6 +910,7 @@
                     addFact(facts, 'Signal', signalBars(state.rssiDbm) + '  ' +
                                              state.rssiDbm + ' dBm');
                 }
+                addFact(facts, 'Lease', leaseFor(state));
             }
 
             var scan = $('network-scan');

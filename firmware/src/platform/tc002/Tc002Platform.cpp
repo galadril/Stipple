@@ -289,6 +289,20 @@ NetworkStatus Tc002Network::status() const {
     result.rssiDbm = signal.levelDbm;
     result.ssid = readSsid(kWirelessInterface);
 
+    // The lease, when something is holding one. Absent rather than zero when
+    // nothing is: a device running on an address it inherited is reachable
+    // right up until that address is taken back, and saying "0 seconds left"
+    // would describe the opposite situation.
+    if (dhcp_ != nullptr && dhcp_->running()) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        const std::uint64_t millis = static_cast<std::uint64_t>(now.tv_sec) * 1000u +
+                                     static_cast<std::uint64_t>(now.tv_nsec) / 1000000u;
+        result.leaseKnown = true;
+        result.leaseSeconds = dhcp_->remainingSeconds(millis);
+        result.leaseState = net::dhcp::DhcpClient::stateName(dhcp_->state());
+    }
+
     char hostname[128] = {};
     if (::gethostname(hostname, sizeof(hostname) - 1) == 0) {
         result.hostname = hostname;

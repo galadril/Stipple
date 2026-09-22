@@ -1181,3 +1181,25 @@ without being restarted.
 So a DHCP client is not a hotspot detail. It is a thing NOTRIX needs in order
 to be the application on this device at all, and it has to be written: there is
 nothing here to call.
+
+### Confirmed while writing one
+
+NOTRIX now obtains and renews its own lease, and the live run settled three
+things that were guesses beforehand.
+
+**`AF_PACKET` works on this kernel.** A `SOCK_DGRAM` packet socket binds and
+receives; `/proc/net/packet` shows it with proto `0800` on `wlan0`, alongside
+`wpa_supplicant`'s own `888e` EAPOL socket. So a client here can bootstrap
+from no address at all, which is what first boot needs.
+
+**The lease this device is issued is 86400 seconds.** That is the number
+behind the whole problem: a NOTRIX device left alone loses its network after a
+day.
+
+**The router honours option 50.** Asking to keep the address already on the
+interface returned the same address, so taking the lease over from the vendor
+application is invisible to everything else on the network.
+
+`/sbin/ifconfig` is a busybox symlink and there is no `/bin/ifconfig`, but
+none of it is needed: `SIOCSIFADDR`, `SIOCSIFNETMASK` and `SIOCADDRT` all
+work directly, which is better than parsing a tool's output anyway.

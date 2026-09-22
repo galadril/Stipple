@@ -193,8 +193,10 @@ been up for a full lease period without a restart, so nobody has seen it.
 
 1. ~~Physical escape hatch~~ — done.
 2. ~~Scanning~~ — done.
-3. **A DHCP client.** Needed by the hotspot, needed by joining, and needed by
-   NOTRIX as the application on this device regardless of either.
+3. ~~A DHCP client~~ — done, and running on hardware. See
+   [ADR 0019](0019-notrix-speaks-dhcp.md). It turned out to be needed by
+   NOTRIX as the application on this device regardless of provisioning: the
+   lease this device is issued is 86400 seconds, and nothing was renewing it.
 4. Hotspot — reverts by restoring the station *and asking for an address*.
 5. Joining.
 6. Access control, then first run.

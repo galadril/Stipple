@@ -102,7 +102,17 @@ public:
     bool beginScan() override;
     std::vector<WirelessNetwork> networks() const override;
 
+    /// Where the lease comes from, so status() can report it.
+    ///
+    /// A pointer rather than ownership: the client belongs to the platform
+    /// and is pumped from the loop, while this is the read-only view of it
+    /// that core is allowed to see. Null means nothing is managing a lease,
+    /// which status() reports as such rather than as zero seconds left.
+    void observe(const Tc002Dhcp* dhcp) noexcept { dhcp_ = dhcp; }
+
 private:
+    const Tc002Dhcp* dhcp_ = nullptr;
+
     /// Opened on first use and kept.
     ///
     /// Mutable because status() and networks() are const - they observe the
@@ -129,6 +139,11 @@ private:
 /// wrong answer.
 class Tc002Platform final : public IPlatformServices {
 public:
+    /// Points the read-only network view at the lease. A fact about how this
+    /// object is assembled, not about whether any device opened, so it
+    /// belongs here rather than in open().
+    Tc002Platform() { network_.observe(&dhcp_); }
+
     /// Brings up display, input, storage and clock. Returns false if the
     /// display or input cannot be opened; those are required services and a
     /// clock without them is not worth starting.

@@ -198,6 +198,7 @@ int main(int argc, char** argv) {
                     (started && platform.dhcp().usingFallback()) ? " (udp fallback)" : "");
         const std::string opening = platform.dhcp().takeEvent();
         if (!opening.empty()) {
+            host.logger().info(platform.clock().monotonicMillis(), opening);
             std::printf("                %s\n", opening.c_str());
         }
     } else {
@@ -263,6 +264,7 @@ int main(int argc, char** argv) {
         platform.dhcp().tick(now);
         const std::string leaseEvent = platform.dhcp().takeEvent();
         if (!leaseEvent.empty()) {
+            host.logger().info(now, leaseEvent);
             std::printf("  %s\n", leaseEvent.c_str());
             std::fflush(stdout);
         }
