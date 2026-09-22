@@ -108,8 +108,9 @@ private:
     /// only shows up on a slow boot.
     int run(const char* const argv[]) const;
 
-    /// Start a daemon and keep its pid so it can be stopped again.
-    int spawn(const char* const argv[]) const;
+    /// Start a daemon, keep its pid so it can be stopped again, and keep
+    /// what it says. `logPath` is truncated on each run.
+    int spawn(const char* const argv[], const char* logPath) const;
 
     /// Reap either daemon if it has exited. Returns true if one had.
     bool reapDead();

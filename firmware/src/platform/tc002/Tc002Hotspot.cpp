@@ -158,18 +158,26 @@ int Tc002Hotspot::run(const char* const argv[]) const {
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
-int Tc002Hotspot::spawn(const char* const argv[]) const {
+int Tc002Hotspot::spawn(const char* const argv[], const char* logPath) const {
     const pid_t pid = ::fork();
     if (pid < 0) {
         return -1;
     }
     if (pid == 0) {
-        const int null = ::open("/dev/null", O_RDWR);
-        if (null >= 0) {
-            ::dup2(null, STDOUT_FILENO);
-            ::dup2(null, STDERR_FILENO);
-            if (null > STDERR_FILENO) {
-                ::close(null);
+        // Kept, not discarded.
+        //
+        // These went to /dev/null, and hostapd was the one component in the
+        // whole path that had never said a word - so a run where it stayed
+        // alive for two and a half minutes and broadcast nothing visible
+        // left nothing at all to read. A daemon whose output is thrown away
+        // is a daemon that can only be guessed at.
+        const int log = ::open(logPath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        const int sink = log >= 0 ? log : ::open("/dev/null", O_RDWR);
+        if (sink >= 0) {
+            ::dup2(sink, STDOUT_FILENO);
+            ::dup2(sink, STDERR_FILENO);
+            if (sink > STDERR_FILENO) {
+                ::close(sink);
             }
         }
         ::execv(argv[0], const_cast<char* const*>(argv));
@@ -215,7 +223,7 @@ bool Tc002Hotspot::start(const std::string& ssid, std::uint64_t nowMillis) {
     }
 
     const char* const startHostapd[] = {"/bin/hostapd", kHostapdConf, nullptr};
-    hostapdPid_ = spawn(startHostapd);
+    hostapdPid_ = spawn(startHostapd, "/tmp/notrix-hostapd.log");
     if (hostapdPid_ < 0) {
         note("hotspot: hostapd would not start");
         stop();
@@ -224,7 +232,7 @@ bool Tc002Hotspot::start(const std::string& ssid, std::uint64_t nowMillis) {
 
     const char* const startDnsmasq[] = {"/bin/dnsmasq", "--keep-in-foreground",
                                         "--conf-file=/tmp/notrix-dnsmasq.conf", nullptr};
-    dnsmasqPid_ = spawn(startDnsmasq);
+    dnsmasqPid_ = spawn(startDnsmasq, "/tmp/notrix-dnsmasq-stderr.log");
     if (dnsmasqPid_ < 0) {
         note("hotspot: dnsmasq would not start");
         stop();
@@ -234,7 +242,12 @@ bool Tc002Hotspot::start(const std::string& ssid, std::uint64_t nowMillis) {
     running_ = true;
     ssid_ = ssid;
     startedAtMillis_ = nowMillis;
-    note("hotspot: serving " + ssid + " on " + std::string(kAddress));
+
+    // "started" rather than "serving". Both daemons being alive says they
+    // were spawned, not that anything is on the air - a run where hostapd
+    // stayed up for two and a half minutes without broadcasting anything
+    // visible is exactly why that distinction is now in the wording.
+    note("hotspot: started " + ssid + " on " + std::string(kAddress));
     return true;
 }
 
