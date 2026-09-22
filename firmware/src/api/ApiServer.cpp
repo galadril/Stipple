@@ -114,6 +114,17 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .member("keepAliveSeconds", settings.mqtt.keepAliveSeconds)
         .member("discovery", settings.mqtt.discovery)
         .endObject()
+        .key("web")
+        .beginObject()
+        // An empty username means no authentication at all, which is the
+        // default. Reported so a page can say so plainly rather than leaving
+        // somebody to infer it from two blank fields.
+        .member("username", settings.web.username)
+        // Never returned, exactly like the MQTT password - which also keeps
+        // it out of backups, since those are taken from this API. A settings
+        // file in somebody's downloads folder should not be a credential.
+        .member("passwordSet", !settings.web.password.empty())
+        .endObject()
         .key("apps")
         .beginObject()
         .member("defaultDurationSeconds", settings.apps.defaultDurationSeconds)
@@ -1314,6 +1325,47 @@ Response ApiServer::handleSettings(const Request& request) {
         }
         if (const json::Value value = mqtt["discovery"]; value.isBoolean()) {
             updated.mqtt.discovery = value.toBool(false);
+        }
+    }
+
+    if (const json::Value web = root["web"]; web.isObject()) {
+        const json::Value userValue = web["username"];
+        const json::Value passValue = web["password"];
+
+        if (userValue.isString()) {
+            const std::string user = userValue.toString();
+            if (user.size() > 64) {
+                return unprocessable("'web.username' is at most 64 characters");
+            }
+            // A colon cannot appear in a Basic username: the credential is
+            // "user:password" and the first colon is the separator, so a
+            // username containing one could never be sent back. Refused with
+            // a reason rather than accepted and then permanently unusable -
+            // which on an authentication setting means locked out.
+            if (user.find(':') != std::string::npos) {
+                return unprocessable("'web.username' cannot contain a colon");
+            }
+            updated.web.username = user;
+        }
+
+        // Write-only: accepted, never returned. An empty string clears it,
+        // which is the only way to remove a stored credential through the
+        // API.
+        if (passValue.isString()) {
+            const std::string password = passValue.toString();
+            if (password.size() > 128) {
+                return unprocessable("'web.password' is at most 128 characters");
+            }
+            updated.web.password = password;
+        }
+
+        // Turning it on needs both. Half-configured is refused here rather
+        // than half-applied, because the failure mode of getting this wrong
+        // is a device nobody can log into - and unlike most settings, the
+        // page that would fix it is behind the thing that broke.
+        if (!updated.web.username.empty() && updated.web.password.empty()) {
+            return unprocessable(
+                "'web.password' is required when 'web.username' is set");
         }
     }
 

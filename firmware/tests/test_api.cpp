@@ -687,6 +687,66 @@ NOTRIX_TEST(Api, TheMqttPasswordCanBeSetAndCleared) {
     NOTRIX_CHECK(fixture.config.mqtt.password.empty());
 }
 
+NOTRIX_TEST(Api, TheAccessPasswordIsWriteOnly) {
+    // The same rule as the MQTT password, and for a sharper reason: backups
+    // are taken from this API, so anything returned here ends up in a file
+    // in somebody's downloads folder.
+    Fixture fixture;
+    fixture.config.web.username = "mark";
+    fixture.config.web.password = "hunter2-do-not-leak";
+
+    const std::string body = fixture.call("GET", "/api/v1/settings").body;
+
+    NOTRIX_CHECK(body.find("hunter2-do-not-leak") == std::string::npos);
+    NOTRIX_CHECK(body.find("\"username\":\"mark\"") != std::string::npos);
+    NOTRIX_CHECK(body.find("\"passwordSet\":true") != std::string::npos);
+}
+
+NOTRIX_TEST(Api, AccessCanBeTurnedOnAndOff) {
+    Fixture fixture;
+
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings",
+                     R"({"web":{"username":"mark","password":"hunter22"}})").status, 200);
+    NOTRIX_CHECK_EQ(fixture.config.web.username, std::string("mark"));
+    NOTRIX_CHECK_EQ(fixture.config.web.password, std::string("hunter22"));
+
+    // Both cleared together, which is the only way off.
+    fixture.call("PATCH", "/api/v1/settings", R"({"web":{"username":"","password":""}})");
+    NOTRIX_CHECK(fixture.config.web.username.empty());
+    NOTRIX_CHECK(fixture.config.web.password.empty());
+}
+
+NOTRIX_TEST(Api, RefusesHalfConfiguredAccess) {
+    // The failure mode of getting this wrong is a device nobody can log
+    // into, and unlike most settings the page that would fix it is behind
+    // the thing that broke. So it is refused here rather than half-applied.
+    Fixture fixture;
+
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"web":{"username":"mark"}})").status, 422);
+    NOTRIX_CHECK(fixture.config.web.username.empty());
+
+    // And clearing only the password, leaving a username behind, is the same
+    // mistake from the other direction.
+    fixture.config.web.username = "mark";
+    fixture.config.web.password = "hunter22";
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"web":{"password":""}})").status, 422);
+    NOTRIX_CHECK_EQ(fixture.config.web.password, std::string("hunter22"));
+}
+
+NOTRIX_TEST(Api, RefusesAUsernameThatCouldNeverBeSent) {
+    // A Basic credential is "user:password" split on the first colon, so a
+    // username containing one could never come back. Accepting it would
+    // store a setting that locks the device permanently.
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings",
+                     R"({"web":{"username":"ma:rk","password":"hunter22"}})").status, 422);
+    NOTRIX_CHECK(fixture.config.web.username.empty());
+}
+
 NOTRIX_TEST(Api, PatchAcceptsMqttSettings) {
     Fixture fixture;
     const Response response = fixture.call("PATCH", "/api/v1/settings",

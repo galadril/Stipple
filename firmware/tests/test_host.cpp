@@ -10,6 +10,7 @@
 #include "notrix/input/Navigator.h"
 #include "notrix/input/Rescue.h"
 #include "notrix/platform/simulator/SimulatorPlatform.h"
+#include "notrix/core/Base64.h"
 #include "support/TestFramework.h"
 
 using notrix::Framebuffer;
@@ -829,6 +830,98 @@ NOTRIX_TEST(Host, ServesTheApi) {
     const notrix::api::Response response = host.handle(request);
     NOTRIX_CHECK_EQ(response.status, 200);
     NOTRIX_CHECK(response.body.find("clock") != std::string::npos);
+}
+
+namespace {
+
+/// The header a browser or curl would send.
+std::string basicHeader(const std::string& user, const std::string& password) {
+    const std::string joined = user + ":" + password;
+    return "Basic " + notrix::base64::encode(
+                          reinterpret_cast<const std::uint8_t*>(joined.data()), joined.size());
+}
+
+}  // namespace
+
+NOTRIX_TEST(Host, ServesEverythingWhenNoPasswordIsSet) {
+    // Off by default. A device that demanded a password before it would show
+    // a clock would be a worse first five minutes than the risk it removes.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    notrix::api::Request page;
+    page.method = notrix::api::Method::Get;
+    page.path = "/";
+    NOTRIX_CHECK_EQ(host.handle(page).status, 200);
+
+    notrix::api::Request api;
+    api.method = notrix::api::Method::Get;
+    api.path = "/api/v1/apps";
+    NOTRIX_CHECK_EQ(host.handle(api).status, 200);
+}
+
+NOTRIX_TEST(Host, ThePasswordCoversThePageAndTheApiAlike) {
+    // One gate, because they are the same server and two schemes would be two
+    // things to get wrong (ADR 0018). The page matters as much as the API: it
+    // is what somebody uses to change the device.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().web.username = "mark";
+    host.settings().web.password = "hunter22";
+
+    const char* paths[] = {"/", "/app.js", "/api/v1/apps", "/api/v1/settings",
+                           "/api/v1/health"};
+    for (const char* path : paths) {
+        notrix::api::Request request;
+        request.method = notrix::api::Method::Get;
+        request.path = path;
+        NOTRIX_CHECK_EQ(host.handle(request).status, 401);
+
+        request.authorization = basicHeader("mark", "hunter22");
+        NOTRIX_CHECK(host.handle(request).status != 401);
+    }
+}
+
+NOTRIX_TEST(Host, ADeniedRequestTellsTheBrowserHowToAsk) {
+    // Without WWW-Authenticate a browser shows a bare error page and the
+    // person has no way to supply what is missing.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().web.username = "mark";
+    host.settings().web.password = "hunter22";
+
+    notrix::api::Request request;
+    request.method = notrix::api::Method::Get;
+    request.path = "/";
+
+    const notrix::api::Response denied = host.handle(request);
+    NOTRIX_CHECK_EQ(denied.status, 401);
+    NOTRIX_CHECK(denied.wwwAuthenticate.find("Basic") != std::string::npos);
+    NOTRIX_CHECK(denied.wwwAuthenticate.find("NOTRIX") != std::string::npos);
+}
+
+NOTRIX_TEST(Host, AWrongPasswordChangesNothing) {
+    // The one that matters. A gate that refuses reads and lets writes through
+    // would be worse than no gate, because it would look like one.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().web.username = "mark";
+    host.settings().web.password = "hunter22";
+
+    const auto before = host.settings().display.brightness;
+
+    notrix::api::Request write;
+    write.method = notrix::api::Method::Patch;
+    write.path = "/api/v1/settings";
+    write.body = R"({"display":{"brightness":7}})";
+    write.authorization = basicHeader("mark", "wrong");
+
+    NOTRIX_CHECK_EQ(host.handle(write).status, 401);
+    NOTRIX_CHECK_EQ(host.settings().display.brightness, before);
 }
 
 NOTRIX_TEST(Host, ServesTheConfigurationUi) {
@@ -2173,4 +2266,27 @@ NOTRIX_TEST(Host, AnOrdinaryPressDoesNotTriggerTheRescue) {
     run(host, platform, 9000, 100);
 
     NOTRIX_CHECK_EQ(host.settings().web.password, std::string("kept"));
+}
+
+NOTRIX_TEST(Host, TheRescueGestureClearsTheLockout) {
+    // The way back that does not need the network (ADR 0018). Somebody locked
+    // out of a clock has no other route in: USB-C on this device is mass
+    // storage, and ADB arrives over the network they cannot reach.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 300);
+    host.settings().web.username = "mark";
+    host.settings().web.password = "hunter22";
+
+    notrix::api::Request request;
+    request.method = notrix::api::Method::Get;
+    request.path = "/api/v1/apps";
+    NOTRIX_CHECK_EQ(host.handle(request).status, 401);
+
+    holdBothButtons(host, platform, 1000, notrix::input::Rescue::kHoldMillis + 500);
+
+    NOTRIX_CHECK(host.settings().web.username.empty());
+    NOTRIX_CHECK(host.settings().web.password.empty());
+    NOTRIX_CHECK_EQ(host.handle(request).status, 200);
 }

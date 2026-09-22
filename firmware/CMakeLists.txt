@@ -56,6 +56,7 @@ add_library(notrix_core
     src/api/Http.cpp
     src/api/JsonWriter.cpp
     src/api/ApiServer.cpp
+    src/api/BasicAuth.cpp
     src/mqtt/MqttBridge.cpp
     src/mqtt/MqttService.cpp
 )

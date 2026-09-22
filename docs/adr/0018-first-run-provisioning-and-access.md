@@ -213,8 +213,11 @@ been up for a full lease period without a restart, so nobody has seen it.
    NOTRIX as the application on this device regardless of provisioning: the
    lease this device is issued is 86400 seconds, and nothing was renewing it.
 4. Hotspot — reverts by restoring the station *and asking for an address*.
-5. Joining.
-6. Access control, then first run.
+5. ~~Joining~~ — done, and proven live: hotspot, configuration page, network
+   chosen, device joined and came back on the LAN.
+6. ~~Access control~~ — done. HTTP Basic, off by default, covering the page
+   and the API through one gate in `ApplicationHost::handle`.
+7. First run — the last one.
 
 ### And a rule about testing this
 

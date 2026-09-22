@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/host/ApplicationHost.h"
 
+#include "notrix/api/BasicAuth.h"
+
 #include "notrix/apps/BatteryApp.h"
 #include "notrix/render/Overlay.h"
 #include "notrix/apps/VisualizerApp.h"
@@ -1582,6 +1584,27 @@ bool ApplicationHost::transitionRunning(std::uint64_t nowMillis) const noexcept 
 // --- API ---------------------------------------------------------------------
 
 api::Response ApplicationHost::handle(const api::Request& request) {
+    // One gate, ahead of both the page and the API, because they are the same
+    // server and two schemes would be two things to get wrong (ADR 0018).
+    //
+    // Off by default: a device that demanded a password before it would show
+    // a clock would be a worse first five minutes than the risk it removes.
+    // It is offered during first run rather than left to be discovered.
+    //
+    // Everything is behind it, with no carve-out for /health or the static
+    // page. An exception is a thing to remember, and the one nobody
+    // remembers is the one that matters - a device whose panel can be
+    // rewritten through the endpoint somebody decided was harmless.
+    if (!settings_.web.username.empty() &&
+        !api::basicAuthorised(request.authorization, settings_.web.username,
+                              settings_.web.password)) {
+        api::Response denied = api::error(401, "unauthorized", "authentication required");
+        // Without this a browser shows a bare error page and the person has
+        // no way to supply what is missing.
+        denied.wwwAuthenticate = "Basic realm=\"NOTRIX\", charset=\"UTF-8\"";
+        return denied;
+    }
+
     // The configuration UI is tried first, but only for paths the API does not
     // own. Ordering it this way means a future asset called "api" could never
     // shadow an endpoint, and an unknown /api/v1 path still gets the API's own

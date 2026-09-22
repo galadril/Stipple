@@ -310,9 +310,11 @@ bool Tc002HttpServer::tryParse(const std::string& raw, api::Request& request,
         } else if (equalsIgnoreCase(name, "x-api-key")) {
             request.authToken = std::string(value);
         } else if (equalsIgnoreCase(name, "authorization")) {
-            // Only Bearer is recognised. api::Request wants the token itself,
-            // not the scheme, so anything else is left for the handler to
-            // reject as missing rather than half-understood here.
+            // Kept whole as well as split. Basic is decided in the core, and
+            // the transport's job is to hand over what arrived rather than
+            // to decide what it means.
+            request.authorization = std::string(value);
+
             constexpr std::string_view kBearer = "Bearer ";
             if (value.size() > kBearer.size() &&
                 equalsIgnoreCase(value.substr(0, kBearer.size()), kBearer)) {
@@ -364,6 +366,9 @@ void Tc002HttpServer::queueResponse(Connection& connection,
 
     if (!response.etag.empty()) {
         connection.outbound += "ETag: " + response.etag + "\r\n";
+    }
+    if (!response.wwwAuthenticate.empty()) {
+        connection.outbound += "WWW-Authenticate: " + response.wwwAuthenticate + "\r\n";
     }
     if (!response.cacheControl.empty()) {
         connection.outbound += "Cache-Control: " + response.cacheControl + "\r\n";

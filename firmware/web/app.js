@@ -196,6 +196,9 @@
             controls.forEach(function (input) {
                 writeControl(input, pathGet(settings, input.getAttribute('data-setting')));
             });
+            // Not a data-setting control: the password half is write-only, so
+            // the pair cannot round-trip through the generic binding.
+            showAccess(settings);
         });
     }
 
@@ -1024,6 +1027,75 @@
             }
 
             showJoin(state.join);
+        });
+    }
+
+    function showAccess(settings) {
+        var state = $('access-state');
+        var user = $('access-user');
+        if (!state) { return; }
+
+        var web = (settings && settings.web) || {};
+        if (web.username) {
+            state.textContent = 'On, as "' + web.username + '".';
+            if (user && document.activeElement !== user) { user.value = web.username; }
+        } else {
+            // Said plainly. Two blank fields is not an answer to "is this
+            // device protected".
+            state.textContent = 'Off - anyone on this network can change this device.';
+        }
+    }
+
+    function wireAccess() {
+        var save = $('access-save');
+        var clear = $('access-clear');
+        var state = $('access-state');
+        if (!save || !clear) { return; }
+
+        save.addEventListener('click', function () {
+            var user = ($('access-user') || {}).value || '';
+            var pass = ($('access-pass') || {}).value || '';
+            if (!user.trim() || !pass) {
+                if (state) {
+                    state.textContent = 'Both a username and a password are needed.';
+                }
+                return;
+            }
+
+            save.disabled = true;
+            send('PATCH', '/api/v1/settings', { web: { username: user, password: pass } })
+                .then(function () {
+                    // Not kept in the field. The device never gives it back,
+                    // so a browser is the only place it would linger - and
+                    // the next request needs it, which the browser will now
+                    // ask for.
+                    var field = $('access-pass');
+                    if (field) { field.value = ''; }
+                    if (state) {
+                        state.textContent = 'On. Your browser will ask for it on the ' +
+                                            'next request.';
+                    }
+                })
+                .catch(function (err) {
+                    if (state) { state.textContent = (err && err.message) || 'Failed.'; }
+                })
+                .then(function () { save.disabled = false; });
+        });
+
+        clear.addEventListener('click', function () {
+            if (!confirm('Turn off the password? Anyone on this network will be able ' +
+                         'to change this device.')) {
+                return;
+            }
+            clear.disabled = true;
+            // Username first in the same patch: clearing only the password
+            // would leave a username set, which the device refuses as
+            // half-configured - correctly, and unhelpfully if the UI asked
+            // for it.
+            send('PATCH', '/api/v1/settings', { web: { username: '', password: '' } })
+                .then(function () { return loadSettings(); })
+                .catch(fail)
+                .then(function () { clear.disabled = false; });
         });
     }
 
@@ -2009,6 +2081,7 @@
         wireReboot();
         wireMaintenance();
         wireNetwork();
+        wireAccess();
         wireControls();
         wireCapture();
         wireColorPickers();

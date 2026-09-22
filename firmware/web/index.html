@@ -344,6 +344,29 @@
     </div>
     <p class="muted" id="join-note"></p>
 
+    <h3>Access</h3>
+    <!-- Off by default, and offered here rather than left to be discovered.
+         A device that demanded a password before it would show a clock would
+         be a worse first five minutes than the risk it removes.
+
+         One mechanism covers the API and this page, because they are the
+         same server and two schemes would be two things to get wrong. -->
+    <p class="muted" id="access-state"></p>
+    <div class="row">
+        <input id="access-user" type="text" placeholder="Username" autocomplete="username"
+               spellcheck="false" maxlength="64">
+        <input id="access-pass" type="password" placeholder="Password"
+               autocomplete="new-password" maxlength="128">
+        <button class="btn" id="access-save" type="button">Set</button>
+        <button class="btn" id="access-clear" type="button">Turn off</button>
+    </div>
+    <p class="muted">
+        Sent in the clear over your network, and stored on the device in the clear.
+        It keeps the rest of the LAN out; it is not protection from someone
+        holding the device. Forgotten it? Hold &minus; and + together for five
+        seconds and it is cleared.
+    </p>
+
     <h2>Backup</h2>
     <p class="help">
         Downloads every setting as a file. The MQTT password is not in it
