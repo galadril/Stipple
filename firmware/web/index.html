@@ -324,18 +324,23 @@
         <button class="btn" id="network-scan" type="button">Scan</button>
         <span class="muted" id="network-note"></span>
     </div>
-    <ul class="list" id="network-list"></ul>
+    <!-- A dropdown, not a list. A dozen networks is a dozen rows on a page
+         that also holds time, panel and maintenance settings, and all anyone
+         does with them is pick one.
 
-    <!-- Typing a name by hand is not a fallback for when the list fails.
-         A hidden network never appears in any list, and while the device is
-         hosting its own access point it cannot scan at all - which is
-         precisely when somebody is standing here trying to join one. -->
-    <div class="row" id="network-join">
-        <input id="join-ssid" type="text" placeholder="Network name" autocomplete="off"
-               spellcheck="false" maxlength="32">
-        <input id="join-password" type="password" placeholder="Password (blank if open)"
+         "Other..." is not a fallback for when the list fails: a hidden
+         network never appears in any list, and while the device is hosting
+         its own access point it cannot scan at all - which is precisely when
+         somebody is standing here trying to join one. -->
+    <div class="row">
+        <select id="join-pick"></select>
+        <input id="join-password" type="password" placeholder="Password"
                autocomplete="new-password" maxlength="63">
         <button class="btn" id="join-go" type="button">Join</button>
+    </div>
+    <div class="row" id="join-other-row" hidden>
+        <input id="join-ssid" type="text" placeholder="Network name" autocomplete="off"
+               spellcheck="false" maxlength="32">
     </div>
     <p class="muted" id="join-note"></p>
 

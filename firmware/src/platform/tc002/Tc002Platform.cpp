@@ -385,13 +385,24 @@ std::vector<WirelessNetwork> Tc002Network::networks() const {
         out.push_back(std::move(network));
     }
 
-    // Only a scan that found something replaces the memory. A scan returning
-    // nothing is far more often a radio that was busy than a street with no
-    // networks in it, and forgetting on that basis would lose the list right
-    // when the hotspot needs it.
-    if (!out.empty()) {
-        remembered_ = out;
+    // An empty answer is not an empty street.
+    //
+    // The guard at the top catches a socket that cannot be opened, and misses
+    // the case that actually happens: the socket was opened while the station
+    // was up, the hotspot then stopped wpa_supplicant, and the handle is
+    // still perfectly valid-looking with nothing behind it. A live run fell
+    // straight through that and served an empty list at the one moment a
+    // person needed to pick a network.
+    //
+    // So the decision is made on what came back, not on the state of a file
+    // descriptor. A scan that found something replaces the memory; a scan
+    // that found nothing falls back to it and says the list is old.
+    if (out.empty()) {
+        live_ = false;
+        return remembered_;
     }
+
+    remembered_ = out;
     live_ = true;
     return out;
 }

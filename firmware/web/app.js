@@ -899,6 +899,7 @@
     }
 
     var joinPolling = null;
+    var OTHER_NETWORK = 'other:' + new Array(28).join('-');
 
     function showJoin(join) {
         var note = $('join-note');
@@ -951,25 +952,15 @@
             }
 
             var scan = $('network-scan');
-            var note = $('network-note');
             if (scan) { scan.disabled = !state.canScan; }
-            if (note && !state.canScan) {
-                // Said rather than left as an empty list: "nothing in range"
-                // and "this device cannot look" are different answers.
-                note.textContent = 'This build cannot scan for networks.';
-            }
 
-            var list = $('network-list');
-            if (!list) { return; }
-            list.textContent = '';
-
-            // One row per name, keeping the strongest.
+            // One entry per name, keeping the strongest.
             //
             // A real scan is full of duplicates - the same network on 2.4 and
             // 5 GHz, and again from every access point in the house. The
             // device reports what the radio saw, which is correct; a person
-            // choosing a network wants the name once. Eleven rows collapsed
-            // to six on the first real scan.
+            // choosing a network wants the name once. Eleven collapsed to six
+            // on the first real scan.
             var byName = {};
             (state.networks || []).forEach(function (network) {
                 var seen = byName[network.ssid];
@@ -984,58 +975,52 @@
 
             var networks = Object.keys(byName).map(function (name) { return byName[name]; });
             // Strongest first. The one somebody wants is almost always near
-            // the top, and an unsorted list of a dozen is a list nobody reads.
+            // the top.
             networks.sort(function (a, b) { return b.signalDbm - a.signalDbm; });
 
-            networks.forEach(function (network) {
-                var row = el('li');
-                row.appendChild(el('span', 'grip', signalBars(network.signalDbm)));
+            var pick = $('join-pick');
+            if (pick) {
+                // The current choice survives a refresh, so a list reloading
+                // underneath somebody mid-type does not lose it.
+                var chosen = pick.value;
+                pick.textContent = '';
 
-                var body = el('div', 'grow');
-                body.appendChild(el('span', 'name', network.ssid));
-                var detail = [];
-                if (network.current) { detail.push('connected'); }
-                detail.push(network.secured ? 'secured' : 'open');
-                detail.push(network.signalDbm + ' dBm');
-                body.appendChild(el('span', 'sub', detail.join(' · ')));
-                row.appendChild(body);
+                var blank = el('option', null,
+                               networks.length ? 'Choose a network...' : 'No networks known');
+                blank.value = '';
+                pick.appendChild(blank);
 
-                // Picking a row fills the name in; it does not join on the
-                // spot. A mis-tap should never be able to take the device
-                // off the network it is reachable on.
-                row.className = 'pick';
-                row.addEventListener('click', function () {
-                    var field = $('join-ssid');
-                    if (field) { field.value = network.ssid; }
-                    var pass = $('join-password');
-                    if (pass) {
-                        pass.value = '';
-                        pass.disabled = !network.secured;
-                        if (network.secured) { pass.focus(); }
-                    }
+                networks.forEach(function (network) {
+                    var label = network.ssid + '  ' + signalBars(network.signalDbm);
+                    if (network.current) { label += '  (connected)'; }
+                    if (!network.secured) { label += '  (open)'; }
+                    var option = el('option', null, label);
+                    option.value = network.ssid;
+                    option.dataset.secured = network.secured ? '1' : '';
+                    pick.appendChild(option);
                 });
 
-                list.appendChild(row);
-            });
+                var other = el('option', null, 'Other - type a name...');
+                other.value = OTHER_NETWORK;
+                pick.appendChild(other);
 
-            if (!networks.length && state.canScan) {
-                list.appendChild(el('li', null, 'Nothing found yet - press Scan.'));
+                pick.value = chosen;
+                if (pick.selectedIndex < 0) { pick.value = ''; }
             }
 
             // Said plainly. A remembered list presented as a current one
             // would have somebody wondering why the network they can see on
             // their phone is missing from the clock.
-            var stale = $('network-stale');
-            if (!stale) {
-                stale = el('p', 'muted');
-                stale.id = 'network-stale';
-                list.parentNode.insertBefore(stale, list.nextSibling);
-            }
-            if (state.networksAreLive === false && networks.length) {
-                stale.textContent = 'This list is from before the hotspot started - ' +
-                                    'one radio cannot host and scan at the same time.';
-            } else {
-                stale.textContent = '';
+            var note2 = $('network-note');
+            if (note2) {
+                if (!state.canScan && !networks.length) {
+                    note2.textContent = 'Cannot scan right now.';
+                } else if (state.networksAreLive === false && networks.length) {
+                    note2.textContent = 'From before the hotspot started - one radio ' +
+                                        'cannot host and scan at once.';
+                } else {
+                    note2.textContent = '';
+                }
             }
 
             showJoin(state.join);
@@ -1067,8 +1052,37 @@
         var go = $('join-go');
         if (!go) { return; }
 
+        var pick = $('join-pick');
+        if (pick) {
+            pick.addEventListener('change', function () {
+                var other = pick.value === OTHER_NETWORK;
+                var row = $('join-other-row');
+                if (row) { row.hidden = !other; }
+
+                var pass = $('join-password');
+                if (pass) {
+                    pass.value = '';
+                    // An open network has no password, and a field asking for
+                    // one that does not exist is a field somebody types into
+                    // and then wonders why it failed. Left enabled for
+                    // "Other", because a typed name says nothing about
+                    // whether it is secured.
+                    var option = pick.options[pick.selectedIndex];
+                    pass.disabled = !other && !!option && option.value !== '' &&
+                                    !option.dataset.secured;
+                }
+                if (other) {
+                    var field = $('join-ssid');
+                    if (field) { field.focus(); }
+                }
+            });
+        }
+
         go.addEventListener('click', function () {
-            var ssid = ($('join-ssid') || {}).value || '';
+            var chosen = pick ? pick.value : '';
+            var ssid = (chosen && chosen !== OTHER_NETWORK)
+                ? chosen
+                : (($('join-ssid') || {}).value || '');
             var password = ($('join-password') || {}).value || '';
             var note = $('join-note');
 

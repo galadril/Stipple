@@ -230,6 +230,7 @@ int main(int argc, char** argv) {
     bool reportedHealthy = false;
 
     bool hotspotStarted = false;
+    bool hotspotShowing = false;
 
     while (g_stop == 0) {
         const std::uint64_t now = platform.clock().monotonicMillis();
@@ -294,6 +295,7 @@ int main(int argc, char** argv) {
                     static_cast<std::uint64_t>(hotspotSeconds) * 1000u);
             }
             if (platform.hotspot().start("NOTRIX-setup", now)) {
+                hotspotShowing = true;
                 // Said on the panel before anything else, because the panel
                 // is the only channel left once the radio changes job.
                 host.setNotice("NOTRIX",
@@ -302,7 +304,16 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (platform.hotspot().tick(now)) {
+        platform.hotspot().tick(now);
+
+        // Driven by whether it is running, not by who stopped it.
+        //
+        // Watching tick()'s return only catches the hotspot giving up on its
+        // own. A live run joined a network - which stops the hotspot from the
+        // other direction entirely - and left the panel showing the setup
+        // notice on a device that was already back on the LAN.
+        if (hotspotShowing && !platform.hotspot().running()) {
+            hotspotShowing = false;
             host.clearNotice();
         }
         const std::string hotspotEvent = platform.hotspot().takeEvent();

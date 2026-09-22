@@ -101,6 +101,7 @@ label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted)
 
 input[type="text"],
 input[type="number"],
+input[type="password"],
 select {
     width: 100%;
     padding: 8px 10px;
@@ -520,7 +521,8 @@ input[type="color"] {
 
 .app-config-row .field:last-child { margin-bottom: 10px; }
 
-/* A scan row is a choice, so it has to look like one. Picking it fills the
-   name into the join field rather than joining on the spot. */
-.list li.pick { cursor: pointer; }
-.list li.pick:hover { background: rgba(255, 255, 255, 0.05); }
+/* The network picker takes the room, because a network name is the long part
+   and a password field only ever shows dots. */
+#join-pick { flex: 2 1 12em; min-width: 0; }
+#join-password { flex: 1 1 8em; min-width: 0; }
+#join-other-row input { flex: 1 1 auto; }
