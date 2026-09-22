@@ -1480,3 +1480,38 @@ It cannot be tested from `/tmp` - that is what the stub test established -
 so the first attempt has to be a `res` image written to the device. Which
 makes demonstrating the restore path the precondition for finding out
 whether the approach works at all, rather than a formality before shipping.
+
+### And the hook works
+
+`/res/etc/EasyUI.cfg` is plain JSON on the read-only squashfs, and
+`ConfigManager::getStartupLibPath()` reads one field of it:
+
+```json
+"startupLibPath": "/res/lib/libzkgui.so"
+```
+
+Changing that field is the entire integration surface.
+
+Proven without writing any flash. `mount -o bind` works over the read-only
+squashfs, so a modified copy of the config was bound over the original and
+pointed at `/tmp`:
+
+```
+$ mount -o bind /tmp/EasyUI.cfg /res/etc/EasyUI.cfg
+$ setprop ctl.start zkswe
+$ cat /tmp/notrix-zkgui-stub.log
+[11586] static constructor ran - dlopen reached us
+```
+
+`/proc/<pid>/maps` showed `/tmp/libnotrix.so` mapped and
+`/res/lib/libzkgui.so` absent. **A 7.6 KB library replaced the 7.5 MB vendor
+application outright**, and `/bin/zkgui` ran on top of it.
+
+The three obfuscated `dlsym` names never mattered: `dlopen` runs static
+constructors before the caller can look anything up, so a library that takes
+over in its constructor never reaches them.
+
+Unmounting restored the original, and a power cycle would have done the same.
+Any future change to the startup path should be tried this way before it is
+written to flash. See
+[ADR 0021](../adr/0021-notrix-as-the-startup-library.md).
