@@ -1405,3 +1405,78 @@ The vendor binary carries symbols namespaced `awtrix` - `awtrix::Updater`,
 because it bears on licensing and on where the official Ulanzi sources sit,
 not because anything here derives from it. NOTRIX shares no code with it and
 does not reference it in anything it ships.
+
+## Where NOTRIX could hook in, measured rather than guessed
+
+Two candidate hooks, both tested on hardware. One is ruled out, one is left
+standing, and the reason the standing one cannot be tested yet is the whole
+remaining problem.
+
+### The framework loads its application by absolute path
+
+`EasyUIContext::initLib()` is where it happens:
+
+```
+ConfigManager::getInstance()
+ConfigManager::getStartupLibPath()      <- the path comes from configuration
+dlopen(path, RTLD_LAZY)
+dlsym(handle, <name 1>)                 <- three function pointers,
+dlsym(handle, <name 2>)                    stored and used later
+dlsym(handle, <name 3>)
+```
+
+**The three symbol names are obfuscated.** They live in `.data`, not
+`.rodata`, as short high-entropy byte runs - `67 66 3d 61 53 59 2d 49 49 66
+69 4c` and two others - decoded at runtime by something that runs before
+they are used. A single-byte XOR does not recover them.
+
+**And the path is absolute.** Tested directly: a stub `libzkgui.so` placed in
+`/tmp`, which is *first* on `LD_LIBRARY_PATH`, was never loaded -
+`/proc/<pid>/maps` still showed `/res/lib/libzkgui.so`. So the application
+library cannot be shadowed the way a `NEEDED` library can, and replacing it
+means writing the `res` partition.
+
+**None of which necessarily matters**, because `dlopen` runs a library's
+static constructors before the caller can `dlsym` anything. A replacement
+whose constructor takes over the process never has to satisfy the three
+obfuscated entry points at all. That is the route worth trying, and trying
+it needs a `res` image.
+
+### Shadowing libeasyui.so works, and then does not
+
+The other idea: `/bin/zkgui` imports exactly four symbols from
+`libeasyui.so`, and `/res/lib` precedes `/lib` on the library path.
+
+```
+EasyUIContext::getInstance / initEasyUI / runEasyUI / deinitEasyUI
+```
+
+An 8 KB shim exporting those four, dropped in `/tmp`, **was** picked up - the
+shadowing mechanism works. It then failed one library further along:
+
+```
+/bin/zkgui: symbol lookup error: /lib/libzkupgrade.so:
+            undefined symbol: _ZN4Json5Value12removeMemberEPKc
+```
+
+`libeasyui.so` exports 2564 symbols, and the other vendor libraries lean on
+more than the launcher does. Intersecting every `NEEDED` library's undefined
+symbols against its exports gives the real contract: **74 symbols**, not
+four. Tractable in size, and the composition is the problem rather than the
+count - `Json::Value`, `Thread`, `Mutex`, `Condition`, `MessageQueue`,
+`StoragePreferences`. Those are C++ classes whose *memory layout* other
+libraries were compiled against, so a replacement has to be ABI-compatible
+and not merely API-compatible. That is a bad thing to depend on and a worse
+thing to get subtly wrong.
+
+So this route is recorded and set aside.
+
+### What that leaves
+
+Replace `/res/lib/libzkgui.so` with a library that takes over in its
+constructor. No vendor ABI, no obfuscated symbols, no 74-symbol contract.
+
+It cannot be tested from `/tmp` - that is what the stub test established -
+so the first attempt has to be a `res` image written to the device. Which
+makes demonstrating the restore path the precondition for finding out
+whether the approach works at all, rather than a formality before shipping.
