@@ -66,6 +66,59 @@ Or just power cycle.
 
 ---
 
+## If the device boots but shows no application
+
+The panel lights up, maybe shows the vendor logo, and nothing else happens.
+Not reachable on the network, and nothing appears when plugged into a
+computer.
+
+**This is the state to take seriously**, because every software route out of
+it depends on the application that is not running:
+
+- No application means **no DHCP**. Nothing else on this device obtains an
+  address, so there is no IP and no ADB over the network.
+- No application means **no USB gadget**. The application is what sets
+  `otg_role` to `usb_device`; until then the port is a host and nothing
+  enumerates on a computer, whatever cable is used.
+- Holding **reset** only helps if an image is sitting in `/mnt/storage` for
+  the loader to install. If the last flash consumed it, reset does nothing -
+  and reset also wipes `/data`, which is where NOTRIX lives.
+
+### What still works
+
+**A USB flash drive plugged into the clock.** The port is a host, so it can
+read one. The boot-time update check runs inside `libeasyui` rather than in
+the application, so it still happens. Use a **small, plain USB stick, 8 GB or
+less, formatted FAT32** - not a card reader, and not a large volume with
+16 KB clusters. Put `update.img` at the root, and for good measure
+`extupdate.img`, `full_update.zk` and `zkimg/update.img`, which are the other
+names the loader looks for.
+
+**A serial console.** `ttyS0` at 115200 8N1, enabled in the kernel. Pads are
+not documented for this board, so it means opening the case and finding
+TX/RX/GND. With a shell the fix is three lines and moves no files:
+
+```sh
+mkdir -p /data/notrix
+ln -s /res/lib/libzkgui.so /data/notrix/libnotrix.so
+reboot
+```
+
+That points the configured startup path at the vendor's own application,
+which is still sitting untouched in `/res/lib/`. `dlopen` follows symlinks,
+so the stock app loads, the network comes back, and the device is ordinary
+again.
+
+**The vendor.** The bootloader, kernel and rootfs are untouched in this
+state, and their firmware update exists to recover it.
+
+### How to not end up here
+
+- **Never leave a staged image where the loader will find it twice.** It will
+  reflash on every boot.
+- **Do not hold reset to break a boot loop** if `/data` holds the only copy
+  of the application. It wipes it.
+
 ## When Wi-Fi is not available at all
 
 The USB-C port defaults to host mode, but it can be switched:

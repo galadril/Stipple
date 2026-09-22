@@ -307,3 +307,73 @@ measured on the device here, and reported by others on theirs. So the reset
 button is not automatically a restore; it can be a downgrade. Capturing from
 the device is not belt-and-braces, it is the only thing that makes the
 physical recovery correct.
+
+## Update, 2026-09-22 evening: the gate was right and I argued past it
+
+A device was flashed and is now unreachable. The flash itself worked - the
+`res` partition took the image, and NOTRIX started as the device's
+application, which is the thing the whole day was aiming at. What followed is
+the part worth recording.
+
+**What actually happened, in order:**
+
+1. `update.img` was staged on `/mnt/storage` so the reset button would be a
+   correct recovery. Good idea.
+2. The image was flashed. It applied, and NOTRIX ran.
+3. **Nothing cleared the staged image**, so the loader found it again on the
+   next boot and reflashed. And again. A boot loop.
+4. The reset button was held to break the loop. Reset wipes `/data` - which
+   is where `libnotrix.so` lived, because
+   [ADR 0021](0021-notrix-as-the-startup-library.md) deliberately put it
+   there.
+5. With no library, no application loads. And **nothing on this device
+   obtains an IP address except the application** - the finding recorded in
+   the research notes that same morning.
+
+No application means no DHCP, no network, no ADB. It also means no USB
+gadget, because the application is what sets `otg_role` to `usb_device`;
+three cable types were tried and the device never enumerates. Every software
+route depends on the thing that is missing.
+
+**Each of those five steps was known in advance.** The staging, the reset
+behaviour, and the DHCP gap were all written down before any of this was
+done. They were not composed.
+
+### What this changes
+
+**The "demonstrated restore" gate stands, and the argument for skipping it
+was wrong.** The reasoning at the time was that demonstrating a restore means
+deliberately flashing something broken, which is riskier than flashing
+something good - so a null flash would do instead. That reasoning is not
+unsound, and it is also not what the gate is for. The gate is not about the
+image being bad. It is about *having exercised the way back before needing
+it*, and the way back here turned out to depend on a file that the recovery
+procedure itself deletes.
+
+**A restore path has to be demonstrated from the state that will actually
+need it** - a device with no application - not from a healthy one.
+
+### Rules that follow, and they are not optional
+
+**Staging is one-shot.** An image placed where a loader will find it must be
+removed as soon as it has been applied, by the same tooling that put it
+there. A recovery image and a pending update are not the same thing and must
+not live at the same path.
+
+**Never wipe `/data` while it is the only copy of anything.** ADR 0021 puts
+NOTRIX in `/data` precisely so it can be updated without flashing. That makes
+`/data` load-bearing, and it makes factory reset destructive in a way it was
+not before. Either keep a copy in `res`, or accept that reset is not a
+recovery.
+
+**A device that cannot obtain an address cannot be recovered over the
+network.** Until NOTRIX's DHCP client runs from somewhere that survives a
+missing application - or the config falls back to the vendor library when the
+NOTRIX one is absent - flashing this device is not safe.
+
+That last one has a cheap fix worth building before anything is flashed
+again: **if `startupLibPath` points at a file that does not exist, the device
+should fall back to `/res/lib/libzkgui.so`.** The framework already logs the
+`dlerror` and carries on; it simply carries on with nothing. A `res` image
+that pointed at a small shim which loads NOTRIX if present and the vendor
+application otherwise would have made all of this a non-event.
