@@ -51,33 +51,95 @@ int main(int argc, char** argv) {
     // Detach before anything else. The parent returns so adb does not sit
     // waiting on a connection that is about to be cut, and the child outlives
     // the shell.
+    //
+    // **The parent waits for the child to say it has detached**, and that is
+    // not tidiness. Returning immediately closes the adb session, and adbd
+    // kills the process group on its way out - so the child was being killed
+    // microseconds old, before it had run a single line. A whole live test
+    // was spent looking for a hotspot that no process had ever tried to
+    // start. A pipe rather than a sleep, because the race is real and a
+    // sleep only makes it less likely.
+    int detached[2];
+    if (::pipe(detached) < 0) {
+        std::perror("pipe");
+        return 1;
+    }
+
     const pid_t child = fork();
     if (child < 0) {
         std::perror("fork");
         return 1;
     }
     if (child > 0) {
+        ::close(detached[1]);
+        char ready = 0;
+        ::read(detached[0], &ready, 1);
+        ::close(detached[0]);
         return 0;
     }
+    ::close(detached[0]);
 
     signal(SIGHUP, SIG_IGN);
     setsid();
+
+    // Now it is out of the shell's process group and cannot be taken down
+    // with it. Only now may the parent go.
+    const char ready = 1;
+    ssize_t ignored = ::write(detached[1], &ready, 1);
+    (void)ignored;
+    ::close(detached[1]);
+
+    // Everything from here is narrated, because the first two live runs were
+    // both diagnosed from the outside - once from a user saying the hotspot
+    // was there, once from it never appearing at all. A detached process that
+    // says nothing about which step it reached is a process that has to be
+    // guessed at, and guessing costs a power cycle.
+    //
+    // stdout is whatever the caller redirected it to, and the child keeps
+    // that fd after the parent has gone. Run it as:
+    //   /tmp/notrix_hotspot_test NOTRIX-setup 180 > /tmp/hotspot.out 2>&1
+    const auto say = [](const char* what) {
+        std::printf("[%llu] %s\n",
+                    static_cast<unsigned long long>(monotonicMillis()), what);
+        std::fflush(stdout);
+    };
+
+    say("detached");
 
     // The client comes first and is handed over, because the revert needs it.
     // Last time this tool stopped the access point, restarted wpa_supplicant
     // and left a device nobody could reach: an association is not an address,
     // and on this platform nothing else asks for one.
     notrix::platform::tc002::Tc002Dhcp dhcp;
-    dhcp.begin("wlan0", "notrix", monotonicMillis());
+    const bool haveDhcp = dhcp.begin("wlan0", "notrix", monotonicMillis());
+    say(haveDhcp ? "dhcp client ready" : "dhcp client would not start");
+    {
+        const std::string opening = dhcp.takeEvent();
+        if (!opening.empty()) {
+            std::printf("    %s\n", opening.c_str());
+            std::fflush(stdout);
+        }
+    }
 
     notrix::platform::tc002::Tc002Hotspot hotspot;
     hotspot.useDhcp(&dhcp);
 
     const std::uint64_t startedAt = monotonicMillis();
 
+    say("starting the access point");
     if (!hotspot.start(ssid, startedAt)) {
         // start() already restored the station on its way out.
+        const std::string why = hotspot.takeEvent();
+        std::printf("    failed: %s\n", why.empty() ? "no reason given" : why.c_str());
+        std::fflush(stdout);
         return 1;
+    }
+    {
+        const std::string up = hotspot.takeEvent();
+        if (!up.empty()) {
+            std::printf("    %s\n", up.c_str());
+            std::fflush(stdout);
+        }
     }
 
     // Slept in short steps rather than one long one, so a kill lands promptly
@@ -88,18 +150,36 @@ int main(int argc, char** argv) {
         // Ticked, so a daemon that died is noticed and reverts rather than
         // leaving an access point that serves nothing for the full run.
         if (hotspot.tick(monotonicMillis())) {
+            const std::string why = hotspot.takeEvent();
+            std::printf("    reverted early: %s\n",
+                        why.empty() ? "no reason given" : why.c_str());
+            std::fflush(stdout);
             break;
         }
     }
 
+    say("stopping, giving the radio back");
     hotspot.stop();
+    {
+        const std::string back = hotspot.takeEvent();
+        if (!back.empty()) {
+            std::printf("    %s\n", back.c_str());
+            std::fflush(stdout);
+        }
+    }
 
     // Pumped afterwards so the restored client actually gets through a
     // handshake before this process exits and stops calling it.
     const std::uint64_t settle = monotonicMillis() + 20000u;
     while (monotonicMillis() < settle && !dhcp.bound()) {
         dhcp.tick(monotonicMillis());
+        const std::string event = dhcp.takeEvent();
+        if (!event.empty()) {
+            std::printf("    %s\n", event.c_str());
+            std::fflush(stdout);
+        }
         usleep(50000);
     }
+    say(dhcp.bound() ? "address back, done" : "no address after the revert");
     return 0;
 }

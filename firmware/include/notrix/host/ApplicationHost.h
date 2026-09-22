@@ -176,6 +176,21 @@ public:
     // panel does not have.
     void inject(const platform::InputEvent& event) override { handleInput(event); }
 
+    /// Show a full-screen notice instead of everything else, until cleared.
+    ///
+    /// **The panel is the only channel that still works when the network is
+    /// the thing that is broken**, which is exactly when this is needed: a
+    /// device hosting an access point whose name nobody can see is a device
+    /// nobody can reach. Two live hotspot tests were diagnosed entirely from
+    /// the outside because the panel said nothing.
+    ///
+    /// Core does not know what a hotspot is and does not need to - it is
+    /// given two lines and shows them. The detail line scrolls, because an
+    /// address truncated to "192..." helps nobody.
+    void setNotice(std::string title, std::string detail);
+    void clearNotice() noexcept;
+    bool showingNotice() const noexcept { return !noticeTitle_.empty(); }
+
     /// True while the boot splash is still showing.
     bool showingSplash() const noexcept { return splashActive_; }
 
@@ -274,6 +289,7 @@ private:
 
     /// Draw the rescue countdown, which outranks everything on the panel.
     void renderRescue(Canvas& canvas, std::uint64_t remainingMillis) const;
+    void renderNotice(Canvas& canvas, std::uint64_t nowMillis) const;
 
     /// Draw one setting, label and value, filling the panel.
     void renderSettings(Canvas& canvas) const;
@@ -390,6 +406,13 @@ private:
     bool transitionActive_ = false;
 
     bool splashActive_ = false;
+
+    /// Empty when there is nothing to say. Held rather than passed per frame
+    /// because the detail line scrolls, and scrolling needs a start time.
+    std::string noticeTitle_;
+    std::string noticeDetail_;
+    std::uint64_t noticeStartedMillis_ = 0;
+
     bool ticking_ = false;
     /// When tick() was first called; the splash and the health timer both
     /// measure from here.

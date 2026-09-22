@@ -879,6 +879,32 @@ void drawBar(Canvas& canvas, int permille, Rgb filled, Rgb track) {
 
 }  // namespace
 
+void ApplicationHost::setNotice(std::string title, std::string detail) {
+    noticeTitle_ = std::move(title);
+    noticeDetail_ = std::move(detail);
+    noticeStartedMillis_ = lastClockMillis_;
+    scheduler_.invalidate();
+}
+
+void ApplicationHost::clearNotice() noexcept {
+    noticeTitle_.clear();
+    noticeDetail_.clear();
+    noticeStartedMillis_ = 0;
+    scheduler_.invalidate();
+}
+
+void ApplicationHost::renderNotice(Canvas& canvas, std::uint64_t nowMillis) const {
+    const std::uint64_t elapsed =
+        nowMillis > noticeStartedMillis_ ? nowMillis - noticeStartedMillis_ : 0;
+
+    // No duration, so no draining rule: this is not a thing that finishes on
+    // a schedule the user can watch, and a bar that emptied to nothing would
+    // promise one.
+    apps::SplashStyle style;
+    style.titleColor = colors::kOrange;
+    apps::renderSplash(canvas, noticeTitle_, noticeDetail_, elapsed, 0, style);
+}
+
 void ApplicationHost::renderRescue(Canvas& canvas, std::uint64_t remainingMillis) const {
     // Counted in whole seconds, rounded up, so the last visible number is 1
     // rather than 0 - a countdown that shows zero and then keeps going reads
@@ -1419,6 +1445,18 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
     // for precisely when nothing else about the device is behaving.
     if (rescue_.counting()) {
         renderRescue(canvas, rescue_.remainingMillis(nowMillis));
+        return;
+    }
+
+    // A notice outranks settings, panel power and the splash, and is second
+    // only to the rescue countdown.
+    //
+    // It is set when the device has taken its own radio to host an access
+    // point, so the panel is the only way left to say what that access point
+    // is called and where to find it. Honouring "display off" here would mean
+    // a device that unreachably hosts a network nobody can name.
+    if (showingNotice()) {
+        renderNotice(canvas, nowMillis);
         return;
     }
 

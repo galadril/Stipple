@@ -8,6 +8,7 @@
 
 #include "notrix/platform/PlatformServices.h"
 #include "notrix/platform/tc002/Tc002Dhcp.h"
+#include "notrix/platform/tc002/Tc002Hotspot.h"
 #include "notrix/platform/tc002/Tc002Display.h"
 #include "notrix/platform/tc002/Tc002HttpServer.h"
 #include "notrix/platform/tc002/Tc002Input.h"
@@ -142,7 +143,13 @@ public:
     /// Points the read-only network view at the lease. A fact about how this
     /// object is assembled, not about whether any device opened, so it
     /// belongs here rather than in open().
-    Tc002Platform() { network_.observe(&dhcp_); }
+    Tc002Platform() {
+        network_.observe(&dhcp_);
+        // The hotspot cannot give the radio back without this: restoring
+        // wpa_supplicant gets an association, and nothing else on this
+        // device turns an association into an address.
+        hotspot_.useDhcp(&dhcp_);
+    }
 
     /// Brings up display, input, storage and clock. Returns false if the
     /// display or input cannot be opened; those are required services and a
@@ -201,6 +208,17 @@ public:
     /// able to do it.
     Tc002Dhcp& dhcp() noexcept { return dhcp_; }
 
+    /// Concrete, and owned here rather than by a separate tool.
+    ///
+    /// It used to live in one, and both live tests failed on the tool's
+    /// lifetime rather than on anything about hosting: the revert depended on
+    /// a detached process nobody was watching staying alive, and when it
+    /// stopped the radio was left with no access point and no station. This
+    /// process survives ADB dropping - that is what ignoring SIGHUP is for -
+    /// and already calls tick() every frame, so the deadline is enforced by
+    /// something that is definitely still running.
+    Tc002Hotspot& hotspot() noexcept { return hotspot_; }
+
 private:
     Tc002Display display_;
     Tc002Input input_;
@@ -212,6 +230,7 @@ private:
     Tc002MqttClient mqtt_;
     Tc002HttpServer http_;
     Tc002Dhcp dhcp_;
+    Tc002Hotspot hotspot_;
 };
 
 }  // namespace tc002

@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <cstdio>
@@ -68,7 +69,32 @@ constexpr const char* kDnsmasqTemplate =
 
 Tc002Hotspot::~Tc002Hotspot() { stop(); }
 
-void Tc002Hotspot::note(const std::string& text) { event_ = text; }
+/// Where a post-mortem can still read it.
+///
+/// /tmp is tmpfs, and the only way out of a hotspot that has gone wrong is a
+/// power cycle - which takes /tmp with it. Two live tests were recovered that
+/// way and both left nothing whatsoever to read: the dnsmasq log, the
+/// generated configs and every trace of which step failed were gone before
+/// the device came back.
+///
+/// So this one file goes on flash. It is the documented exception to "avoid
+/// flash writes": a handful of lines, written only while hosting, and the
+/// alternative is diagnosing the same failure twice.
+constexpr const char* kJournal = "/data/notrix/hotspot.log";
+
+void Tc002Hotspot::note(const std::string& text) {
+    event_ = text;
+
+    FILE* journal = std::fopen(kJournal, "a");
+    if (journal == nullptr) {
+        return;  // best effort; a missing journal must never stop a revert
+    }
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    std::fprintf(journal, "[%lu] %s\n", static_cast<unsigned long>(now.tv_sec),
+                 text.c_str());
+    std::fclose(journal);
+}
 
 std::string Tc002Hotspot::takeEvent() {
     std::string taken;
@@ -231,6 +257,13 @@ void Tc002Hotspot::stop() {
     const char* const startSupplicant[] = {"/bin/setprop", "ctl.start", "wpa_supplicant", nullptr};
     run(startSupplicant);
 
+    // Take 192.168.4.1 off first. The client starts by asking to keep
+    // whatever the interface already has, and left alone it would ask a real
+    // router to hand out the hotspot's own address - which a live run did,
+    // and got away with only because the server ignored it.
+    const char* const clear[] = {"/sbin/ifconfig", kInterface, "0.0.0.0", nullptr};
+    run(clear);
+
     // And an address, which is the half that was missing. wpa_supplicant
     // associates and stops there; on this device nothing else asks for an
     // address, so a revert without this leaves a station nobody can reach -
@@ -264,7 +297,7 @@ bool Tc002Hotspot::tick(std::uint64_t nowMillis) {
         startedAtMillis_ = nowMillis;
         return false;
     }
-    if (nowMillis - startedAtMillis_ < kRevertMillis) {
+    if (nowMillis - startedAtMillis_ < revertMillis_) {
         return false;
     }
 

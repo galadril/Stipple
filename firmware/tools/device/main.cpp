@@ -81,6 +81,8 @@ int main(int argc, char** argv) {
     // arguments they follow.
     bool wantDhcp = true;
     bool observeDhcp = false;
+    int hotspotAfter = -1;
+    int hotspotSeconds = 0;
     const char* positional[3] = {nullptr, nullptr, nullptr};
     int positionals = 0;
 
@@ -90,6 +92,14 @@ int main(int argc, char** argv) {
             wantDhcp = false;
         } else if (std::strcmp(argument, "--dhcp-observe") == 0) {
             observeDhcp = true;
+        } else if (std::strncmp(argument, "--hotspot-seconds=", 18) == 0) {
+            hotspotSeconds = std::atoi(argument + 18);
+        } else if (std::strncmp(argument, "--hotspot=", 10) == 0) {
+            // Seconds after startup to begin hosting, for a controlled test.
+            // It is a delay rather than "now" so the panel, the web UI and
+            // the lease are all settled first - a test that starts before
+            // the device is up cannot tell a hotspot failure from a boot one.
+            hotspotAfter = std::atoi(argument + 10);
         } else if (positionals < 3) {
             positional[positionals++] = argument;
         }
@@ -219,6 +229,8 @@ int main(int argc, char** argv) {
 
     bool reportedHealthy = false;
 
+    bool hotspotStarted = false;
+
     while (g_stop == 0) {
         const std::uint64_t now = platform.clock().monotonicMillis();
         if (deadline != 0 && now >= deadline) {
@@ -262,6 +274,37 @@ int main(int argc, char** argv) {
         // without this the address is whatever the vendor application got
         // before NOTRIX started - and it expires.
         platform.dhcp().tick(now);
+
+        // The hotspot, ticked by the thing that is definitely still
+        // running. This used to be a detached tool, and both live tests
+        // failed on that tool staying alive rather than on anything about
+        // hosting: when it stopped, nothing reverted and the device was
+        // left with no access point and no station.
+        if (hotspotAfter >= 0 && !hotspotStarted &&
+            now >= started + static_cast<std::uint64_t>(hotspotAfter) * 1000u) {
+            hotspotStarted = true;
+            if (hotspotSeconds > 0) {
+                platform.hotspot().setRevertMillis(
+                    static_cast<std::uint64_t>(hotspotSeconds) * 1000u);
+            }
+            if (platform.hotspot().start("NOTRIX-setup", now)) {
+                // Said on the panel before anything else, because the panel
+                // is the only channel left once the radio changes job.
+                host.setNotice("NOTRIX",
+                               std::string("join NOTRIX-setup then open ") +
+                                   notrix::platform::tc002::Tc002Hotspot::kAddress);
+            }
+        }
+
+        if (platform.hotspot().tick(now)) {
+            host.clearNotice();
+        }
+        const std::string hotspotEvent = platform.hotspot().takeEvent();
+        if (!hotspotEvent.empty()) {
+            host.logger().info(now, hotspotEvent);
+            std::printf("  %s\n", hotspotEvent.c_str());
+            std::fflush(stdout);
+        }
         const std::string leaseEvent = platform.dhcp().takeEvent();
         if (!leaseEvent.empty()) {
             host.logger().info(now, leaseEvent);

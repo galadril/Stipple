@@ -38,6 +38,15 @@ public:
     /// convention for this and collides with nothing a home router uses.
     static constexpr const char* kAddress = "192.168.4.1";
 
+    /// Shorten the window it will sit there before giving up.
+    ///
+    /// Ten minutes is right for a device somebody is actually provisioning
+    /// and far too long for a test: the whole of that window is time nobody
+    /// can reach the device over the network it gave up.
+    void setRevertMillis(std::uint64_t millis) noexcept {
+        revertMillis_ = millis < 15000u ? 15000u : millis;
+    }
+
     ~Tc002Hotspot();
 
     Tc002Hotspot() = default;
@@ -109,6 +118,8 @@ private:
 
     Tc002Dhcp* dhcp_ = nullptr;
     std::string event_;
+
+    std::uint64_t revertMillis_ = kRevertMillis;
 
     bool running_ = false;
     std::string ssid_;
