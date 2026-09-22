@@ -376,3 +376,57 @@ input[type="color"] {
     border-left: 2px solid #d29922;
     padding-left: 8px;
 }
+
+/* --- status tiles -------------------------------------------------------- */
+
+/* A row of small readings above the live view. Deliberately not a table: these
+   are glanced at, not read, and a grid that reflows to one column on a phone
+   is better than a table that scrolls sideways. */
+.tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(122px, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.tile {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+.tile .label {
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.tile .value {
+    display: block;
+    margin-top: 4px;
+    font-size: 19px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* What a tile says when it has nothing to say. Dimmed rather than hidden: a
+   missing reading is information, and a tile that vanishes makes the row jump
+   about as things connect. */
+.tile.unknown .value { color: var(--muted); font-size: 15px; }
+
+.tile .note { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
+
+.tile .meter {
+    display: block;
+    height: 3px;
+    margin-top: 7px;
+    border-radius: 2px;
+    background: var(--line);
+    overflow: hidden;
+}
+
+.tile .meter i { display: block; height: 100%; background: var(--accent); }
+.tile .meter i.ok { background: var(--ok); }
+.tile .meter i.low { background: var(--danger); }

@@ -18,6 +18,10 @@ namespace notify {
 class NotificationQueue;
 }
 
+namespace render {
+class FrameScheduler;
+}
+
 namespace asset {
 class IconStore;
 }
@@ -67,6 +71,10 @@ struct ApiContext {
     /// Where an injected press goes. Null disables the input endpoint rather
     /// than accepting presses that vanish.
     platform::IInputSink* input = nullptr;
+
+    /// Render pacing, for diagnostics. Null simply omits the section: a build
+    /// that does not schedule frames has nothing truthful to say about them.
+    const render::FrameScheduler* scheduler = nullptr;
 };
 
 struct ApiOptions {

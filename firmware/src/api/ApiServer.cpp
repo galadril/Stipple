@@ -6,6 +6,7 @@
 #include "notrix/api/JsonWriter.h"
 #include "notrix/app/AppRegistry.h"
 #include "notrix/core/Base64.h"
+#include "notrix/render/FrameScheduler.h"
 #include "notrix/render/Overlay.h"
 #include "notrix/graphics/Framebuffer.h"
 #include "notrix/asset/IconStore.h"
@@ -475,6 +476,30 @@ Response ApiServer::handleDiagnostics(const Request& request, std::uint64_t nowM
         writer.key("input").beginObject()
             .member("droppedEvents",
                     static_cast<std::int64_t>(context_.platform->input().droppedEventCount()))
+            .endObject();
+    }
+
+    if (context_.scheduler != nullptr) {
+        const render::FrameStats& stats = context_.scheduler->stats();
+        writer.key("render").beginObject()
+            .member("rendered", static_cast<std::int64_t>(stats.rendered))
+            // A healthy static clock face skips far more often than it
+            // renders. If this stays at zero, dirty tracking is not working -
+            // which is worth being able to see from a browser rather than
+            // only from a debugger.
+            .member("skipped", static_cast<std::int64_t>(stats.skipped))
+            .member("overruns", static_cast<std::int64_t>(stats.overruns))
+            .member("lastRenderMillis", static_cast<std::int64_t>(stats.lastRenderMillis))
+            .member("worstRenderMillis", static_cast<std::int64_t>(stats.worstRenderMillis))
+            .member("intervalMillis", context_.scheduler->intervalMillis())
+            .endObject();
+    }
+
+    if (context_.carousel != nullptr) {
+        const app::App* active = context_.carousel->active();
+        writer.key("carousel").beginObject()
+            .member("active", active != nullptr ? active->id : std::string())
+            .member("paused", context_.carousel->paused())
             .endObject();
     }
 

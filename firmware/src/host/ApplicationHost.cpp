@@ -42,6 +42,7 @@ api::ApiContext ApplicationHost::makeContext() noexcept {
     context.logger = &logger_;
     context.frame = &framebuffer_;
     context.input = this;
+    context.scheduler = &scheduler_;
     return context;
 }
 

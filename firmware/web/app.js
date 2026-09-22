@@ -310,6 +310,121 @@
         });
     }
 
+
+    // --- status tiles -------------------------------------------------------
+
+    // Everything here is polled state, so every tile has to be able to say it
+    // does not know. A plausible zero where a reading is missing is the exact
+    // failure this project keeps finding on the device itself - a flat line
+    // that means "no microphone", a 0% that means "nothing answered" - and it
+    // reads the same way in a browser.
+    function tile(label, value, note, meterPermille, meterClass) {
+        var node = el('div', 'tile');
+        node.appendChild(el('span', 'label', label));
+        if (value === null || value === undefined) {
+            node.className = 'tile unknown';
+            node.appendChild(el('span', 'value', 'unknown'));
+        } else {
+            node.appendChild(el('span', 'value', String(value)));
+        }
+        if (note) { node.appendChild(el('span', 'note', note)); }
+        if (meterPermille !== undefined && meterPermille !== null) {
+            var meter = el('span', 'meter');
+            var fill = el('i', meterClass || null);
+            var width = Math.max(0, Math.min(1000, meterPermille));
+            fill.style.width = (width / 10) + '%';
+            meter.appendChild(fill);
+            node.appendChild(meter);
+        }
+        return node;
+    }
+
+    function formatUptime(millis) {
+        var seconds = Math.floor(millis / 1000);
+        var days = Math.floor(seconds / 86400);
+        var hours = Math.floor((seconds % 86400) / 3600);
+        var minutes = Math.floor((seconds % 3600) / 60);
+        if (days > 0) { return days + 'd ' + hours + 'h'; }
+        if (hours > 0) { return hours + 'h ' + minutes + 'm'; }
+        return minutes + 'm ' + (seconds % 60) + 's';
+    }
+
+    function renderStatus(device, diagnostics) {
+        var host = $('status-tiles');
+        if (!host) { return; }
+        host.textContent = '';
+
+        var can = (device && device.capabilities) || {};
+
+        // Battery. "known" and the capability are separate facts: a device can
+        // have a battery and not have heard from it yet.
+        if (can.battery) {
+            var battery = device.battery || {};
+            if (battery.known) {
+                var volts = battery.millivolts
+                    ? (battery.millivolts / 1000).toFixed(2) + ' V' : '';
+                var charging = battery.charging ? 'charging' : '';
+                var note = [charging, volts].filter(Boolean).join(' · ');
+                host.appendChild(tile('Battery', battery.percent + '%', note,
+                    battery.percent * 10,
+                    battery.percent <= 20 && !battery.charging ? 'low' : 'ok'));
+            } else {
+                host.appendChild(tile('Battery', null, 'no reading yet'));
+            }
+        }
+
+        // Microphone. Present-but-silent and absent are different, and the
+        // panel already learned that the hard way.
+        if (can.microphone) {
+            var mic = device.microphone || {};
+            if (mic.known) {
+                host.appendChild(tile('Microphone', mic.amplitude, 'level',
+                    Math.min(1000, Math.round(mic.amplitude / 32.767))));
+            } else {
+                host.appendChild(tile('Microphone', null, 'not streaming'));
+            }
+        }
+
+        var network = device && device.network;
+        if (network && network.connected) {
+            host.appendChild(tile('Wi-Fi', network.ipv4 || 'connected',
+                network.rssiDbm ? network.rssiDbm + ' dBm' : ''));
+        } else if (network) {
+            host.appendChild(tile('Wi-Fi', null, 'not connected'));
+        }
+
+        if (diagnostics) {
+            host.appendChild(tile('Uptime', formatUptime(diagnostics.uptimeMillis || 0)));
+
+            var render = diagnostics.render;
+            if (render) {
+                // Frames actually drawn, against frames the interval offered.
+                // A healthy static clock skips far more than it renders, so a
+                // high skip count is the good outcome rather than the alarming
+                // one - which is why it is shown as "drawn" and not "dropped".
+                var offered = (render.rendered || 0) + (render.skipped || 0);
+                var share = offered > 0
+                    ? Math.round((render.rendered * 1000) / offered) : 0;
+                host.appendChild(tile('Frames', render.rendered,
+                    render.overruns ? render.overruns + ' over budget'
+                                    : render.lastRenderMillis + ' ms last',
+                    share, render.overruns ? 'low' : null));
+            }
+
+            if (diagnostics.carousel) {
+                host.appendChild(tile('Showing',
+                    diagnostics.carousel.active || 'nothing',
+                    diagnostics.carousel.paused ? 'paused' : ''));
+            }
+
+            var notes = diagnostics.notifications;
+            if (notes && (notes.active || notes.pending || notes.dropped)) {
+                host.appendChild(tile('Notifications', notes.active ? 'showing' : notes.pending,
+                    notes.dropped ? notes.dropped + ' dropped' : 'pending'));
+            }
+        }
+    }
+
     function addFact(list, term, value) {
         list.appendChild(el('dt', null, term));
         list.appendChild(el('dd', null, value === undefined ? 'unknown' : String(value)));
@@ -1166,6 +1281,18 @@
                 markConnection(true);
                 return refreshActive();
             })
+            .then(function () {
+                // Two requests rather than one, because /device and
+                // /diagnostics answer different questions and neither should
+                // grow the other's fields just to save a round trip on a LAN.
+                return Promise.all([
+                    send('GET', '/api/v1/device'),
+                    send('GET', '/api/v1/diagnostics')
+                ]);
+            })
+            .then(function (answers) {
+                renderStatus(answers[0], answers[1]);
+            })
             .catch(function () { markConnection(false); });
     }
 
@@ -1193,6 +1320,9 @@
                 describePassword();
                 previewTopic();
                 markConnection(true);
+                // Fill the tiles immediately rather than leaving the page
+                // blank until the first poll four seconds later.
+                poll();
             })
             .catch(function (error) {
                 markConnection(false);
