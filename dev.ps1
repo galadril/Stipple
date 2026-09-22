@@ -26,7 +26,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'panel', 'serve', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'panel', 'serve', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -296,6 +296,40 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/notrix_device \
 
         & $adb.Source shell /tmp/notrix_device
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+
+    'capture' {
+        # ADR 0008's hard precondition, and the one verb that has to work
+        # before any of the others are allowed to exist.
+        #
+        # It reads the live res partition through the kernel's read-only
+        # alias and wraps it in a container the device's own loader will
+        # accept. Nothing is written to the device.
+        #
+        # Worth knowing why this is not optional: every TC002 ships with an
+        # update.img on its own USB volume, and holding reset installs it -
+        # but on the unit this was written against that image is *older* than
+        # the res partition actually running. The reset button is a downgrade
+        # unless somebody has put the right image there first.
+        $target = if ($Rest) { $Rest[0] } else { $null }
+
+        $adb = Get-Command adb -ErrorAction SilentlyContinue
+        if (-not $adb) { throw "adb not found on PATH. See docs/bring-up.md." }
+
+        if ($target) { & $adb.Source connect $target | Out-Null }
+
+        $python = Get-Command python.exe -ErrorAction SilentlyContinue
+        if (-not $python) { throw "python.exe not found on PATH." }
+
+        $script = Join-Path $repoRoot 'tooling\imgtool\capture.py'
+        $arguments = @($script, '--out', (Join-Path $repoRoot 'restore'))
+        if ($target) { $arguments += @('--target', $target) }
+
+        & $python.Source @arguments
+        if ($LASTEXITCODE -ne 0) { throw "capture failed" }
+
+        Write-Host "`nKeep restore/. It is specific to this device, it is Ulanzi's" -ForegroundColor Yellow
+        Write-Host "firmware, and it is gitignored for both reasons." -ForegroundColor Yellow
     }
 
     'panel' {

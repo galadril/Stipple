@@ -62,3 +62,11 @@ build/vendor-analysis/
 # Ad-hoc device capture scratch files.
 knob*.txt
 probe-out.txt
+
+# Restore images and raw partition captures. Ulanzi's firmware, and specific
+# to one unit - the whole point of ADR 0008 is that each device is restored
+# from its own capture. Never redistributed, never committed.
+restore/
+*.img
+*.squashfs
+res-*.bin

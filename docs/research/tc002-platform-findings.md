@@ -1247,3 +1247,77 @@ waiting on. It does **not** resolve the other half — the ADR requires a
 restore path that has been *demonstrated*, not one that ought to work, and
 demonstrating it means writing the tool and then using it to put a captured
 image back on a device that has been deliberately broken. The gates stand.
+
+## The device already knows how to flash itself
+
+Found while working out how NOTRIX could persist, and it made writing a
+flasher unnecessary. All of this is first-hand: read off a real unit and
+proven by rebuilding a factory image byte for byte.
+
+**It is NOR flash.** `/sys/class/mtd/mtd3/type` says `nor`, `writesize` is 1
+and `oobsize` is 0. No OOB, no ECC, and **no bad blocks** — erase then write,
+byte-addressable. Every partition reports the same.
+
+**There is a vendor update path, and it is good.** `/mnt/storage/update.img`
+sits on the device's own USB volume — the vfat partition that appears as mass
+storage when it is plugged into a computer. The loader checks a header CRC32
+and a payload MD5 before writing, and writes only the `res` partition
+directly; other partitions go through a u-boot handoff.
+
+**Recovery is a physical button.** Holding reset during power-up reflashes
+from `/mnt/storage`, needing no network, no computer and no shell.
+
+### The update.img container
+
+```
+0x000  magic  "ZKSWEV1.0-180127"    (the first 9 bytes are what is checked)
+0x010  prefix length 0x30, entry count 1
+0x014  partition index               3 = res
+0x018  payload offset                0x23c (572) - the header size
+0x01c  payload length                padded to 4 KiB
+0x020  the real first 16 bytes of the filesystem image, relocated here
+0x035  device code 0xaa550606        Zkswe_SSD21X_SPINOR, and unaligned
+0x238  CRC32 over header[0:0x238]
+payload[0:16]                        MD5 of the image with its first 16 bytes restored
+```
+
+The two sixteen-byte swaps are the only unusual part: the filesystem's
+opening bytes move into the header, and the MD5 takes their place at the
+start of the payload.
+
+Confirmed by extracting the factory image and repacking it — the result is
+byte-identical. `tooling/imgtool/` does both.
+
+Large parts of the header from 0x60 onwards are not understood. There is a
+table of some kind with a regular four-byte cadence. Nothing here invents it:
+the tooling copies a known-good header and edits the five fields that must
+change.
+
+### The shipped recovery image is not the firmware that is running
+
+On the unit this was written against:
+
+```
+installed res   squashfs, bytes_used 2 787 758
+shipped udisk   payload              2 781 184     they differ
+```
+
+**Holding the reset button on this device installs an older image than the
+one it has.** The third-party TC002 documentation reports the same on their
+unit, so it is not a one-off.
+
+That is the evidence behind [ADR 0008](../adr/0008-installer-helper.md)'s
+insistence that a restore image be captured from the unit in front of you.
+`tooling/imgtool/capture.py` does it, reading through the kernel's read-only
+alias `/dev/mtd/mtd3ro` and verifying the result against the capture.
+
+### USB is a recovery path after all
+
+`/sys/bus/platform/devices/soc:usbotg/otg_role` reads `usb_host` and can be
+set to `usb_device`, which brings up the ADB gadget over the cable — root
+shell with no network involved.
+
+CLAUDE.md says USB-C on this device is mass storage and not a flashing path.
+That is true of its **default role** and not of the port, and the distinction
+matters: it means there is a way into a device whose Wi-Fi is broken, which
+is the failure this project keeps running into.

@@ -284,3 +284,26 @@ is the thing that is broken, there is nothing for either route to fall back to.
 That is an argument for requirement 3 above rather than a reason to despair, but
 it should be said plainly: the recovery gestures choose which launcher runs.
 They do not repair files.
+
+## Update, 2026-09-22: one gate met, one still standing
+
+**A verified restore image now exists**, captured from a real unit and
+checked against the partition it came from, and `tooling/imgtool/capture.py`
+makes one for any device. The first precondition is satisfied.
+
+**The second is not.** This ADR asks for a restore path that has been
+*demonstrated*, and nobody has yet held the reset button on a device that
+needed it. Until somebody has, nothing gets flashed.
+
+What changed is how the flashing would happen. It will not be a tool of ours
+writing MTD directly — the device has its own update path, it validates a
+header CRC32 and a payload MD5, it writes only the partition that can be
+broken safely, and its recovery is a physical button. See
+[ADR 0020](0020-persistence-through-the-vendor-update-path.md).
+
+One finding sharpens this ADR's own argument. The `update.img` that ships on
+a unit's USB volume is **not necessarily the firmware that unit is running** -
+measured on the device here, and reported by others on theirs. So the reset
+button is not automatically a restore; it can be a downgrade. Capturing from
+the device is not belt-and-braces, it is the only thing that makes the
+physical recovery correct.
