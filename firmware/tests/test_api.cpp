@@ -1193,3 +1193,69 @@ NOTRIX_TEST(Api, WithoutAPhaseAPressIsStillCompleteBothWays) {
     NOTRIX_CHECK(fixture.input.events[0].phase == notrix::platform::ButtonPhase::Down);
     NOTRIX_CHECK(fixture.input.events[1].phase == notrix::platform::ButtonPhase::Up);
 }
+
+// --- network -----------------------------------------------------------------
+
+NOTRIX_TEST(Api, NetworkReportsWhatTheDeviceIsOn) {
+    Fixture fixture;
+    notrix::platform::NetworkStatus status;
+    status.connected = true;
+    status.ipv4 = "192.168.1.50";
+    status.hostname = "notrix";
+    status.ssid = "Example Network";
+    status.signalKnown = true;
+    status.rssiDbm = -51;
+    fixture.platform.simulatedNetwork().setStatus(status);
+
+    const Response answer = fixture.call("GET", "/api/v1/network");
+    NOTRIX_CHECK_EQ(static_cast<int>(answer.status), 200);
+    NOTRIX_CHECK(answer.body.find("\"ssid\":\"Example Network\"") != std::string::npos);
+    NOTRIX_CHECK(answer.body.find("\"rssiDbm\":-51") != std::string::npos);
+}
+
+NOTRIX_TEST(Api, APlatformThatCannotScanSaysSoRatherThanReturningNothing) {
+    // An empty list and "this device cannot look" are different answers, and
+    // they are indistinguishable without saying which one this is (ADR 0013).
+    Fixture fixture;
+
+    const Response answer = fixture.call("GET", "/api/v1/network");
+    NOTRIX_CHECK(answer.body.find("\"canScan\":false") != std::string::npos);
+    NOTRIX_CHECK(answer.body.find("\"networks\":[]") != std::string::npos);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.call("POST", "/api/v1/network/scan").status), 501);
+}
+
+NOTRIX_TEST(Api, ScanningIsAcceptedRatherThanWaitedFor) {
+    // A scan takes seconds and §16 does not allow waiting for one here, so the
+    // reply says it started and the caller asks again.
+    Fixture fixture;
+    fixture.platform.simulatedNetwork().setScannable(true);
+
+    const Response answer = fixture.call("POST", "/api/v1/network/scan");
+    NOTRIX_CHECK_EQ(static_cast<int>(answer.status), 202);
+    NOTRIX_CHECK(answer.body.find("scanning") != std::string::npos);
+}
+
+NOTRIX_TEST(Api, ScanResultsComeBackThroughTheNetworkResource) {
+    Fixture fixture;
+    fixture.platform.simulatedNetwork().setScannable(true);
+
+    notrix::platform::WirelessNetwork found;
+    found.ssid = "Example Network";
+    found.signalDbm = -42;
+    found.secured = true;
+    found.current = true;
+    fixture.platform.simulatedNetwork().setNetworks({found});
+
+    const Response answer = fixture.call("GET", "/api/v1/network");
+    NOTRIX_CHECK(answer.body.find("\"canScan\":true") != std::string::npos);
+    NOTRIX_CHECK(answer.body.find("\"signalDbm\":-42") != std::string::npos);
+    NOTRIX_CHECK(answer.body.find("\"secured\":true") != std::string::npos);
+    NOTRIX_CHECK(answer.body.find("\"current\":true") != std::string::npos);
+}
+
+NOTRIX_TEST(Api, NetworkRefusesTheWrongMethods) {
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.call("POST", "/api/v1/network").status), 405);
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.call("GET", "/api/v1/network/scan").status), 405);
+}

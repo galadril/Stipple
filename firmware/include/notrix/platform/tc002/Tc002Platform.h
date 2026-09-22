@@ -12,6 +12,7 @@
 #include "notrix/platform/tc002/Tc002Input.h"
 #include "notrix/platform/tc002/Tc002Audio.h"
 #include "notrix/platform/tc002/Tc002Mcu.h"
+#include "notrix/platform/tc002/WpaControl.h"
 #include "notrix/platform/tc002/Tc002MqttClient.h"
 
 namespace notrix {
@@ -91,6 +92,26 @@ private:
 class Tc002Network final : public INetworkManager {
 public:
     NetworkStatus status() const override;
+
+    /// True once the supplicant's control socket answers. False means it is
+    /// not running, which is a real state on a device that has been put into
+    /// hotspot mode - not an error, and not "no networks in range".
+    bool canScan() const override;
+
+    bool beginScan() override;
+    std::vector<WirelessNetwork> networks() const override;
+
+private:
+    /// Opened on first use and kept.
+    ///
+    /// Mutable because status() and networks() are const - they observe the
+    /// device rather than change it - while the socket underneath is not. The
+    /// alternative is a non-const interface for reading, which would be worse
+    /// documentation of what these calls actually do.
+    mutable WpaControl control_;
+
+    /// Ensure the socket is connected, or say it cannot be.
+    bool connected() const;
 };
 
 /// The TC002 half of the §53 boundary.

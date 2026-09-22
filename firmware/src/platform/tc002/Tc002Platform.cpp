@@ -19,6 +19,7 @@
 #include <utility>
 
 #include "notrix/platform/tc002/WirelessStats.h"
+#include "notrix/platform/tc002/WpaReplies.h"
 
 namespace notrix {
 namespace platform {
@@ -320,6 +321,49 @@ NetworkStatus Tc002Network::status() const {
 
     ::freeifaddrs(addresses);
     return result;
+}
+
+
+bool Tc002Network::connected() const {
+    if (control_.isOpen()) {
+        return true;
+    }
+    // Retried rather than given up on. The supplicant is stopped while the
+    // device runs its own access point, and comes back when it does not - so
+    // a socket that was absent a minute ago may be there now.
+    return control_.open();
+}
+
+bool Tc002Network::canScan() const { return connected(); }
+
+bool Tc002Network::beginScan() {
+    if (!connected()) {
+        return false;
+    }
+    // "FAIL-BUSY" means a scan is already running, which is a yes from the
+    // caller's point of view: results will arrive. Only a flat failure is one.
+    const std::string reply = control_.ask("SCAN");
+    return !reply.empty() && reply.rfind("FAIL\n", 0) != 0 &&
+           reply.rfind("FAIL ", 0) != 0;
+}
+
+std::vector<WirelessNetwork> Tc002Network::networks() const {
+    std::vector<WirelessNetwork> out;
+    if (!connected()) {
+        return out;
+    }
+
+    const std::string current = wpa::parseStatus(control_.ask("STATUS")).ssid;
+
+    for (const wpa::Network& found : wpa::parseScanResults(control_.ask("SCAN_RESULTS"))) {
+        WirelessNetwork network;
+        network.ssid = found.ssid;
+        network.signalDbm = found.signalDbm;
+        network.secured = found.secured;
+        network.current = !current.empty() && found.ssid == current;
+        out.push_back(std::move(network));
+    }
+    return out;
 }
 
 // --- platform ---------------------------------------------------------------

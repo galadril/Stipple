@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "notrix/platform/Clock.h"
 #include "notrix/platform/Display.h"
@@ -52,12 +53,45 @@ struct NetworkStatus {
     std::string ssid;
 };
 
-/// Wi-Fi state, read-only at this layer. Joining a network is a provisioning
-/// concern, not something an app or scene should be able to trigger.
+/// One access point in range.
+struct WirelessNetwork {
+    std::string ssid;
+
+    /// Negative dBm, closer to zero is better.
+    int signalDbm = 0;
+
+    /// False for an open network. A UI that cannot tell asks for a password
+    /// that does not exist, or fails to ask for one that does.
+    bool secured = false;
+
+    /// Whether this is the network the device is currently on.
+    bool current = false;
+};
+
+/// Wi-Fi state. Read-only at this layer, and deliberately so: an app or a
+/// scene must not be able to change which network the device is on.
 class INetworkManager {
 public:
     virtual ~INetworkManager() = default;
     virtual NetworkStatus status() const = 0;
+
+    /// Whether this platform can list what is in range at all.
+    ///
+    /// False on the simulator and on anything wired. Callers check it rather
+    /// than inferring from an empty list, because "nothing in range" and "this
+    /// device cannot look" are different answers (ADR 0013).
+    virtual bool canScan() const { return false; }
+
+    /// Ask for a scan. Returns false if one could not be started.
+    ///
+    /// Starts it and returns; a scan takes seconds and blueprint §16 does not
+    /// allow that on the render loop. Results arrive through `networks()` when
+    /// the radio has them, which means a caller asks, waits, and asks again -
+    /// exactly as the hardware behaves.
+    virtual bool beginScan() { return false; }
+
+    /// What the last completed scan found. Empty until one has.
+    virtual std::vector<WirelessNetwork> networks() const { return {}; }
 };
 
 struct BatteryStatus {

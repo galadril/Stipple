@@ -193,8 +193,30 @@ public:
     NetworkStatus status() const override { return status_; }
     void setStatus(const NetworkStatus& status) { status_ = status; }
 
+    /// Off by default, matching a simulator that has no radio - so the
+    /// "cannot scan" path is the one tests take unless they ask otherwise.
+    bool canScan() const override { return scannable_; }
+    void setScannable(bool scannable) { scannable_ = scannable; }
+
+    bool beginScan() override {
+        if (!scannable_) {
+            return false;
+        }
+        ++scanCount_;
+        return true;
+    }
+    int scanCount() const { return scanCount_; }
+
+    std::vector<WirelessNetwork> networks() const override { return networks_; }
+    void setNetworks(std::vector<WirelessNetwork> networks) {
+        networks_ = std::move(networks);
+    }
+
 private:
     NetworkStatus status_;
+    std::vector<WirelessNetwork> networks_;
+    bool scannable_ = false;
+    int scanCount_ = 0;
 };
 
 /// Records the request. Emphatically does not reboot anything.

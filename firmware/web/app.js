@@ -862,6 +862,116 @@
         });
     }
 
+
+    // --- network -------------------------------------------------------------
+
+    // Signal as bars rather than a number. -67 dBm means nothing to most
+    // people; four bars out of five does. The number stays in the note for
+    // anybody it does mean something to.
+    function signalBars(dbm) {
+        if (dbm === undefined || dbm === null) { return ''; }
+        var bars = dbm >= -55 ? 4 : dbm >= -67 ? 3 : dbm >= -78 ? 2 : 1;
+        var out = '';
+        for (var i = 0; i < 4; ++i) { out += i < bars ? '█' : '░'; }
+        return out;
+    }
+
+    function loadNetwork() {
+        return send('GET', '/api/v1/network').then(function (state) {
+            var facts = $('network-facts');
+            if (facts) {
+                facts.textContent = '';
+                addFact(facts, 'Status', state.connected ? 'connected' : 'not connected');
+                if (state.ssid) { addFact(facts, 'Network', state.ssid); }
+                if (state.ipv4) { addFact(facts, 'Address', state.ipv4); }
+                if (state.rssiDbm !== undefined) {
+                    addFact(facts, 'Signal', signalBars(state.rssiDbm) + '  ' +
+                                             state.rssiDbm + ' dBm');
+                }
+            }
+
+            var scan = $('network-scan');
+            var note = $('network-note');
+            if (scan) { scan.disabled = !state.canScan; }
+            if (note && !state.canScan) {
+                // Said rather than left as an empty list: "nothing in range"
+                // and "this device cannot look" are different answers.
+                note.textContent = 'This build cannot scan for networks.';
+            }
+
+            var list = $('network-list');
+            if (!list) { return; }
+            list.textContent = '';
+
+            // One row per name, keeping the strongest.
+            //
+            // A real scan is full of duplicates - the same network on 2.4 and
+            // 5 GHz, and again from every access point in the house. The
+            // device reports what the radio saw, which is correct; a person
+            // choosing a network wants the name once. Eleven rows collapsed
+            // to six on the first real scan.
+            var byName = {};
+            (state.networks || []).forEach(function (network) {
+                var seen = byName[network.ssid];
+                if (!seen || network.signalDbm > seen.signalDbm) {
+                    // Keep "current" if any copy had it: being connected is a
+                    // property of the network, not of one radio in it.
+                    var current = network.current || (seen && seen.current);
+                    byName[network.ssid] = network;
+                    byName[network.ssid].current = !!current;
+                }
+            });
+
+            var networks = Object.keys(byName).map(function (name) { return byName[name]; });
+            // Strongest first. The one somebody wants is almost always near
+            // the top, and an unsorted list of a dozen is a list nobody reads.
+            networks.sort(function (a, b) { return b.signalDbm - a.signalDbm; });
+
+            networks.forEach(function (network) {
+                var row = el('li');
+                row.appendChild(el('span', 'grip', signalBars(network.signalDbm)));
+
+                var body = el('div', 'grow');
+                body.appendChild(el('span', 'name', network.ssid));
+                var detail = [];
+                if (network.current) { detail.push('connected'); }
+                detail.push(network.secured ? 'secured' : 'open');
+                detail.push(network.signalDbm + ' dBm');
+                body.appendChild(el('span', 'sub', detail.join(' · ')));
+                row.appendChild(body);
+
+                list.appendChild(row);
+            });
+
+            if (!networks.length && state.canScan) {
+                list.appendChild(el('li', null, 'Nothing found yet - press Scan.'));
+            }
+        });
+    }
+
+    function wireNetwork() {
+        var scan = $('network-scan');
+        if (!scan) { return; }
+
+        scan.addEventListener('click', function () {
+            scan.disabled = true;
+            scan.textContent = 'Scanning...';
+            send('POST', '/api/v1/network/scan')
+                .then(function () {
+                    // The radio takes seconds, and the device answered 202
+                    // rather than waiting - so this waits instead, once,
+                    // rather than polling something that finishes in one go.
+                    return new Promise(function (resolve) { setTimeout(resolve, 3000); });
+                })
+                .then(loadNetwork)
+                .catch(fail)
+                .then(function () {
+                    scan.disabled = false;
+                    scan.textContent = 'Scan';
+                });
+        });
+    }
+
     // --- backup, restore, reset ---------------------------------------------
 
     function wireMaintenance() {
@@ -1005,6 +1115,10 @@
         if (activePanel === 'panel-apps') { return loadApps().catch(fail); }
         if (activePanel === 'panel-notify') { return loadNotifications().catch(fail); }
         if (activePanel === 'panel-logs') { return loadLogs().catch(fail); }
+        // Refreshed when the tab is open rather than on its own timer. A scan
+        // list goes stale slowly, and polling one costs the device a socket
+        // round trip for a page nobody is looking at.
+        if (activePanel === 'panel-system') { return loadNetwork().catch(function () {}); }
         return Promise.resolve();
     }
 
@@ -1749,6 +1863,7 @@
         wireMqtt();
         wireReboot();
         wireMaintenance();
+        wireNetwork();
         wireControls();
         wireCapture();
         wireColorPickers();

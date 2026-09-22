@@ -115,6 +115,11 @@ enum class Resource : std::uint8_t {
     /// because "reset" and "delete" are different promises: this leaves a
     /// working configuration behind rather than an absent one.
     SystemReset,
+    /// What the device can see, and what it is on. Read-only: joining is a
+    /// provisioning concern with its own gates (ADR 0018).
+    Network,
+    /// Ask the radio to look. A POST because it does something.
+    NetworkScan,
     /// The frame currently on the panel, for the web UI's live view.
     DisplayFrame,
     /// A button press injected from somewhere that is not the hardware.

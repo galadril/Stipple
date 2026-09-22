@@ -190,6 +190,7 @@ RouteMatch matchRoute(std::string_view path) {
         else if (head == "assets") match.resource = Resource::AssetCollection;
         else if (head == "settings") match.resource = Resource::Settings;
         else if (head == "input") match.resource = Resource::Input;
+        else if (head == "network") match.resource = Resource::Network;
         return match;
     }
 
@@ -200,6 +201,10 @@ RouteMatch matchRoute(std::string_view path) {
         }
         if (head == "system" && parts[3] == "reset") {
             match.resource = Resource::SystemReset;
+            return match;
+        }
+        if (head == "network" && parts[3] == "scan") {
+            match.resource = Resource::NetworkScan;
             return match;
         }
         if (head == "display" && parts[3] == "frame") {

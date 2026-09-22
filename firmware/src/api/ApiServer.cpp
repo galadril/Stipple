@@ -231,6 +231,8 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
         case Resource::Settings: return handleSettings(request);
         case Resource::SystemReboot: return handleReboot(request);
         case Resource::SystemReset: return handleReset(request, nowMillis);
+        case Resource::Network: return handleNetwork(request);
+        case Resource::NetworkScan: return handleNetworkScan(request);
         case Resource::DisplayFrame: return handleDisplayFrame(request);
         case Resource::Input: return handleInput(request, nowMillis);
         case Resource::Unknown: break;
@@ -1499,6 +1501,74 @@ Response ApiServer::handleSettings(const Request& request) {
     JsonWriter writer;
     writeSettings(writer, *context_.config);
     return ok(writer.take());
+}
+
+Response ApiServer::handleNetwork(const Request& request) {
+    if (request.method != Method::Get) {
+        return methodNotAllowed();
+    }
+    if (context_.platform == nullptr || context_.platform->network() == nullptr) {
+        return error(501, "not_supported", "this platform has no network interface");
+    }
+
+    platform::INetworkManager& network = *context_.platform->network();
+    const platform::NetworkStatus status = network.status();
+
+    JsonWriter writer;
+    writer.beginObject()
+        .member("connected", status.connected)
+        .member("ipv4", status.ipv4)
+        .member("hostname", status.hostname);
+    if (!status.ssid.empty()) {
+        writer.member("ssid", status.ssid);
+    }
+    if (status.signalKnown) {
+        writer.member("rssiDbm", status.rssiDbm);
+    }
+
+    // Reported so a page can tell "this device cannot look" from "nothing is
+    // in range" - which are different answers and look identical in an empty
+    // list (ADR 0013).
+    writer.member("canScan", network.canScan());
+
+    writer.key("networks").beginArray();
+    for (const platform::WirelessNetwork& found : network.networks()) {
+        writer.beginObject()
+            .member("ssid", found.ssid)
+            .member("signalDbm", found.signalDbm)
+            .member("secured", found.secured)
+            .member("current", found.current)
+            .endObject();
+    }
+    writer.endArray();
+
+    writer.endObject();
+    return ok(writer.take());
+}
+
+Response ApiServer::handleNetworkScan(const Request& request) {
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+    if (context_.platform == nullptr || context_.platform->network() == nullptr) {
+        return error(501, "not_supported", "this platform has no network interface");
+    }
+
+    platform::INetworkManager& network = *context_.platform->network();
+    if (!network.canScan()) {
+        return error(501, "not_supported", "this platform cannot scan");
+    }
+    if (!network.beginScan()) {
+        return error(503, "unavailable", "the radio would not start a scan");
+    }
+
+    // 202: a scan takes seconds, and blueprint §16 does not allow waiting for
+    // it here. The caller asks again for the results.
+    JsonWriter writer;
+    writer.beginObject().member("status", "scanning").endObject();
+    Response response = ok(writer.take());
+    response.status = 202;
+    return response;
 }
 
 Response ApiServer::handleReset(const Request& request, std::uint64_t nowMillis) {

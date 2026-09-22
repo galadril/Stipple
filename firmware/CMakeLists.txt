@@ -113,6 +113,7 @@ if(NOTRIX_DEVICE_BUILD)
         src/platform/tc002/Tc002Mcu.cpp
         src/platform/tc002/Tc002MqttClient.cpp
         src/platform/tc002/Tc002Platform.cpp
+        src/platform/tc002/WpaControl.cpp
     )
 
     target_link_libraries(notrix_platform_tc002 PUBLIC notrix_core notrix_warnings ${CMAKE_DL_LIBS})
