@@ -1139,3 +1139,45 @@ configuration to start from rather than one to invent.
 
 `/data/misc/wifi/` is persistent. `/tmp` is not, which is where a client socket
 belongs.
+
+## There is no DHCP client on this device
+
+Found by testing the hotspot, which is the only way it was going to be found.
+
+The complete contents of `/bin`:
+
+```
+adbd busybox cat chmod chown cp date df dnsmasq echo fsync getevent getprop
+hostapd kill ln logcat logd ls mkdir mknod mksh mount mv ping ps pwd reboot
+rm rmdir setprop sh ssd_init.sh sync test_fb touch umount vold wpa_supplicant
+zkdaemon zkdisplay zkgui
+```
+
+No `udhcpc`, no `dhcpcd`, no `dhclient`. The busybox build has no applets at
+all — `busybox --list` answers "applet not found" — so `/sbin/ifconfig` and the
+handful of other symlinks are the whole of it. `init.rc` creates
+`/data/misc/dhcp` and nothing ever writes there.
+
+**The vendor application obtains the lease itself.** `wpa_supplicant` is an
+init service and only ever associates; the address appears when `zkgui` runs
+and nothing else on the device is capable of asking for one.
+
+Two consequences, and the second is the serious one.
+
+**A hotspot cannot simply hand the radio back.** Stopping `hostapd` and
+restarting `wpa_supplicant` re-associates and leaves the interface with no
+address, which is what happened on the first live test: the access point
+disappeared, the station came back, and the device was unreachable until it was
+power-cycled. Restoring the network needs something to ask for an address.
+
+**NOTRIX does not hold its own lease.** It has been running on addresses
+obtained by the vendor application before it started — every session so far
+began with `setprop ctl.stop zkswe` on a device that was already online. The
+address stays configured because nothing removes it, but nothing renews it
+either, so a NOTRIX device left alone will lose its network when the lease
+expires. Nobody has seen it because no unit has run for a full lease period
+without being restarted.
+
+So a DHCP client is not a hotspot detail. It is a thing NOTRIX needs in order
+to be the application on this device at all, and it has to be written: there is
+nothing here to call.

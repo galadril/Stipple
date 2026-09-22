@@ -1,6 +1,6 @@
 # 0018 — Getting on the network, and keeping people off it
 
-- **Status:** Proposed
+- **Status:** Accepted; amended after the first live test
 - **Date:** 2026-09-22
 
 ## Context
@@ -162,3 +162,48 @@ somebody pastes into a chat window asking why their clock is broken.
 
 **Replacing `wpa_supplicant.conf` wholesale.** Simpler, and one typo from a
 device nobody can reach. Rejected on that alone.
+
+## Amended after testing the hotspot on hardware
+
+The hotspot came up — the access point broadcast and was visible — and the
+test still failed twice over. Both failures were worth more than the feature.
+
+**No client could get an address.** `dnsmasq` did not serve DHCP. That alone
+is a bug to fix.
+
+**The revert did not restore the network.** The access point stopped and
+`wpa_supplicant` came back, and the device stayed unreachable until it was
+power-cycled — the exact "no access point and no station" state this ADR set
+out to make impossible.
+
+The cause is the same for both, and it is not in this code: **there is no DHCP
+client on the device.** Not in `/bin`, not as a busybox applet — busybox here
+has no applets at all. The vendor application obtains the lease itself, which
+is why every NOTRIX session so far has had an address: each one began by
+stopping a vendor application that had already got one.
+
+That makes a DHCP client a prerequisite rather than a detail, and it is larger
+than the hotspot:
+
+**NOTRIX does not hold its own lease today.** It inherits one and never renews
+it. A device left running long enough will lose its network, and no unit has
+been up for a full lease period without a restart, so nobody has seen it.
+
+### The order changes
+
+1. ~~Physical escape hatch~~ — done.
+2. ~~Scanning~~ — done.
+3. **A DHCP client.** Needed by the hotspot, needed by joining, and needed by
+   NOTRIX as the application on this device regardless of either.
+4. Hotspot — reverts by restoring the station *and asking for an address*.
+5. Joining.
+6. Access control, then first run.
+
+### And a rule about testing this
+
+`/tmp` is tmpfs, so a power cycle takes the logs with it. The first test left
+nothing to read: the dnsmasq log, the generated configs and the evidence of
+what failed were all gone before the device came back. Anything diagnosing a
+network failure has to write where a power cycle cannot reach, or report over
+a channel that does not depend on the network it is breaking — the panel is
+the obvious one, and it is right there.
