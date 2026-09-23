@@ -22,7 +22,11 @@ set -euo pipefail
 
 CAPTURE="${1:?usage: buildres.sh <res-raw.bin> <output.squashfs> [startupLibPath]}"
 OUTPUT="${2:?usage: buildres.sh <res-raw.bin> <output.squashfs> [startupLibPath]}"
-STARTUP_LIB="${3:-/data/notrix/libnotrix.so}"
+# Where the framework is pointed. Defaults to the shim rather than straight
+# at NOTRIX, because a missing NOTRIX must leave a working clock rather than
+# a device with no way in - see ADR 0008 for what happens otherwise.
+STARTUP_LIB="${3:-/res/lib/libnotrixboot.so}"
+SHIM_SOURCE="/src/firmware/tools/startup_shim/main.cpp"
 
 CONFIG="etc/EasyUI.cfg"
 VENDOR_LIB="/res/lib/libzkgui.so"
@@ -72,6 +76,51 @@ if [ ! -f "$WORK/tree/lib/libzkgui.so" ]; then
     echo "warning: the vendor application is missing from this image" >&2
 fi
 
+# Build the shim into the image, linked against the vendor application.
+#
+# That link is the whole mechanism: the framework calls dlsym on the handle
+# it opened, dlsym searches a handle's dependency tree, and so the vendor's
+# entry points are found through the shim without anything here knowing what
+# they are called. Their names are obfuscated and stay irrelevant.
+#
+# Built here rather than shipped, because it links against the vendor library
+# from *this* capture - which never leaves the machine it was captured on.
+if [ "$STARTUP_LIB" = "/res/lib/libnotrixboot.so" ]; then
+    if [ ! -f "$SHIM_SOURCE" ]; then
+        echo "error: $SHIM_SOURCE is missing" >&2
+        exit 1
+    fi
+    echo "--- building the startup shim ---"
+    arm-linux-gnueabihf-g++ -shared -fPIC -Os -std=c++17         -o "$WORK/tree/lib/libnotrixboot.so" "$SHIM_SOURCE"         -L"$WORK/tree/lib" -Wl,--no-as-needed -l:libzkgui.so -Wl,--as-needed -ldl
+
+    # Ownership and mode have to match everything else on this partition, or
+    # the image stops being one line different from the original.
+    chown --reference="$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libnotrixboot.so"
+    chmod --reference="$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libnotrixboot.so"
+
+    # Timestamps taken from the vendor library beside it, and the directory's
+    # own mtime put back after the write. Adding a file bumps the parent
+    # directory, and an image whose only differences are structural is one a
+    # reviewer can check by diffing - they should not have to discount dates.
+    touch -r "$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libnotrixboot.so"
+    touch -r "$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib"
+
+    # Checked, not assumed. --as-needed is the default and drops a library
+    # whose symbols are never referenced - which is exactly this one, since
+    # the whole point is to forward symbols we never name. Without the
+    # DT_NEEDED entry dlsym finds nothing and the fallback delivers the very
+    # lockout it exists to prevent.
+    if ! arm-linux-gnueabihf-readelf -d "$WORK/tree/lib/libnotrixboot.so"         | grep -q 'NEEDED.*libzkgui\.so'; then
+        echo "error: the shim does not depend on libzkgui.so" >&2
+        echo "       without that link the vendor application cannot be reached" >&2
+        exit 1
+    fi
+
+    echo "    $(ls -la "$WORK/tree/lib/libnotrixboot.so" | awk '{print $5}') bytes"
+    echo "    needs: $(arm-linux-gnueabihf-readelf -d "$WORK/tree/lib/libnotrixboot.so"         | grep NEEDED | awk '{print $5}' | tr -d '[]' | tr '
+' ' ')"
+fi
+
 # Parameters read off the original rather than chosen: squashfs 4.0, xz,
 # 128 KiB blocks. The kernel that mounts this was built with a fixed set of
 # decompressors, and an image it cannot read is a device with no application.
@@ -84,5 +133,15 @@ echo "--- built ---"
 ls -la "$OUTPUT" | awk '{print "size        " $5 " bytes"}'
 echo "wrote       $OUTPUT"
 echo
-echo "This image has no NOTRIX in it. It changes where the framework looks,"
-echo "and NOTRIX goes to $STARTUP_LIB separately."
+if [ "$STARTUP_LIB" = "/res/lib/libnotrixboot.so" ]; then
+    echo "The image carries the shim and nothing else of ours. NOTRIX goes to"
+    echo "/data/notrix/libnotrix.so separately, and if it is not there the"
+    echo "stock clock runs instead of nothing."
+else
+    echo "This image has no NOTRIX in it. It changes where the framework looks,"
+    echo "and NOTRIX goes to $STARTUP_LIB separately."
+    echo
+    echo "WARNING: pointing straight at /data means a missing NOTRIX leaves the"
+    echo "         device with no application, and therefore no network and no"
+    echo "         way in. See docs/adr/0008-installer-helper.md."
+fi
