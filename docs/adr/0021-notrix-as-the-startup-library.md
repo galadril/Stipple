@@ -132,3 +132,46 @@ a flash, which is exactly what this decision exists to avoid.
 **Replace `/bin/zkgui` or an init service.** Both live on the rootfs, whose
 failure means the device does not boot. Rejected in ADR 0020 and still
 rejected.
+
+## Required before this is flashed again: a fallback shim
+
+Flashing this design locked a device out, and the post-mortem is in
+[ADR 0008](0008-installer-helper.md). The decision here still stands - NOTRIX
+takes over in a constructor, and lives in `/data` so it can be updated
+without flashing. What is missing is the behaviour when the library is *not*
+there.
+
+Today `startupLibPath` points straight at `/data/notrix/libnotrix.so`. If
+that file is absent, `initLib` logs the `dlerror` and carries on with a null
+handle - and the device boots with **no application at all**. Which then
+means no DHCP, no address, no ADB, no USB gadget, and no way in. A missing
+604 KB file becomes a lockout.
+
+**`startupLibPath` must point at a shim in `/res`, not at `/data` directly.**
+
+```
+startupLibPath  ->  /res/lib/libnotrixboot.so
+                      constructor: dlopen("/data/notrix/libnotrix.so")
+                        loaded   -> NOTRIX takes the process, never returns
+                        missing  -> return, and let the framework carry on
+```
+
+The shim is linked against `/res/lib/libzkgui.so` as an ordinary dependency.
+That matters for a specific reason: the framework calls `dlsym` on the handle
+it got back, and `dlsym` searches a handle's dependency chain - so the vendor
+application's three entry points are found through the shim without anyone
+having to know what they are called. The obfuscated names stay irrelevant.
+
+So a missing or broken NOTRIX degrades to **the stock clock**, not to a
+brick. Recovery becomes "copy a file back", and if the file cannot be copied
+the device is still a working clock on the network.
+
+It also removes the tension that caused the incident. Staging a recovery
+image at `/mnt/storage/update.img` makes the reset button correct, and makes
+the loader reflash on every boot - the same file cannot be both a recovery
+image and a pending update. With a fallback shim the reset button stops being
+load-bearing, and nothing needs to be staged at all.
+
+The shim is built per device rather than shipped: `buildres.sh` already works
+from the owner's own capture, so the vendor library it links against is
+already in the extracted tree and never leaves it.
