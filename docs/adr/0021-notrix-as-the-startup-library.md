@@ -1,6 +1,7 @@
 # 0021 — NOTRIX is the startup library, and it lives in /data
 
-- **Status:** Accepted; the hook is proven on hardware, nothing has been flashed
+- **Status:** Accepted, amended after it locked a device out; needs the
+  fallback shim before anything is flashed again
 - **Date:** 2026-09-22
 
 ## Context
@@ -82,12 +83,20 @@ NOTRIX release after that is a file copy over the network. No flashing, no
 `/res/lib/libzkgui.so`, so the stock experience is intact and one config
 field away.
 
-**And the failure mode is the good one.** If `/data/notrix/libnotrix.so` is
-missing or will not load, `initLib` logs the `dlerror` and carries on with a
-null handle — the device boots, `init` runs, `adbd` starts, the network comes
-up. A NOTRIX that fails to load leaves a reachable device rather than a
-brick. That is worth more than it sounds: it means a bad NOTRIX build is
-recovered by copying a file, not by holding a button.
+**~~And the failure mode is the good one.~~ This was wrong, and it cost a
+device.** The claim was that a missing `/data/notrix/libnotrix.so` leaves a
+reachable device: `initLib` logs the `dlerror`, carries on with a null
+handle, `init` runs, `adbd` starts, the network comes up.
+
+Everything up to the last clause is true. The network does **not** come up.
+Nothing on this hardware obtains an address except the application - there is
+no DHCP client in `/bin` - so no application means no IP, no ADB, and no USB
+gadget either, because the application is also what sets `otg_role`. A
+missing 604 KB file is a lockout, not an inconvenience.
+
+The mistake was reasoning about `init` and `adbd` in isolation while the
+DHCP finding sat in the research notes from the same morning. See the
+fallback shim below, which is required before this is flashed again.
 
 ## Consequences
 
@@ -106,10 +115,11 @@ one and pointing it at `/tmp` — `mount -o bind` works on this squashfs, and
 a power cycle undoes everything. Any future change to the startup path
 should be tried that way before it is written to flash.
 
-**ADR 0008's gates are unchanged.** The hook being proven does not
-demonstrate a restore. What *has* changed is that a restore is now less
-likely to be needed: the failure mode is a device that boots without an
-application rather than one that does not boot.
+**ADR 0008's gates are unchanged**, and the sentence that used to follow
+this one - that a restore was *less* likely to be needed because the failure
+mode is mild - was the same error as above. A device that boots without an
+application is not a mild failure on this hardware. It is the unreachable
+one.
 
 **§53 survives.** NOTRIX does not implement a vendor interface; it is
 `dlopen`ed and takes the process. The TC002 adapter grows a shared-library
