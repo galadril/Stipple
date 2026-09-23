@@ -230,3 +230,38 @@ what failed were all gone before the device came back. Anything diagnosing a
 network failure has to write where a power cycle cannot reach, or report over
 a channel that does not depend on the network it is breaking — the panel is
 the obvious one, and it is right there.
+
+## Amended again: §4 was half implemented
+
+§4 says the hotspot starts on "no stored network, **or stored networks that
+will not join within a timeout**". Only the first half was built. The trigger
+read:
+
+```cpp
+const bool nowhereToGo = host.firstRun() && unreachable;
+```
+
+so a device that *had* been configured could never host, whatever happened to
+its network. A clock whose Wi-Fi password changed, or whose router was
+replaced, was unreachable **permanently and by design** - it could not be
+told about the new network because the only way to tell it was the hotspot it
+would not start.
+
+Found by being asked a direct question about a device in exactly that state:
+after a flash, `/data` still held its configuration, so `firstRun()` was
+false and no hotspot was possible.
+
+The fix is not simply to drop the condition. Hosting the moment an address
+goes missing would take the clock off the network every time a router
+rebooted - and it would still be hosting when the network came back. The two
+situations want different patience:
+
+- **Never configured** — 45 seconds. There is no stored network, so waiting
+  produces nothing, and somebody is standing in front of a new clock that
+  appears to do nothing.
+- **Configured, network gone** — five minutes. Long enough to ride out a
+  router reboot or a roam, short enough that a changed password does not
+  strand the device.
+
+Both then host, both revert on the ten-minute timer, and both retry the
+stored network afterwards.

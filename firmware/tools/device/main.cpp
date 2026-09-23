@@ -242,10 +242,27 @@ int notrixMain(int argc, char** argv) {
 
     bool reportedHealthy = false;
 
-    // Long enough for a lease on a slow network, short enough that somebody
-    // holding a new clock does not conclude it is broken. A device that
-    // decided after five seconds would host every time the router was slow.
-    constexpr std::uint64_t kStrandedMillis = 45000;
+    // Two timeouts, because the two situations are not the same.
+    //
+    // A device nobody has configured has nothing to wait for: there is no
+    // stored network, so no amount of patience produces one, and the owner
+    // is standing in front of it wondering why it does nothing. Long enough
+    // for a lease on a slow network, short enough that a new clock does not
+    // look broken.
+    constexpr std::uint64_t kNeverConfiguredMillis = 45000;
+
+    // A configured device that has lost its network probably just needs to
+    // reconnect - a router rebooting, an access point roaming, a lease that
+    // expired. Hosting after forty-five seconds would take the clock off the
+    // LAN every time the router blinked, and it would still be hosting when
+    // the network came back.
+    //
+    // Five minutes is long enough that a transient outage is ridden out, and
+    // short enough that somebody who changed their Wi-Fi password is not
+    // left with an unreachable clock. ADR 0018 asks for exactly this case -
+    // "stored networks that will not join within a timeout" - and the first
+    // implementation dropped it by gating on first run.
+    constexpr std::uint64_t kLostNetworkMillis = 300000;
 
     bool hotspotStarted = false;
     bool hotspotShowing = false;
@@ -329,15 +346,25 @@ int notrixMain(int argc, char** argv) {
         // every boot from then on - seen on hardware, where it looked like a
         // crash. If an address turns up, the device is reachable and setup
         // mode has nothing left to do.
+        const std::uint64_t patience =
+            host.firstRun() ? kNeverConfiguredMillis : kLostNetworkMillis;
         const bool unreachable =
-            !platform.dhcp().bound() && now >= started + kStrandedMillis;
+            !platform.dhcp().bound() && now >= started + patience;
+
         const bool askedByRescue = host.settings().network.hotspotRequested && unreachable;
-        const bool nowhereToGo = host.firstRun() && unreachable;
+
+        // **Not gated on first run.** It was, and that was wrong: a device
+        // whose stored network has gone - a changed password, a replaced
+        // router - could never host, and so could never be told about the
+        // new one. It was unreachable forever by design.
+        const bool nowhereToGo = unreachable;
 
         if (!hotspotStarted && (askedByFlag || askedByRescue || nowhereToGo)) {
             hotspotStarted = true;
             if (nowhereToGo && !askedByFlag && !askedByRescue) {
-                host.logger().info(now, "no network and nothing configured; hosting");
+                host.logger().info(now, host.firstRun()
+                                            ? "nothing configured and no network; hosting"
+                                            : "cannot reach the stored network; hosting");
             }
             if (hotspotSeconds > 0) {
                 platform.hotspot().setRevertMillis(
