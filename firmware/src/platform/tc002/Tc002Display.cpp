@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/platform/tc002/Tc002Display.h"
 
+#include "notrix/platform/tc002/WriteAll.h"
+
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -54,7 +56,11 @@ bool Tc002Display::openLatch() noexcept {
         char number[8];
         const int length = std::snprintf(number, sizeof(number), "%d", kLatchGpio);
         if (length > 0) {
-            ::write(exportFd, number, static_cast<std::size_t>(length));
+            // Allowed to fail: the pin may already be exported by a previous
+            // run, which is the documented reason this does not unexport on
+            // close. The open below is the real test.
+            const bool exported = writeAll(exportFd, number, static_cast<std::size_t>(length));
+            static_cast<void>(exported);
         }
         ::close(exportFd);
     }
@@ -79,10 +85,11 @@ bool Tc002Display::openLatch() noexcept {
     return latchFd_ >= 0;
 }
 
-void Tc002Display::strobe(char level) noexcept {
-    if (latchFd_ >= 0) {
-        ::write(latchFd_, &level, 1);
+bool Tc002Display::strobe(char level) noexcept {
+    if (latchFd_ < 0) {
+        return false;
     }
+    return writeAll(latchFd_, &level, 1);
 }
 
 bool Tc002Display::open(const char* devicePath) {
@@ -179,11 +186,14 @@ bool Tc002Display::writeFrame() noexcept {
 
     // Low, load, high. The SPI write only fills the driver chips' shift
     // registers; the rising edge is what puts them on the panel.
-    strobe('0');
-    const ssize_t written = ::write(fd_, buffer_, sizeof(buffer_));
-    strobe('1');
+    // All three are attempted even if one fails. Returning early after a
+    // failed low strobe would leave the latch held low, which is a worse
+    // state to walk away from than a dropped frame.
+    const bool low = strobe('0');
+    const bool sent = writeAll(fd_, buffer_, sizeof(buffer_));
+    const bool high = strobe('1');
 
-    return written == static_cast<ssize_t>(sizeof(buffer_));
+    return low && sent && high;
 }
 
 void Tc002Display::present(const Framebuffer& frame) {

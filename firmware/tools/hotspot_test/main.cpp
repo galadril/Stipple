@@ -73,9 +73,12 @@ int main(int argc, char** argv) {
     if (child > 0) {
         ::close(detached[1]);
         char ready = 0;
-        ::read(detached[0], &ready, 1);
+        // Waiting for the child to say it is up. A failed read means the
+        // child died before signalling, so the parent exits non-zero rather
+        // than reporting a hotspot nobody is hosting.
+        const ssize_t signalled = ::read(detached[0], &ready, 1);
         ::close(detached[0]);
-        return 0;
+        return signalled == 1 ? 0 : 1;
     }
     ::close(detached[0]);
 

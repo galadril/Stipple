@@ -32,6 +32,7 @@ enum class Builtin : std::uint8_t {
     Clock,
     Battery,
     Visualizer,
+    Stopwatch,
     TestPattern,
 };
 

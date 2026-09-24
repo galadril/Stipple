@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/platform/tc002/Tc002Mcu.h"
 
+#include "notrix/platform/tc002/WriteAll.h"
+
 #include <fcntl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -45,7 +47,13 @@ bool Tc002Mcu::open(const char* devicePath) {
     // Asking the version is how we know the link works at all. Nothing depends
     // on the answer, but a device that cannot answer it is one whose telemetry
     // should not be trusted either.
-    ::write(fd_, mcu::kVersionQuery, sizeof(mcu::kVersionQuery));
+    // Checked now, because this is the first thing written to the link. A
+    // write that fails here means the port opened but is not usable, and
+    // reporting that as a working MCU would make every reading after it a
+    // confident guess.
+    if (!writeAll(fd_, mcu::kVersionQuery, sizeof(mcu::kVersionQuery))) {
+        return false;
+    }
 
     // The microphone is switched on in poll(), not here. See requestMicrophone.
     return true;
@@ -71,8 +79,12 @@ void Tc002Mcu::requestMicrophone() {
     if (micRequested_ || state_.version[0] == '\0') {
         return;
     }
-    ::write(fd_, mcu::kMicOn, sizeof(mcu::kMicOn));
-    micRequested_ = true;
+    // The flag is only set if the request actually went out, so a failed
+    // write is retried on the next poll rather than leaving the microphone
+    // off and this object convinced it asked.
+    if (writeAll(fd_, mcu::kMicOn, sizeof(mcu::kMicOn))) {
+        micRequested_ = true;
+    }
 }
 
 void Tc002Mcu::close() noexcept {
@@ -82,7 +94,10 @@ void Tc002Mcu::close() noexcept {
         // streaming audio to whatever ran next, which is both impolite and the
         // kind of state that makes the next person's capture lie to them - as
         // it did to ours.
-        ::write(fd_, mcu::kMicOff, sizeof(mcu::kMicOff));
+        // Best effort, and deliberately so: the port is closing either way
+        // and there is nothing left to retry with.
+        const bool handedBack = writeAll(fd_, mcu::kMicOff, sizeof(mcu::kMicOff));
+        static_cast<void>(handedBack);
         ::close(fd_);
         fd_ = -1;
     }

@@ -50,6 +50,7 @@ add_library(notrix_core
     src/asset/IconStore.cpp
     src/apps/BatteryApp.cpp
     src/apps/ClockApp.cpp
+    src/apps/StopwatchApp.cpp
     src/apps/VisualizerApp.cpp
     src/apps/SplashScreen.cpp
     src/host/ApplicationHost.cpp

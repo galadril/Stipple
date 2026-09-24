@@ -33,6 +33,19 @@ public:
     /// watching a countdown.
     static constexpr std::uint64_t kHoldMillis = 5000;
 
+    /// How long the knob must be down before the countdown appears.
+    ///
+    /// The gesture still fires at kHoldMillis; this only decides when it
+    /// starts *saying* so. Without it the countdown appeared on the press
+    /// itself, so every ordinary use of the knob - pausing the carousel,
+    /// opening settings, starting the stopwatch - flashed SETUP across the
+    /// panel on the way. Reported from hardware as "as soon as I use the
+    /// knob, SETUP starts counting down".
+    ///
+    /// Longer than the mapper's 500 ms long-press threshold, so a deliberate
+    /// long press that opens settings never shows it either.
+    static constexpr std::uint64_t kRevealMillis = 1200;
+
     /// Feed every raw event, before the mapper sees it.
     void handle(const platform::InputEvent& event) noexcept;
 
@@ -41,7 +54,11 @@ public:
     bool tick(std::uint64_t nowMillis) noexcept;
 
     /// Whether the knob is down and the countdown is running.
-    bool counting() const noexcept { return counting_; }
+    /// Whether the countdown should be on screen.
+    ///
+    /// False for the first kRevealMillis of a hold even though the hold is
+    /// already being timed - see that constant.
+    bool counting() const noexcept { return visible_; }
 
     /// Milliseconds left, for the panel to show. Zero when not counting.
     ///
@@ -59,6 +76,10 @@ private:
     /// When the knob went down. Only meaningful while `counting_`.
     std::uint64_t since_ = 0;
     bool counting_ = false;
+
+    /// The part of `counting_` the panel is allowed to see. Updated in
+    /// tick(), which is the only place with a clock to compare against.
+    bool visible_ = false;
 
     /// Set once the hold completes, so the knob must be released and pressed
     /// again to fire a second time rather than it repeating every tick.

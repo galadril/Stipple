@@ -36,6 +36,7 @@ add_executable(notrix_tests
     test_dhcp.cpp
     test_sntp.cpp
     test_splash.cpp
+    test_stopwatch.cpp
     test_elf_check.cpp
     test_ipv4_udp.cpp
     test_wpa_commands.cpp
