@@ -354,36 +354,14 @@
     </div>
     <p class="muted" id="join-note"></p>
 
-    <h3>Recovery image</h3>
-    <!-- Not a firmware installer. This writes one file to the USB volume,
-         which is where the device's own loader looks when the reset button
-         is held during power-up.
-
-         It matters because a TC002 ships a recovery image that is not
-         necessarily the firmware it is running - on the unit NOTRIX was
-         developed against, holding reset installs an older one. Staging a
-         captured image turns that button from a downgrade into a real
-         recovery, and writes no flash at all. -->
-    <p class="muted" id="restore-state">Checking&hellip;</p>
-    <div class="row">
-        <input id="restore-file" type="file" accept=".img,application/octet-stream">
-        <button class="btn" id="restore-upload" type="button">Stage image</button>
-    </div>
-    <p class="muted">
-        Nothing is flashed. The image is checked here first &mdash; the same
-        header and payload checksums the device checks &mdash; and then written
-        to the USB volume. Make one for your device with
-        <code>dev.ps1 capture</code>.
-    </p>
-
-    <h3>Access</h3>
+    <h2>Access</h2>
     <!-- Off by default, and offered here rather than left to be discovered.
          A device that demanded a password before it would show a clock would
          be a worse first five minutes than the risk it removes.
 
          One mechanism covers the API and this page, because they are the
          same server and two schemes would be two things to get wrong. -->
-    <p class="muted" id="access-state"></p>
+    <p class="help" id="access-state"></p>
     <div class="row">
         <input id="access-user" type="text" placeholder="Username" autocomplete="username"
                spellcheck="false" maxlength="64">
@@ -392,11 +370,38 @@
         <button class="btn" id="access-save" type="button">Set</button>
         <button class="btn" id="access-clear" type="button">Turn off</button>
     </div>
-    <p class="muted">
+    <p class="help">
         Sent in the clear over your network, and stored on the device in the clear.
         It keeps the rest of the LAN out; it is not protection from someone
         holding the device. Forgotten it? Hold &minus; and + together for five
         seconds and it is cleared.
+    </p>
+
+    <h2>Firmware</h2>
+    <!-- An update is a file copy, not a flash (ADR 0021). The framework is
+         pointed at a shim in the read-only partition, and the shim tries an
+         override in /data first, then the copy flashed beside it, then the
+         stock clock - so an update that will not load costs a reboot rather
+         than a device.
+
+         This replaced a "stage a recovery image" control that wrote
+         update.img to the USB volume. That turned out to be actively
+         dangerous: the vendor's own zkdaemon installs whatever sits there on
+         unattended recovery, and it reverted a working NOTRIX on real
+         hardware. A staged image is an armed revert, not a safety net. -->
+    <p class="help" id="firmware-state">Checking&hellip;</p>
+    <div class="row">
+        <input id="firmware-file" type="file" accept=".so,application/octet-stream">
+        <button class="btn" id="firmware-upload" type="button">Install</button>
+        <button class="btn" id="firmware-rollback" type="button" hidden>Go back</button>
+    </div>
+    <p class="help">
+        Upload <code>libnotrix.so</code> from a release. It is checked here
+        first &mdash; it has to be a 32-bit ARM shared library, so a host build
+        is refused rather than installed &mdash; then written beside the
+        running one and renamed into place, so a failed upload changes
+        nothing. Nothing is flashed, and the device keeps the previous version
+        so you can go back.
     </p>
 
     <h2>Backup</h2>
@@ -408,7 +413,10 @@
     <div class="toolbar">
         <button class="btn" id="backup" type="button">Download backup</button>
         <button class="btn" id="restore" type="button">Restore from file</button>
-        <input type="file" id="restore-file" accept="application/json,.json" hidden>
+        <!-- id is settings-specific on purpose: this and the firmware picker
+             both used to be called restore-file, and getElementById returned
+             whichever came first in the document. -->
+        <input type="file" id="settings-file" accept="application/json,.json" hidden>
     </div>
 
     <h2>Reset</h2>
@@ -425,18 +433,9 @@
     <p class="help">
         Settings are saved as you change them, so a restart loses nothing.
     </p>
-    <button class="btn danger" id="reboot" type="button">Restart device</button>
-
-    <h2>Firmware</h2>
-    <p class="help" id="firmware-help">
-        There is no firmware upload here, and that is deliberate rather than
-        unfinished. Installing to flash needs a restore image captured from
-        this exact device <em>and</em> a demonstrated way to put it back, and
-        the second does not exist yet &mdash; this hardware has no
-        <code>dd</code>, <code>flashcp</code> or <code>nandwrite</code>. A
-        button that wrote flash without one would be a brick waiting for a bad
-        day. See ADR 0008.
-    </p>
+    <div class="toolbar">
+        <button class="btn danger" id="reboot" type="button">Restart device</button>
+    </div>
 </section>
 
 <section class="panel" id="panel-logs">

@@ -3,6 +3,8 @@
 
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/stat.h>
+#include <sys/utsname.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -16,6 +18,25 @@ namespace tc002 {
 namespace {
 
 constexpr const char* kInterface = "wlan0";
+
+/// The Wi-Fi driver, in load order: fdrv needs bsp, and the vendor's own HAL
+/// records the pair the same way round.
+///
+/// Read off `/lib/libzknet.so`, which is the network HAL the stock
+/// application drives and which carries the strings "start to insmod %s",
+/// "aic8800_bsp#aic8800_fdrv" and "aic_load_fw#aic8800_fdrv". Nothing in
+/// init.rc or ssd_init.sh touches them, and `/lib/modules/<release>/` holds
+/// no modules.dep or modules.alias - so the kernel cannot autoload them
+/// either. The application really is the only thing that loads Wi-Fi on this
+/// device, and replacing the application means inheriting the job.
+constexpr const char* kWifiModules[] = {"aic8800_bsp.ko", "aic8800_fdrv.ko"};
+
+bool interfaceExists(const char* name) {
+    std::string path = "/sys/class/net/";
+    path += name;
+    struct stat info;
+    return ::stat(path.c_str(), &info) == 0;
+}
 constexpr const char* kHostapdConf = "/tmp/notrix-hostapd.conf";
 constexpr const char* kDnsmasqConf = "/tmp/notrix-dnsmasq.conf";
 
@@ -214,6 +235,10 @@ bool Tc002Hotspot::start(const std::string& ssid, std::uint64_t nowMillis) {
     const char* const stopSupplicant[] = {"/bin/setprop", "ctl.stop", "wpa_supplicant", nullptr};
     run(stopSupplicant);
 
+    // The access point needs the interface as much as the station does, and
+    // on a cold boot nothing has loaded it.
+    ensureRadio();
+
     // /sbin/ifconfig, which is a busybox symlink - there is no /bin/ifconfig.
     const char* const address[] = {"/sbin/ifconfig", kInterface, kAddress,
                                    "netmask", "255.255.255.0", "up", nullptr};
@@ -249,6 +274,47 @@ bool Tc002Hotspot::start(const std::string& ssid, std::uint64_t nowMillis) {
     // visible is exactly why that distinction is now in the wording.
     note("hotspot: started " + ssid + " on " + std::string(kAddress));
     return true;
+}
+
+void Tc002Hotspot::ensureRadio() {
+    // Cheap and first: on a device where something else already loaded the
+    // driver - the stock application during development, or a previous call -
+    // there is nothing to do and insmod would only log a failure.
+    if (interfaceExists(kInterface)) {
+        return;
+    }
+
+    // Built from the running kernel rather than hard-coded. 4.9.84 is what
+    // this unit reports, and a hard-coded path would fail silently and
+    // confusingly on any unit that reports something else.
+    struct utsname release;
+    std::string directory = "/lib/modules/";
+    directory += (::uname(&release) == 0) ? release.release : "4.9.84";
+    directory += "/";
+
+    for (const char* const module : kWifiModules) {
+        const std::string path = directory + module;
+        const char* const argv[] = {"/sbin/insmod", path.c_str(), nullptr};
+        run(argv);
+    }
+
+    note(interfaceExists(kInterface) ? "wifi: driver loaded"
+                                     : "wifi: driver would not load, no wlan0");
+}
+
+void Tc002Hotspot::ensureStation() {
+    // The interface has to exist before anything can be asked of it.
+    ensureRadio();
+
+    // Up, separately from having an address. The DHCP client needs a live
+    // interface to broadcast from and gets its address later.
+    const char* const up[] = {"/sbin/ifconfig", kInterface, "up", nullptr};
+    run(up);
+
+    // The same property service stop() uses to hand the radio back. Here it
+    // is not handing anything back - there was never a station to begin with.
+    const char* const startSupplicant[] = {"/bin/setprop", "ctl.start", "wpa_supplicant", nullptr};
+    run(startSupplicant);
 }
 
 void Tc002Hotspot::stop() {

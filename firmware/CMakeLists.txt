@@ -32,11 +32,13 @@ add_library(notrix_core
     src/input/InputMapper.cpp
     src/input/Navigator.cpp
     src/input/Rescue.cpp
+    src/input/SetupHold.cpp
     src/json/Json.cpp
     src/scene/Scene.cpp
     src/audio/Tone.cpp
     src/time/Timezone.cpp
     src/net/DhcpClient.cpp
+    src/net/SntpMessage.cpp
     src/core/Base64.cpp
     src/core/Checksum.cpp
     src/core/Md5.cpp
@@ -113,6 +115,7 @@ if(NOTRIX_DEVICE_BUILD)
         src/platform/tc002/Tc002Display.cpp
         src/platform/tc002/Tc002Hotspot.cpp
         src/platform/tc002/Tc002Dhcp.cpp
+        src/platform/tc002/Tc002Sntp.cpp
         src/platform/tc002/Tc002HttpServer.cpp
         src/platform/tc002/Tc002Input.cpp
         src/platform/tc002/Tc002Mcu.cpp
@@ -233,6 +236,37 @@ if(NOTRIX_DEVICE_BUILD)
         notrix_core
         notrix_platform_tc002
         notrix_warnings)
+
+    # The C++ runtime travels with us. The device ships libstdc++.so.6.0.26,
+    # whose newest symbol set is GLIBCXX_3.4.26 - GCC 9. Every toolchain in
+    # tooling/cross/ is newer than that: bookworm emits GLIBCXX_3.4.30 and
+    # bullseye 3.4.28, so *neither* container can produce a library this
+    # device can dlopen if it links libstdc++ dynamically.
+    #
+    # Measured the hard way. A build that flashed and verified perfectly
+    # failed at dlopen with
+    #
+    #     /lib/libstdc++.so.6: version `GLIBCXX_3.4.29' not found
+    #
+    # and the only reason that was diagnosable is that the shim fell back to
+    # the stock clock and left the device on the network.
+    #
+    # Static libgcc too, for the unwinder: a mixed pair is worse than either.
+    target_link_options(notrix_startup PRIVATE
+        -static-libstdc++
+        -static-libgcc)
+
+    # Threads, explicitly, and it is not optional.
+    #
+    # The SNTP client resolves a hostname on a worker so a slow or dead
+    # nameserver cannot stall the panel. At the glibc this device runs,
+    # pthread_create still lives in libpthread rather than libc, and
+    # libstdc++ reaches it through *weak* symbols - so without -pthread the
+    # link succeeds, the binary loads, and std::thread fails at runtime
+    # instead. Which is exactly what it did: the clock stayed at 1970 with no
+    # error anywhere, because the failure was a thread that never ran.
+    target_compile_options(notrix_startup PRIVATE -pthread)
+    target_link_options(notrix_startup PRIVATE -pthread)
 
     # Dynamic, because the speaker is only reachable through a vendor library.
     #

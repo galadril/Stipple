@@ -198,6 +198,8 @@ std::string buildBody(const Config& config) {
     appendEscaped(body, config.clock.theme);
     body += ",\"timezone\":";
     appendEscaped(body, config.clock.timezone);
+    body += ",\"ntpServer\":";
+    appendEscaped(body, config.clock.ntpServer);
     body += ",\"leadingZero\":";
     body += config.clock.leadingZero ? "true" : "false";
     body += ",\"showAmPm\":";
@@ -429,6 +431,7 @@ bool ConfigStore::deserialize(std::string_view payload,
         clampUtcOffset(clock["utcOffsetSeconds"].toInt(parsed.clock.utcOffsetSeconds));
     parsed.clock.theme = clock["theme"].toString(parsed.clock.theme);
     parsed.clock.timezone = clock["timezone"].toString(parsed.clock.timezone);
+    parsed.clock.ntpServer = clock["ntpServer"].toString(parsed.clock.ntpServer);
     parsed.clock.leadingZero = clock["leadingZero"].toBool(parsed.clock.leadingZero);
     parsed.clock.showAmPm = clock["showAmPm"].toBool(parsed.clock.showAmPm);
     parsed.clock.tick = clock["tick"].toBool(parsed.clock.tick);

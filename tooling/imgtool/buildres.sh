@@ -121,6 +121,47 @@ if [ "$STARTUP_LIB" = "/res/lib/libnotrixboot.so" ]; then
 ' ' ')"
 fi
 
+# Put NOTRIX itself in the image.
+#
+# This is the difference between an image that installs NOTRIX and one that
+# merely *points* at it. The earlier design shipped only the shim and left
+# NOTRIX in /data, which is fine right up until /data holds an old copy or no
+# copy: the flash succeeds, the shim loads whatever is in /data, and the
+# device runs last week's build - or the stock clock - with nothing to say
+# why. That happened twice on real hardware and was misread as a bad flash
+# both times.
+#
+# Bundling it also breaks a bootstrap trap. The fixes that let NOTRIX bring
+# up its own Wi-Fi cannot be delivered over Wi-Fi, so they have to arrive in
+# the image.
+if [ "$STARTUP_LIB" = "/res/lib/libnotrixboot.so" ]; then
+    NOTRIX_LIB="${NOTRIX_LIB:-/src/build/device-arm/firmware/libnotrix.so}"
+    if [ ! -f "$NOTRIX_LIB" ]; then
+        # Refused rather than warned about. An image without this is one that
+        # boots to the stock clock, and the person flashing it would have no
+        # way to tell that from a NOTRIX that failed to start.
+        echo "error: $NOTRIX_LIB is missing" >&2
+        echo "       build it first: cmake --build --preset device-arm --target notrix_startup" >&2
+        exit 1
+    fi
+
+    echo "--- bundling NOTRIX ---"
+    cp "$NOTRIX_LIB" "$WORK/tree/lib/libnotrix.so"
+    chown --reference="$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libnotrix.so"
+    chmod --reference="$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libnotrix.so"
+    touch -r "$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libnotrix.so"
+    touch -r "$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib"
+
+    # Checked on the way in, because a library built for the wrong
+    # architecture fails at dlopen on the device - by which point the only
+    # evidence is one line in a log on a machine with no network.
+    if ! arm-linux-gnueabihf-readelf -h "$WORK/tree/lib/libnotrix.so" | grep -q "ARM"; then
+        echo "error: $NOTRIX_LIB is not an ARM shared library" >&2
+        exit 1
+    fi
+    echo "    $(ls -la "$WORK/tree/lib/libnotrix.so" | awk '{print $5}') bytes"
+fi
+
 # Parameters read off the original rather than chosen: squashfs 4.0, xz,
 # 128 KiB blocks. The kernel that mounts this was built with a fixed set of
 # decompressors, and an image it cannot read is a device with no application.
@@ -134,9 +175,11 @@ ls -la "$OUTPUT" | awk '{print "size        " $5 " bytes"}'
 echo "wrote       $OUTPUT"
 echo
 if [ "$STARTUP_LIB" = "/res/lib/libnotrixboot.so" ]; then
-    echo "The image carries the shim and nothing else of ours. NOTRIX goes to"
-    echo "/data/notrix/libnotrix.so separately, and if it is not there the"
-    echo "stock clock runs instead of nothing."
+    echo "The image carries the shim and NOTRIX itself, so flashing it is the"
+    echo "whole install - nothing has to be copied afterwards and no network"
+    echo "is needed. The shim prefers /data/notrix/libnotrix.so.override if"
+    echo "somebody put one there, falls back to the bundled copy, and falls"
+    echo "back again to the stock clock rather than to nothing."
 else
     echo "This image has no NOTRIX in it. It changes where the framework looks,"
     echo "and NOTRIX goes to $STARTUP_LIB separately."

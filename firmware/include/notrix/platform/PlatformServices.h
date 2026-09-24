@@ -162,38 +162,53 @@ public:
     virtual JoinProgress joinProgress() const { return {}; }
 };
 
-/// Staging a firmware image where the device's own loader will find it.
+/// Installing a new NOTRIX, without flashing anything.
 ///
-/// **This does not flash anything, and deliberately cannot.** It writes a
-/// file to the USB mass-storage volume, which is where the vendor loader
-/// looks for `update.img` when the reset button is held during power-up.
-/// Actually triggering an update is a separate thing, gated by ADR 0008,
-/// and it is not on this interface.
+/// **This used to stage `update.img` on the USB volume so the reset button
+/// would install a known-good image. That was withdrawn, and the reason is
+/// worth stating plainly: `/bin/zkdaemon` installs whatever sits there on
+/// *auto* recovery, with nobody pressing anything.** A staged image is an
+/// armed revert, not a safety net - it reverted a working NOTRIX on real
+/// hardware. See docs/research/tc002-platform-findings.md.
 ///
-/// The reason it is worth having on its own is smaller and more useful than
-/// flashing: **a TC002 ships with a recovery image on its USB volume that is
-/// not necessarily the firmware it is running.** On the unit NOTRIX was
-/// developed against, holding reset installs an older one. Staging a
-/// captured image turns that button from a downgrade into a real recovery -
-/// without writing a single byte of flash.
+/// What replaces it is better in every way. ADR 0021 puts NOTRIX in `/data`
+/// and points the framework at a shim, so an update is a **file copy**: no
+/// flash, no reset button, no vendor loader, and a rollback that is one
+/// deleted file. The shim tries the override, then the copy flashed beside
+/// it, then the stock clock - so even an install that will not load leaves a
+/// device on the network.
 class IUpgradeManager {
 public:
     virtual ~IUpgradeManager() = default;
 
-    /// Where the staged image would go, for a UI to show.
-    virtual std::string stagingPath() const = 0;
+    /// Where a new application is written, for a UI to show.
+    virtual std::string applicationPath() const = 0;
 
-    /// Write `image` where the loader looks. The caller has already checked
-    /// it; this does not re-check, because a platform adapter is the wrong
-    /// place to know what a valid image looks like.
+    /// Size of the installed override, or 0 when the device is running the
+    /// copy that was flashed with the shim.
     ///
-    /// Returns false with `problem` set. Failure must leave whatever was
-    /// there before intact: a half-written recovery image is worse than an
-    /// out-of-date one, because it looks present.
-    virtual bool stage(std::string_view image, std::string& problem) = 0;
+    /// Zero is a real state and not an error: it is what every device looks
+    /// like until somebody updates it.
+    virtual std::size_t installedBytes() const = 0;
 
-    /// What is staged now, if anything - size in bytes, or 0.
-    virtual std::size_t stagedBytes() const = 0;
+    /// Whether the previous application was kept and could be put back.
+    virtual bool hasPrevious() const = 0;
+
+    /// Install `image` as the application, atomically.
+    ///
+    /// The caller has already checked that it is plausibly a library for this
+    /// device; a platform adapter is the wrong place to know what a valid
+    /// NOTRIX looks like.
+    ///
+    /// Returns false with `problem` set. **Failure must leave the running
+    /// application intact.** A half-written library is worse than an old one
+    /// because it looks present, and the device that would report the problem
+    /// is the one that just stopped working - so this writes beside the
+    /// target and renames, rather than writing over it.
+    virtual bool install(std::string_view image, std::string& problem) = 0;
+
+    /// Put the previous application back. False when there is not one.
+    virtual bool rollback(std::string& problem) = 0;
 };
 
 struct BatteryStatus {

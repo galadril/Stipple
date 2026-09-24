@@ -64,7 +64,7 @@ public:
     /// be decided from the first packet, long before there is a parsed
     /// request to route.
     static constexpr const char* kUploadRequestLine =
-        "POST /api/v1/system/restore-image";
+        "POST /api/v1/system/firmware";
 
     /// A connection that has not made progress in this long is dropped. Without
     /// it a half-open socket holds a slot until reboot.

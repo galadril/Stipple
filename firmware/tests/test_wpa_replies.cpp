@@ -168,3 +168,38 @@ NOTRIX_TEST(WpaReplies, OnlyOkMeansSuccess) {
     NOTRIX_CHECK_FALSE(succeeded("UNKNOWN COMMAND\n"));
     NOTRIX_CHECK_FALSE(succeeded("0\n"));
 }
+
+NOTRIX_TEST(WpaReplies, FindsEveryCopyOfAnSsid) {
+    // Three blocks for one network is not hypothetical - it is what a device
+    // looked like after being provisioned a few times, and two of them were
+    // disabled.
+    const std::string reply =
+        "network id / ssid / bssid / flags\n"
+        "0\thome\tany\t[DISABLED]\n"
+        "1\tother\tany\t\n"
+        "2\thome\tany\t[DISABLED]\n"
+        "3\thome\tany\t[CURRENT]\n";
+    const std::vector<int> ids = notrix::platform::tc002::wpa::networkIdsForSsid(reply, "home");
+    NOTRIX_CHECK_EQ(ids.size(), std::size_t{3});
+    NOTRIX_CHECK_EQ(ids[0], 0);
+    NOTRIX_CHECK_EQ(ids[1], 2);
+    NOTRIX_CHECK_EQ(ids[2], 3);
+}
+
+NOTRIX_TEST(WpaReplies, DoesNotMatchOtherNetworks) {
+    const std::string reply =
+        "network id / ssid / bssid / flags\n"
+        "0\thome\tany\t\n"
+        "1\thome-guest\tany\t\n";
+    // Prefix matching here would delete the neighbour's network, not ours.
+    const std::vector<int> ids = notrix::platform::tc002::wpa::networkIdsForSsid(reply, "home");
+    NOTRIX_CHECK_EQ(ids.size(), std::size_t{1});
+    NOTRIX_CHECK_EQ(ids[0], 0);
+}
+
+NOTRIX_TEST(WpaReplies, SurvivesAnEmptyOrHeaderOnlyList) {
+    using notrix::platform::tc002::wpa::networkIdsForSsid;
+    NOTRIX_CHECK(networkIdsForSsid("", "home").empty());
+    NOTRIX_CHECK(networkIdsForSsid("network id / ssid / bssid / flags\n", "home").empty());
+    NOTRIX_CHECK(networkIdsForSsid("FAIL\n", "home").empty());
+}

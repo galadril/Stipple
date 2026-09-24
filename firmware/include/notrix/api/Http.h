@@ -136,7 +136,9 @@ enum class Resource : std::uint8_t {
     /// Ask the radio to look. A POST because it does something.
     NetworkScan,
     NetworkJoin,
-    SystemRestoreImage,
+    /// Install a new NOTRIX. Replaced SystemRestoreImage, which staged an
+    /// image the vendor's recovery daemon would install unattended.
+    SystemFirmware,
     /// The frame currently on the panel, for the web UI's live view.
     DisplayFrame,
     /// A button press injected from somewhere that is not the hardware.

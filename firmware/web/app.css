@@ -94,8 +94,20 @@ h2:first-child { margin-top: 0; }
 /* --- fields ------------------------------------------------------------- */
 
 .field { margin-bottom: 18px; }
-.row { display: flex; gap: 18px; flex-wrap: wrap; }
+/* align-items matters more than it looks. Without it a select, an input and
+   a button in one row sit on three different baselines, because each has its
+   own intrinsic height - which is exactly what made the settings page look
+   untidy without any single thing being wrong. */
+.row { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
 .row .field { flex: 1 1 150px; }
+
+/* Bare controls in a row share the space; buttons keep their own width, so a
+   long network name grows the select rather than squeezing the Join button
+   into two lines. min-width:0 because flex items refuse to shrink below
+   their content otherwise, and a 32-character SSID would force a scrollbar. */
+.row > input,
+.row > select { flex: 1 1 160px; min-width: 0; }
+.row > .btn { flex: 0 0 auto; }
 
 label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
 

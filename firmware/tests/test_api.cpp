@@ -1319,3 +1319,21 @@ NOTRIX_TEST(Api, NetworkRefusesTheWrongMethods) {
     NOTRIX_CHECK_EQ(static_cast<int>(fixture.call("POST", "/api/v1/network").status), 405);
     NOTRIX_CHECK_EQ(static_cast<int>(fixture.call("GET", "/api/v1/network/scan").status), 405);
 }
+
+NOTRIX_TEST(Routes, FirmwareIsRoutedAndNothingElseUnderSystemIs) {
+    using notrix::api::matchRoute;
+    using notrix::api::Resource;
+
+    NOTRIX_CHECK(matchRoute("/api/v1/system/firmware").resource == Resource::SystemFirmware);
+    NOTRIX_CHECK(matchRoute("/api/v1/system/reboot").resource == Resource::SystemReboot);
+    NOTRIX_CHECK(matchRoute("/api/v1/system/reset").resource == Resource::SystemReset);
+
+    // The staging route is gone on purpose, not renamed by accident. It wrote
+    // update.img to the USB volume, and the vendor's recovery daemon installs
+    // whatever sits there unattended - it reverted a working NOTRIX on real
+    // hardware. A 404 is the correct answer forever.
+    NOTRIX_CHECK(matchRoute("/api/v1/system/restore-image").resource == Resource::Unknown);
+
+    NOTRIX_CHECK(matchRoute("/api/v1/system").resource == Resource::Unknown);
+    NOTRIX_CHECK(matchRoute("/api/v1/system/firmware/extra").resource == Resource::Unknown);
+}

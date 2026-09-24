@@ -7,13 +7,28 @@ renderer it owns end to end: a 52×16 framebuffer, deterministic custom apps,
 notifications, HTTP and MQTT APIs, sound, and a browser-based emulator.
 Local-first — no cloud, no account, no vendor app.
 
-> **Status: runs on real hardware, and does not survive a power cycle yet.**
+> **Status: runs on real hardware, and now survives a power cycle.**
 >
-> Everything below works on a device today, loaded into `/tmp` over Wi-Fi ADB.
-> Because `/tmp` is tmpfs, unplugging the clock restores the stock firmware —
-> which is the safety property that made all of it possible to build, and the
-> one thing still standing between NOTRIX and being a firmware you install.
-> See [What is not done](#what-is-not-done).
+> NOTRIX installs into the device's `res` partition alongside a small shim
+> that chooses what to run. A NOTRIX that will not load falls back to the
+> stock Ulanzi clock rather than to nothing, so the device stays reachable.
+> Updates after the first install are a file upload in the web UI — no
+> flashing. See [docs/install.md](docs/install.md).
+
+> ### ⚠️ Use entirely at your own risk
+>
+> **This software modifies firmware on a device it was not designed for.** It
+> can leave your clock unusable, and getting it back may need hardware access,
+> a USB recovery stick, or a device you are prepared to lose.
+>
+> That is not theoretical. During development this project bricked a device
+> badly enough to need a recovery procedure obtained from Ulanzi support.
+>
+> NOTRIX comes with **absolutely no warranty of any kind** — see sections 15,
+> 16 and 17 of the [GPL-3.0](LICENSE). Nobody involved is liable for damage to
+> your hardware, lost data, voided warranty, or anything else that follows
+> from using it. **If you are not willing to lose the device, do not install
+> this.**
 
 ---
 
@@ -166,6 +181,31 @@ House rules, from blueprint §44:
 - No unbounded allocations or queues; nothing allocates in the render path.
 - Tests required for core behaviour.
 - Document reverse-engineered platform behaviour in `docs/`.
+
+## Warranty, liability and risk
+
+**There is none. You carry all of it.**
+
+NOTRIX is licensed under the GPL-3.0-or-later, whose sections 15 and 16 say
+this in legal terms. In plain ones:
+
+- **No warranty.** The software is provided "as is". Nobody promises it works,
+  is fit for any purpose, or will not damage your device.
+- **No liability.** No contributor is responsible for a bricked clock, lost
+  configuration, a voided manufacturer warranty, time spent on recovery, or
+  any other loss — direct or indirect.
+- **No support obligation.** Issues and questions are welcome and answered
+  when someone has time. Nothing is owed to anyone.
+- **Installing this will probably void your manufacturer warranty**, and it
+  replaces the application your device shipped with.
+
+This is a hobby project that modifies consumer hardware by methods the
+manufacturer did not document or intend. It has damaged a device before and
+it can damage yours. **Make the decision on the assumption that the device
+might not survive it.**
+
+Nothing here is legal advice, and a disclaimer does not override rights you
+may have under local consumer law.
 
 ## Licence
 

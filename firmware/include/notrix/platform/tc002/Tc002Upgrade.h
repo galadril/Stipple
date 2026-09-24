@@ -11,50 +11,43 @@ namespace notrix {
 namespace platform {
 namespace tc002 {
 
-/// Puts a firmware image where the TC002 loader looks for one.
+/// Installs a new NOTRIX by writing one file to /data.
 ///
-/// `/mnt/storage` is the vfat partition on mtd7 — the volume that appears as
-/// mass storage when the clock is plugged into a computer, and the directory
-/// the loader checks for `update.img` when the reset button is held during
-/// power-up. It is mounted read-only in normal operation, so writing means
-/// remounting it, writing, and putting it back.
+/// ADR 0021 points the vendor framework at a shim in `/res`, and the shim
+/// tries three things in order: an override in `/data`, the copy flashed
+/// beside it, then the stock clock. This class writes the first of those, so
+/// an update needs no flash, no reset button and no USB stick - and rolling
+/// back is deleting a file.
 ///
-/// **Nothing here flashes anything.** It writes one file to a vfat volume.
-/// The device does the rest, later, only if somebody holds a button — and
-/// triggering an update from software is a separate thing this class
-/// deliberately does not offer (ADR 0008).
-///
-/// The point is narrower than flashing and more immediately useful: a TC002
-/// ships a recovery image on that volume which is **not necessarily the
-/// firmware it is running**. On the unit this was developed against, holding
-/// reset installs an older one. Staging a captured image makes that button a
-/// real recovery instead of a downgrade, and costs no flash writes at all.
+/// **This deliberately no longer stages `update.img` on the USB volume.**
+/// That was the original job, on the theory that it armed the reset button
+/// with a known-good image. `/bin/zkdaemon` then turned out to install
+/// whatever sits there on *auto* recovery - no button, no warning - and it
+/// reverted a working NOTRIX on real hardware within a minute of boot. A
+/// staged image is an armed revert. See
+/// docs/research/tc002-platform-findings.md.
 class Tc002Upgrade final : public IUpgradeManager {
 public:
-    /// The vfat volume, and the name the loader looks for in it.
-    static constexpr const char* kMountPoint = "/mnt/storage";
-    static constexpr const char* kImagePath = "/mnt/storage/update.img";
+    /// Where the shim looks first. Matches kCandidates[0] in the shim, and
+    /// the two must agree or an update installs somewhere nothing reads.
+    static constexpr const char* kApplicationPath = "/data/notrix/libnotrix.so.override";
 
-    std::string stagingPath() const override { return kImagePath; }
+    /// The copy displaced by the last install, kept for rollback.
+    static constexpr const char* kPreviousPath = "/data/notrix/libnotrix.so.previous";
 
-    bool stage(std::string_view image, std::string& problem) override;
+    /// Written here first, then renamed over the target. A rename within one
+    /// filesystem is atomic, so the shim never sees a partial library.
+    static constexpr const char* kIncomingPath = "/data/notrix/libnotrix.so.incoming";
 
-    std::size_t stagedBytes() const override;
+    std::string applicationPath() const override { return kApplicationPath; }
 
-private:
-    /// Returns false if the mount would not change state. Both directions
-    /// are attempted through `mount`, because this busybox has no applets
-    /// and `/bin/mount` is the real thing.
-    bool remount(bool writable) const;
+    std::size_t installedBytes() const override;
 
-    /// Written beside the target and renamed into place.
-    ///
-    /// vfat has no atomic rename guarantee worth leaning on, but the window
-    /// is still the difference between "a few milliseconds" and "however
-    /// long three megabytes takes over Wi-Fi". A recovery image that is half
-    /// written is worse than one that is out of date, because it looks
-    /// present.
-    static constexpr const char* kTempPath = "/mnt/storage/update.img.part";
+    bool hasPrevious() const override;
+
+    bool install(std::string_view image, std::string& problem) override;
+
+    bool rollback(std::string& problem) override;
 };
 
 }  // namespace tc002

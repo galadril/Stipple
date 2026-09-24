@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/api/ApiServer.h"
 
+#include "notrix/update/ElfCheck.h"
+
 #include "notrix/update/UpdateImage.h"
 
 #include <vector>
@@ -155,6 +157,7 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .member("utcOffsetSeconds", settings.clock.utcOffsetSeconds)
         .member("theme", settings.clock.theme)
         .member("timezone", settings.clock.timezone)
+        .member("ntpServer", settings.clock.ntpServer)
         .member("leadingZero", settings.clock.leadingZero)
         .member("showAmPm", settings.clock.showAmPm);
 
@@ -201,7 +204,7 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
     // one - which would let any request allocate megabytes on a device with
     // 36 MB of RAM.
     const bool isImageUpload =
-        matchRoute(request.path).resource == Resource::SystemRestoreImage;
+        matchRoute(request.path).resource == Resource::SystemFirmware;
     const std::size_t bodyCeiling =
         isImageUpload ? options_.maxImageBytes : options_.maxBodyBytes;
     if (request.body.size() > bodyCeiling) {
@@ -256,7 +259,7 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
         case Resource::Network: return handleNetwork(request);
         case Resource::NetworkScan: return handleNetworkScan(request);
         case Resource::NetworkJoin: return handleNetworkJoin(request);
-        case Resource::SystemRestoreImage: return handleRestoreImage(request);
+        case Resource::SystemFirmware: return handleFirmware(request);
         case Resource::DisplayFrame: return handleDisplayFrame(request);
         case Resource::Input: return handleInput(request, nowMillis);
         case Resource::Unknown: break;
@@ -1474,6 +1477,26 @@ Response ApiServer::handleSettings(const Request& request) {
             }
             updated.clock.timezone = spec;
         }
+        if (const json::Value server = clock["ntpServer"]; server.isString()) {
+            // Bounded and sanity-checked, not trusted. This string is handed
+            // to a resolver, and an unbounded one from the network is how a
+            // config field becomes a memory problem.
+            const std::string spec = server.toString();
+            if (spec.size() > 253) {
+                return unprocessable("'clock.ntpServer' is too long to be a hostname");
+            }
+            for (const char c : spec) {
+                const bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                                     (c >= '0' && c <= '9') || c == '.' || c == '-' || c == ':';
+                if (!allowed) {
+                    return unprocessable("'clock.ntpServer' must be a hostname or address");
+                }
+            }
+            // Empty is meaningful: it turns synchronisation off, for a
+            // network that blocks NTP or a user who would rather it did not
+            // talk to anyone.
+            updated.clock.ntpServer = spec;
+        }
         if (const json::Value tick = clock["tick"]; tick.isBoolean()) {
             updated.clock.tick = tick.toBool(false);
         }
@@ -1750,23 +1773,37 @@ Response ApiServer::handleNetworkJoin(const Request& request) {
     return response;
 }
 
-Response ApiServer::handleRestoreImage(const Request& request) {
+Response ApiServer::handleFirmware(const Request& request) {
     if (context_.platform == nullptr) {
         return serverError("no platform");
     }
     platform::IUpgradeManager* upgrade = context_.platform->upgrade();
     if (upgrade == nullptr) {
-        return error(501, "not_supported", "this platform cannot stage a firmware image");
+        return error(501, "not_supported", "this platform cannot install firmware");
     }
 
     if (request.method == Method::Get) {
-        // What is staged, so a page can say whether the recovery button
-        // would do something useful.
         JsonWriter writer;
         writer.beginObject()
-            .member("path", upgrade->stagingPath())
-            .member("stagedBytes", static_cast<std::int64_t>(upgrade->stagedBytes()))
+            .member("path", upgrade->applicationPath())
+            .member("installedBytes", static_cast<std::int64_t>(upgrade->installedBytes()))
+            .member("canRollBack", upgrade->hasPrevious())
             .member("maxBytes", static_cast<std::int64_t>(options_.maxImageBytes))
+            .member("version", std::string(kVersion))
+            .endObject();
+        return ok(writer.take());
+    }
+
+    if (request.method == Method::Delete) {
+        std::string problem;
+        if (!upgrade->rollback(problem)) {
+            return unprocessable(problem);
+        }
+        JsonWriter writer;
+        writer.beginObject()
+            .member("status", "rolled-back")
+            .member("rebootRequired", true)
+            .member("note", "The previous version is back. Reboot to run it.")
             .endObject();
         return ok(writer.take());
     }
@@ -1775,34 +1812,37 @@ Response ApiServer::handleRestoreImage(const Request& request) {
         return methodNotAllowed();
     }
 
-    // Checked here rather than only by the device's loader. An image that
-    // fails is rejected while somebody is watching a web page, instead of at
-    // the moment they are holding the reset button on a clock that will not
-    // start - which is the whole asymmetry that makes checking twice worth
-    // the few hundred milliseconds.
-    const update::Report report = update::inspect(request.body);
-    if (!report.ok) {
-        return unprocessable(report.problem);
+    // Checked before a byte is written, because the asymmetry is brutal: the
+    // cost of rejecting a good file is somebody uploading it again, and the
+    // cost of accepting a bad one is a device that stops being able to tell
+    // you about it. A build for the wrong architecture is the easy mistake -
+    // it happened during bring-up, verified perfectly, and failed at dlopen
+    // where only ADB could see it.
+    const update::elf::ElfVerdict verdict = update::elf::inspect(request.body);
+    if (verdict != update::elf::ElfVerdict::Ok) {
+        return unprocessable(std::string("that file is ") +
+                             update::elf::describe(verdict));
     }
 
     std::string problem;
-    if (!upgrade->stage(request.body, problem)) {
-        return error(503, "unavailable", problem.empty() ? "could not stage the image"
-                                                         : problem);
+    if (!upgrade->install(request.body, problem)) {
+        return error(503, "unavailable",
+                     problem.empty() ? "could not install the firmware" : problem);
     }
 
     JsonWriter writer;
     writer.beginObject()
-        .member("status", "staged")
-        .member("path", upgrade->stagingPath())
+        .member("status", "installed")
+        .member("path", upgrade->applicationPath())
         .member("bytes", static_cast<std::int64_t>(request.body.size()))
-        .member("payloadMd5", report.payloadMd5)
-        .member("squashfs", report.squashfs)
-        // Said plainly, because the difference matters and is not obvious.
-        .member("flashed", false)
+        .member("canRollBack", upgrade->hasPrevious())
+        .member("rebootRequired", true)
+        // Said plainly, because "installed" could otherwise be read as
+        // "running", and the difference is a reboot.
         .member("note",
-                "Staged only. Nothing has been written to flash. Holding the "
-                "reset button during power-up will install this image.")
+                "Written, not yet running. Reboot to start it. If it will not "
+                "load, the device falls back to the version flashed with it "
+                "rather than to nothing.")
         .endObject();
     return ok(writer.take());
 }

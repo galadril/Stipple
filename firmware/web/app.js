@@ -1055,38 +1055,71 @@
         }
     }
 
-    function describeStaged(state) {
-        var note = $('restore-state');
+    function describeFirmware(state) {
+        var note = $('firmware-state');
+        var back = $('firmware-rollback');
         if (!note) { return; }
+
         if (!state) {
-            note.textContent = 'This build cannot stage a recovery image.';
+            note.textContent = 'This build cannot install firmware.';
+            if (back) { back.hidden = true; }
             return;
         }
-        if (state.stagedBytes > 0) {
-            note.textContent = 'An image is staged at ' + state.path + ' (' +
-                               Math.round(state.stagedBytes / 1024) + ' KB). ' +
-                               'Holding reset during power-up installs it.';
+
+        if (state.installedBytes > 0) {
+            note.textContent = 'Running an installed update (' +
+                               Math.round(state.installedBytes / 1024) + ' KB). ' +
+                               'Version ' + state.version + '.';
         } else {
-            note.textContent = 'Nothing staged at ' + state.path + '.';
+            // Not an error, and worth saying so: it is what every device
+            // looks like until somebody updates it.
+            note.textContent = 'Running the version flashed with the device. ' +
+                               'Version ' + state.version + '.';
         }
+
+        if (back) { back.hidden = !state.canRollBack; }
     }
 
-    function loadRestoreState() {
-        return send('GET', '/api/v1/system/restore-image')
-            .then(describeStaged)
-            .catch(function () { describeStaged(null); });
+    function loadFirmwareState() {
+        return send('GET', '/api/v1/system/firmware')
+            .then(describeFirmware)
+            .catch(function () { describeFirmware(null); });
     }
 
-    function wireRestoreImage() {
-        var button = $('restore-upload');
+    function wireFirmware() {
+        var button = $('firmware-upload');
+        var back = $('firmware-rollback');
+
+        if (back) {
+            back.addEventListener('click', function () {
+                var note = $('firmware-state');
+                back.disabled = true;
+                send('DELETE', '/api/v1/system/firmware')
+                    .then(function (body) {
+                        if (note) {
+                            note.textContent = (body && body.note) ||
+                                               'Previous version restored.';
+                        }
+                        return loadFirmwareState();
+                    })
+                    .catch(function (err) {
+                        if (note) {
+                            note.textContent = 'Could not go back: ' +
+                                               (err.message || 'failed');
+                        }
+                    })
+                    .then(function () { back.disabled = false; });
+            });
+        }
+
         if (!button) { return; }
 
         button.addEventListener('click', function () {
-            var picker = $('restore-file');
-            var note = $('restore-state');
+            var picker = $('firmware-file');
+            var note = $('firmware-state');
             var file = picker && picker.files && picker.files[0];
             if (!file) {
-                if (note) { note.textContent = 'Choose an image first.'; }
+                if (note) { note.textContent = 'Choose a libnotrix.so first.'; }
                 return;
             }
 
@@ -1096,11 +1129,10 @@
                                    ' KB and checking it...';
             }
 
-            // Sent as raw bytes, not base64 in JSON. A three-megabyte image
-            // would become four megabytes of text, on a device with about
-            // seventeen free.
+            // Raw bytes, not base64 in JSON. Base64 would cost a third more
+            // on a device with about seventeen megabytes free.
             file.arrayBuffer().then(function (bytes) {
-                return fetch('/api/v1/system/restore-image', {
+                return fetch('/api/v1/system/firmware', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/octet-stream' },
                     body: bytes,
@@ -1115,15 +1147,20 @@
                 });
             }).then(function (body) {
                 if (note) {
-                    note.textContent = 'Staged ' + Math.round(body.bytes / 1024) +
-                                       ' KB at ' + body.path + '. Nothing was ' +
-                                       'flashed. Holding reset during power-up ' +
-                                       'installs it.';
+                    // "Installed" is not "running", and the difference is a
+                    // reboot. Saying only the first would have somebody
+                    // looking for a change that has not happened yet.
+                    note.textContent = 'Installed ' + Math.round(body.bytes / 1024) +
+                                       ' KB. Restart to run it - if it will not ' +
+                                       'load, the device falls back to the version ' +
+                                       'flashed with it rather than to nothing.';
                 }
                 if (picker) { picker.value = ''; }
+                return loadFirmwareState();
             }).catch(function (err) {
-                // Shown as-is. The device writes these for a person: "the
-                // file is damaged", "built for a different device".
+                // Shown as-is. The device writes these for a person: "that
+                // file is not built for ARM", "that file is not a shared
+                // library".
                 if (note) { note.textContent = 'Refused: ' + (err.message || 'failed'); }
             }).then(function () { button.disabled = false; });
         });
@@ -1299,7 +1336,7 @@
         }
 
         var restore = $('restore');
-        var file = $('restore-file');
+        var file = $('settings-file');
         if (restore && file) {
             restore.addEventListener('click', function () { file.click(); });
 
@@ -1419,7 +1456,7 @@
         // list goes stale slowly, and polling one costs the device a socket
         // round trip for a page nobody is looking at.
         if (activePanel === 'panel-system') {
-            loadRestoreState();
+            loadFirmwareState();
             return loadNetwork().catch(function () {});
         }
         return Promise.resolve();
@@ -2168,7 +2205,7 @@
         wireMaintenance();
         wireNetwork();
         wireAccess();
-        wireRestoreImage();
+        wireFirmware();
         wireControls();
         wireCapture();
         wireColorPickers();

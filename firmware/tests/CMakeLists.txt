@@ -31,8 +31,12 @@ add_executable(notrix_tests
     test_timezone.cpp
     test_wireless_stats.cpp
     test_rescue.cpp
+    test_setup_hold.cpp
     test_wpa_replies.cpp
     test_dhcp.cpp
+    test_sntp.cpp
+    test_splash.cpp
+    test_elf_check.cpp
     test_ipv4_udp.cpp
     test_wpa_commands.cpp
     test_basic_auth.cpp

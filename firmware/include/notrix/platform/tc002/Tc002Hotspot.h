@@ -88,6 +88,30 @@ public:
     /// Give the radio back to wpa_supplicant.
     void stop();
 
+    /// Start the station, whether or not anything else has.
+    ///
+    /// On stock firmware the vendor application starts wpa_supplicant. NOTRIX
+    /// *replaces* that application, so after a real flash nothing does - and a
+    /// DHCP client on an unassociated interface waits forever. The device
+    /// comes up with no network and no way in except the hotspot timer.
+    ///
+    /// This was missed for an instructive reason: the whole startup hook was
+    /// proven by bind-mounting a modified EasyUI.cfg over a *running* system,
+    /// where the vendor application had already started the supplicant. The
+    /// test inherited the very thing it should have been checking for.
+    ///
+    /// Safe to call when it is already running - `ctl.start` on a live
+    /// service does nothing - and deliberately unconditional, because "is it
+    /// already running" is exactly the question that got answered wrongly.
+    void ensureStation();
+
+    /// Load the Wi-Fi driver and bring the interface up, if nothing has.
+    ///
+    /// Needed by the access point as much as by the station - both want a
+    /// `wlan0` that exists - which is why it is separate from ensureStation()
+    /// and called from start() too.
+    void ensureRadio();
+
     bool running() const noexcept { return running_; }
 
     /// The name being broadcast. Empty when not running.

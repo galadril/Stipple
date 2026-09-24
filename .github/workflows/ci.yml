@@ -135,6 +135,68 @@ jobs:
       - name: Run it on ARM
         run: qemu-arm-static build/device-arm/firmware/notrix_device_smoke
 
+  device-library:
+    name: Device library (libnotrix.so)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Built in the pinned container and not with the runner's toolchain,
+      # and this is not fussiness.
+      #
+      # `libnotrix.so` is the artifact people install, so it has to load on a
+      # device running glibc 2.30 and libstdc++.so.6.0.26. Every modern distro
+      # toolchain emits references that are newer than that - the job above
+      # gets away with it only because its binary is static. A library built
+      # on ubuntu-latest flashes, verifies, and then fails at dlopen with a
+      # message only visible over ADB. That happened during bring-up and cost
+      # two flashes.
+      - name: Build the pinned cross toolchain
+        run: docker build -t notrix-cross:bullseye -f tooling/cross/Containerfile.bullseye tooling/cross
+
+      - name: Build
+        run: |
+          docker run --rm -v "$PWD:/src" notrix-cross:bullseye bash -c "
+            cd /src &&
+            cmake -S . -B build/device-arm -G Ninja               -DCMAKE_TOOLCHAIN_FILE=/src/cmake/toolchains/arm-linux-gnueabihf.cmake               -DCMAKE_BUILD_TYPE=Release -DNOTRIX_BUILD_TESTS=OFF               -DNOTRIX_WARNINGS_AS_ERRORS=ON -DNOTRIX_DEVICE_BUILD=ON &&
+            cmake --build build/device-arm --target notrix_startup"
+
+      # The guard that would have caught the bring-up failure in seconds.
+      - name: Check it can actually load on the device
+        run: |
+          docker run --rm -v "$PWD:/src" notrix-cross:bullseye bash -c '
+            cd /src
+            lib=build/device-arm/firmware/libnotrix.so
+            arm-linux-gnueabihf-readelf -d "$lib" | grep NEEDED
+
+            # The device has libstdc++.so.6.0.26, whose newest symbol set is
+            # GLIBCXX_3.4.26. Every container here is newer, so the C++
+            # runtime is linked statically and none of it may appear.
+            if arm-linux-gnueabihf-readelf -V "$lib" | grep -q GLIBCXX; then
+              echo "::error::libnotrix.so wants GLIBCXX symbols the device does not have"
+              arm-linux-gnueabihf-readelf -V "$lib" | grep -o "GLIBCXX_[0-9.]*" | sort -u
+              exit 1
+            fi
+
+            # glibc 2.30 is what the device runs. Anything newer fails to load.
+            worst=$(arm-linux-gnueabihf-readelf -V "$lib" | grep -o "GLIBC_[0-9.]*" | sort -u -V | tail -1)
+            echo "highest glibc requirement: $worst"
+            newest=$( { echo "$worst"; echo GLIBC_2.30; } | sort -V | tail -1 )
+            if [ "$newest" != "GLIBC_2.30" ]; then
+              echo "::error::libnotrix.so needs $worst; the TC002 has GLIBC_2.30"
+              exit 1
+            fi
+
+            arm-linux-gnueabihf-readelf -h "$lib" | grep -E "Type|Machine"
+          '
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: libnotrix-so
+          path: build/device-arm/firmware/libnotrix.so
+          if-no-files-found: error
+
   emulator:
     name: Browser emulator (WASM)
     runs-on: ubuntu-latest

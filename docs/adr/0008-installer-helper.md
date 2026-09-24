@@ -437,3 +437,50 @@ So the rule stands and the wording sharpens: **whatever sits at
 `/mnt/storage/update.img` is the device's recovery image.** It should be
 stock, or it should not be there. A pending update belongs somewhere the
 reset button does not read.
+
+## Second correction, 2026-09-24: it was neither a flag nor a file. It was a daemon.
+
+Both explanations above were guesses at a mechanism nobody had read. The
+mechanism has now been read, and it is `/bin/zkdaemon`. Full strings and
+reasoning are in `docs/research/tc002-platform-findings.md`; the operative
+part:
+
+```
+'sys.zkapp.state'  'running'  'ZK_APPCHECK_DELAY'
+'[D][zkdaemon] app state: %s'
+'[D][zkdaemon] Auto recovery triggered'
+'setprop ctl.stop zkswe'   'rm -rf /data/*'
+'/mnt/storage'  '%s/update.img'  '/bin/zkupgradebin'
+```
+
+`zkdaemon` polls the property `sys.zkapp.state`. If the application has not
+set it to `running` within `ZK_APPCHECK_DELAY`, it wipes `/data` and
+reinstalls whatever is staged. **No flag, no button, no file needs to be
+involved.** The stock application sets that property - `libzkgui.so` carries
+the string - and NOTRIX, which replaces the application, never did.
+
+So the sequence was: NOTRIX booted fine, failed to announce itself, and was
+deleted along with the Wi-Fi credentials in `/data/misc/wifi`, and stock was
+reinstalled from the safety-net image. The progress bar was auto recovery.
+
+**This is the third explanation for the same event.** The first two were
+constructed from what was visible from outside - a file that was present, a
+flag that must have been set - and each was consistent with the evidence to
+hand and wrong. The difference this time is not that the story is neater: it
+is that the mechanism was read out of the binary that implements it, and it
+predicts the one detail neither earlier story could account for, namely why
+*stock* came back with no Wi-Fi.
+
+Worth keeping as a caution. Two plausible mechanisms were written down as
+findings before anyone had looked at the thing doing the work.
+
+### What this changes
+
+**`Tc002Platform::announceRunning()` is now a precondition for flashing
+anything**, and `notrixMain` calls it before opening the panel, the MCU or
+the network.
+
+**The rule about `/mnt/storage/update.img` gets stronger, not weaker.** The
+previous correction called it "what the reset button installs". It is also
+what an *unattended* recovery installs, triggered by a daemon on a timer. A
+staged image is an armed revert, not a passive one.

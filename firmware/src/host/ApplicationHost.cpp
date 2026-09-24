@@ -207,6 +207,7 @@ bool ApplicationHost::initialize() {
     }
 
     splashDetail_ = apps::splashDetail(kVersion, platform_.network());
+    splashAddress_ = apps::splashAddress(platform_.network());
     splashActive_ = config_.splashMillis > 0;
 
     initialized_ = true;
@@ -322,6 +323,10 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
     // device whose network or password is the thing that is broken. A way back
     // in that can be blocked by whatever is on screen is not a way back in.
     rescue_.handle(event);
+
+    // Same reasoning, same position in the order: a hold that only works on
+    // the carousel is one nobody can rely on.
+    setupHold_.handle(event);
 
     // Any interaction means the user is looking at the device and wants to get
     // on with it. The press is consumed rather than also performing its normal
@@ -595,6 +600,16 @@ void ApplicationHost::clearHotspotRequest() {
         return;
     }
     logger_.info(lastTickMillis_, "on a network again; setup mode cleared");
+}
+
+void ApplicationHost::performSetupRequest() {
+    // Nothing is cleared and nothing is saved. A hotspot asked for by
+    // somebody standing at the device should not outlive the reboot they do
+    // next - and the persisted flag already has a narrower meaning that this
+    // must not quietly widen.
+    setupRequested_ = true;
+    logger_.info(lastTickMillis_, "setup mode requested from the knob");
+    scheduler_.invalidate();
 }
 
 void ApplicationHost::performRescue() {
@@ -933,7 +948,9 @@ void ApplicationHost::renderNotice(Canvas& canvas, std::uint64_t nowMillis) cons
     apps::renderSplash(canvas, noticeTitle_, noticeDetail_, elapsed, 0, style);
 }
 
-void ApplicationHost::renderRescue(Canvas& canvas, std::uint64_t remainingMillis) const {
+void ApplicationHost::renderHoldCountdown(Canvas& canvas, const char* label,
+                                          std::uint64_t remainingMillis,
+                                          std::uint64_t holdMillis) const {
     // Counted in whole seconds, rounded up, so the last visible number is 1
     // rather than 0 - a countdown that shows zero and then keeps going reads
     // as stuck.
@@ -944,7 +961,7 @@ void ApplicationHost::renderRescue(Canvas& canvas, std::uint64_t remainingMillis
     style.color = colors::kOrange;
     style.hAlign = text::HAlign::Left;
     style.vAlign = text::VAlign::Top;
-    text::draw(canvas, "RESET", Rect{1, 0, Framebuffer::kWidth - 2, 7}, style);
+    text::draw(canvas, label, Rect{1, 0, Framebuffer::kWidth - 2, 7}, style);
 
     char value[4] = {};
     writeNumber(value, sizeof(value), seconds);
@@ -955,8 +972,8 @@ void ApplicationHost::renderRescue(Canvas& canvas, std::uint64_t remainingMillis
 
     // A bar that empties, so the gesture reads as progress rather than as an
     // error message with a number in it.
-    const int permille = static_cast<int>(
-        (remainingMillis * 1000u) / input::Rescue::kHoldMillis);
+    const int permille =
+        holdMillis == 0 ? 0 : static_cast<int>((remainingMillis * 1000u) / holdMillis);
     drawBar(canvas, permille, colors::kOrange, rgb(30, 30, 30));
 }
 
@@ -1102,6 +1119,15 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         performRescue();
     }
 
+    if (setupHold_.tick(nowMillis)) {
+        // The in-progress press is discarded here, and that is the whole
+        // reason this gesture can share a button with SettingsToggle: the
+        // mapper decides long-versus-short on release, so with no press left
+        // to release, letting go of the knob does nothing at all.
+        mapper_.reset();
+        performSetupRequest();
+    }
+
     // The countdown has to ask for its own frames.
     //
     // Redrawing normally stops while the panel is off - otherwise a dark panel
@@ -1117,12 +1143,35 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         scheduler_.invalidate();
     }
 
+    const int setupSecond = setupHold_.counting()
+        ? static_cast<int>((setupHold_.remainingMillis(nowMillis) + 999) / 1000)
+        : -1;
+    if (setupSecond != lastSetupSecond_) {
+        lastSetupSecond_ = setupSecond;
+        scheduler_.invalidate();
+    }
+
     if (splashActive_) {
         if (splashElapsed(nowMillis)) {
             splashActive_ = false;
             logger_.info(nowMillis, "splash finished");
             scheduler_.invalidate();
         } else {
+            // Recomputed, not remembered.
+            //
+            // This was worked out once at startup - before the radio had
+            // associated and before DHCP had a lease - so it baked in
+            // "no Wi-Fi" and went on saying it while the device sat happily
+            // on the network serving this very page. Reported from hardware
+            // several times as "no wifi, but the web config loads", which is
+            // exactly what a stale string looks like from the outside.
+            //
+            // Association takes ten to twenty seconds on this hardware and
+            // the splash is on screen for about that long, so this is the one
+            // place the answer genuinely changes while it is being shown.
+            splashDetail_ = apps::splashDetail(kVersion, platform_.network());
+            splashAddress_ = apps::splashAddress(platform_.network());
+
             // The detail line scrolls, so every frame differs.
             scheduler_.invalidate();
         }
@@ -1313,7 +1362,22 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         // draws the app that is active now; the outgoing frame was captured
         // when the change happened, so nothing in the renderer knows a
         // transition exists.
-        if (transitionRunning(nowMillis)) {
+        // An overlay owns the whole panel, so it must not be slid.
+        //
+        // renderFrame returns early for these, but compositing happens out
+        // here and did not know that - so a setup notice raised while the
+        // carousel happened to be mid-rotation was blended with the outgoing
+        // app and slid off the screen like the next item in the list. Seen on
+        // hardware: the setup instructions animated away while somebody was
+        // reading them.
+        //
+        // Checked here rather than by cancelling the transition when a notice
+        // is raised, because the carousel keeps running underneath and would
+        // simply start another one on its next advance.
+        const bool overlayOwnsPanel =
+            showingNotice() || rescue_.counting() || setupHold_.counting();
+
+        if (transitionRunning(nowMillis) && !overlayOwnsPanel) {
             transitionScratch_ = framebuffer_;
             const std::uint64_t elapsed = nowMillis - transitionStartMillis_;
             const int permille = static_cast<int>(
@@ -1472,7 +1536,17 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
     // indistinguishable from one that crashed - and this gesture is reached
     // for precisely when nothing else about the device is behaving.
     if (rescue_.counting()) {
-        renderRescue(canvas, rescue_.remainingMillis(nowMillis));
+        renderHoldCountdown(canvas, "RESET", rescue_.remainingMillis(nowMillis),
+                            input::Rescue::kHoldMillis);
+        return;
+    }
+
+    // Second, so a hand holding everything at once sees the more destructive
+    // of the two. Nobody should discover they were three seconds from
+    // clearing their password because the panel was showing the other thing.
+    if (setupHold_.counting()) {
+        renderHoldCountdown(canvas, "SETUP", setupHold_.remainingMillis(nowMillis),
+                            input::SetupHold::kHoldMillis);
         return;
     }
 
@@ -1508,9 +1582,8 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
     }
 
     if (splashActive_) {
-        apps::renderSplash(canvas, "NOTRIX", splashDetail_, nowMillis - firstTickMillis_,
-                           config_.splashMillis,
-                           config_.splash);
+        apps::renderSplash(canvas, "NOTRIX", kVersion, nowMillis - firstTickMillis_,
+                           config_.splashMillis, config_.splash, splashAddress_);
         return;
     }
 

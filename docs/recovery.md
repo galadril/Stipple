@@ -2,6 +2,10 @@
 
 Written for the moment you need it, so it starts with the answer.
 
+> **No warranty, no liability.** These procedures are what worked on the
+> development device. They are not guaranteed to work on yours, and following
+> them is at your own risk (GPL-3.0 sections 15-16).
+
 ## The short version
 
 **Unplug it and plug it back in.**
@@ -44,6 +48,29 @@ the access password is cleared and the device starts its hotspot.
 It clears **only** the password. Apps, settings and arrangement are kept —
 somebody locked out of a clock wants their configuration to still be there
 when they get back in.
+
+### You want to put it on a different Wi-Fi network
+
+**Hold the knob in for five seconds.** The panel counts down under `SETUP`,
+and at zero the device starts its hotspot: join `NOTRIX-setup` and open
+<http://192.168.4.1/>.
+
+This works whether or not the device is already online, which is the point -
+moving house or changing routers is not a fault, and it should not require
+being locked out first.
+
+It **changes nothing**. No password is cleared, no stored network is
+forgotten, nothing is written to flash, and the request does not survive a
+reboot. If you let go early, or reboot without configuring anything, the
+device carries on exactly as it was.
+
+A *short* hold of the same knob still opens the settings menu as it always
+did. The two do not collide, because the menu opens when you let go and this
+fires while you are still holding.
+
+Compare with the two-button gesture below, which is the one that clears your
+access password. If you can reach the web UI and just want to change
+networks, this is the gentler one to reach for.
 
 ### The clock shows the wrong time and will not change
 

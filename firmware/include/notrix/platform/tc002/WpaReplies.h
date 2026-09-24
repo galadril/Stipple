@@ -206,6 +206,61 @@ inline std::vector<Network> parseScanResults(std::string_view reply) {
 ///
 /// wpa_supplicant answers "OK", "FAIL", or the value asked for. Treating
 /// anything-but-FAIL as success would read an error message as a result.
+/// Network ids from a LIST_NETWORKS reply whose SSID matches `ssid`.
+///
+/// Exists because joining used to be pure ADD_NETWORK: every trip through
+/// setup appended another block for the same network, and SAVE_CONFIG wrote
+/// them all. A device re-provisioned a few times accumulated duplicates -
+/// observed on hardware with three blocks for one SSID, two of them
+/// `disabled=1` - which is both an unbounded growth the project rules forbid
+/// and a way to boot with every copy of your network disabled.
+///
+/// The reply is tab-separated with a header line:
+///
+///     network id / ssid / bssid / flags
+///     0   home    any     [CURRENT]
+///     1   home    any     [DISABLED]
+inline std::vector<int> networkIdsForSsid(std::string_view reply, std::string_view ssid) {
+    std::vector<int> ids;
+    std::size_t line = 0;
+    bool first = true;
+    while (line < reply.size()) {
+        std::size_t end = reply.find('\n', line);
+        if (end == std::string_view::npos) {
+            end = reply.size();
+        }
+        const std::string_view row = reply.substr(line, end - line);
+        line = end + 1;
+
+        // The header names the columns rather than describing a network.
+        if (first) {
+            first = false;
+            continue;
+        }
+        if (row.empty()) {
+            continue;
+        }
+
+        const std::size_t firstTab = row.find('\t');
+        if (firstTab == std::string_view::npos) {
+            continue;
+        }
+        const std::size_t secondTab = row.find('\t', firstTab + 1);
+        const std::string_view name =
+            row.substr(firstTab + 1, secondTab == std::string_view::npos
+                                         ? std::string_view::npos
+                                         : secondTab - firstTab - 1);
+        if (name != ssid) {
+            continue;
+        }
+        const int id = detail::toInt(row.substr(0, firstTab), -1);
+        if (id >= 0) {
+            ids.push_back(id);
+        }
+    }
+    return ids;
+}
+
 inline bool succeeded(std::string_view reply) noexcept {
     return reply.rfind("OK", 0) == 0;
 }

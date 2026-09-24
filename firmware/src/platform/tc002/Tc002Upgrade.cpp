@@ -3,117 +3,121 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 #include <cstdio>
-#include <cstring>
 
 namespace notrix {
 namespace platform {
 namespace tc002 {
 namespace {
 
-/// Run a command and wait for it. Returns its exit status, or -1.
-int run(const char* const argv[]) {
-    const pid_t pid = ::fork();
-    if (pid < 0) {
-        return -1;
-    }
-    if (pid == 0) {
-        const int null = ::open("/dev/null", O_RDWR);
-        if (null >= 0) {
-            ::dup2(null, STDOUT_FILENO);
-            ::dup2(null, STDERR_FILENO);
-            if (null > STDERR_FILENO) {
-                ::close(null);
-            }
-        }
-        ::execv(argv[0], const_cast<char* const*>(argv));
-        ::_exit(127);
-    }
-    int status = 0;
-    if (::waitpid(pid, &status, 0) < 0) {
-        return -1;
-    }
-    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-}
-
-}  // namespace
-
-bool Tc002Upgrade::remount(bool writable) const {
-    const char* const rw[] = {"/bin/mount", "-o", "remount,rw", kMountPoint, nullptr};
-    const char* const ro[] = {"/bin/mount", "-o", "remount,ro", kMountPoint, nullptr};
-    return run(writable ? rw : ro) == 0;
-}
-
-std::size_t Tc002Upgrade::stagedBytes() const {
+std::size_t sizeOf(const char* path) {
     struct stat info;
-    if (::stat(kImagePath, &info) != 0) {
+    if (::stat(path, &info) != 0) {
         return 0;
     }
     return static_cast<std::size_t>(info.st_size);
 }
 
-bool Tc002Upgrade::stage(std::string_view image, std::string& problem) {
-    problem.clear();
-
-    if (image.empty()) {
-        problem = "nothing to write";
-        return false;
-    }
-
-    if (!remount(true)) {
-        problem = "could not make the storage volume writable";
-        return false;
-    }
-
-    // Everything from here has to put the mount back, whatever happens.
-    const auto finish = [this](bool ok, std::string& out, const char* why) {
-        if (!ok && out.empty()) {
-            out = why;
-        }
-        // Flushed before remounting read-only: vfat on a volume a computer
-        // may also mount is not somewhere to leave dirty pages.
-        ::sync();
-        remount(false);
-        return ok;
-    };
-
-    const int fd = ::open(kTempPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+/// Write the whole buffer, then force it to the medium.
+///
+/// The fsync is the point. /data is jffs2 on raw flash, and the failure this
+/// guards against is not a crash - it is the power cycle somebody performs
+/// *because* they just updated the firmware and are waiting for it to come
+/// back. Without this, the rename can land before the contents do.
+bool writeWhole(const char* path, std::string_view data, std::string& problem) {
+    const int fd = ::open(path, O_WRONLY | O_CREAT | O_TRUNC, 0755);
     if (fd < 0) {
-        return finish(false, problem, "could not create a file on the storage volume");
+        problem = "could not open a file to write to";
+        return false;
     }
 
     std::size_t written = 0;
-    while (written < image.size()) {
-        const ssize_t wrote = ::write(fd, image.data() + written, image.size() - written);
-        if (wrote <= 0) {
-            // Out of space is the likely one: the volume is small and may
-            // already hold an image.
+    while (written < data.size()) {
+        const ssize_t chunk = ::write(fd, data.data() + written, data.size() - written);
+        if (chunk <= 0) {
             ::close(fd);
-            ::unlink(kTempPath);
-            return finish(false, problem, "ran out of room on the storage volume");
+            ::unlink(path);
+            problem = "the write failed part-way; nothing has been changed";
+            return false;
         }
-        written += static_cast<std::size_t>(wrote);
+        written += static_cast<std::size_t>(chunk);
     }
 
-    // Durable before it is visible. Renaming a file whose contents are still
-    // in the page cache is how a recovery image ends up truncated by a power
-    // cut that happens ten seconds later.
     if (::fsync(fd) != 0) {
         ::close(fd);
-        ::unlink(kTempPath);
-        return finish(false, problem, "could not flush the image to storage");
+        ::unlink(path);
+        problem = "the device would not confirm the write";
+        return false;
     }
+
     ::close(fd);
+    return true;
+}
 
-    if (::rename(kTempPath, kImagePath) != 0) {
-        ::unlink(kTempPath);
-        return finish(false, problem, "could not put the image in place");
+}  // namespace
+
+std::size_t Tc002Upgrade::installedBytes() const { return sizeOf(kApplicationPath); }
+
+bool Tc002Upgrade::hasPrevious() const { return sizeOf(kPreviousPath) > 0; }
+
+bool Tc002Upgrade::install(std::string_view image, std::string& problem) {
+    problem.clear();
+
+    if (image.empty()) {
+        problem = "nothing to install";
+        return false;
     }
 
-    return finish(true, problem, "");
+    // Written beside the target rather than over it. Until the rename at the
+    // end, the running application and the one the shim would load next boot
+    // are both untouched - so every failure below is a no-op rather than a
+    // device that comes back to nothing.
+    if (!writeWhole(kIncomingPath, image, problem)) {
+        return false;
+    }
+
+    // Keep whatever is being displaced. Only meaningful from the second
+    // install onwards: the first one displaces nothing, because the device is
+    // running the copy flashed into /res, which cannot be lost.
+    if (sizeOf(kApplicationPath) > 0) {
+        ::unlink(kPreviousPath);
+        if (::rename(kApplicationPath, kPreviousPath) != 0) {
+            ::unlink(kIncomingPath);
+            problem = "could not set the current version aside";
+            return false;
+        }
+    }
+
+    if (::rename(kIncomingPath, kApplicationPath) != 0) {
+        // Put back what was moved, so a failure here is not the one case that
+        // leaves the device with no override at all.
+        ::rename(kPreviousPath, kApplicationPath);
+        ::unlink(kIncomingPath);
+        problem = "could not put the new version in place";
+        return false;
+    }
+
+    return true;
+}
+
+bool Tc002Upgrade::rollback(std::string& problem) {
+    problem.clear();
+
+    if (!hasPrevious()) {
+        // Not an error worth dressing up: the device is running either its
+        // first install or the copy flashed with the shim, and in both cases
+        // there is nothing behind it.
+        problem = "there is no previous version to go back to";
+        return false;
+    }
+
+    if (::rename(kPreviousPath, kApplicationPath) != 0) {
+        problem = "could not put the previous version back";
+        return false;
+    }
+    return true;
 }
 
 }  // namespace tc002

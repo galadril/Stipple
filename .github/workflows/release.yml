@@ -120,6 +120,16 @@ jobs:
       - name: Verify emulator module
         run: node simulator/web/tools/verify.mjs
 
+      # Taken from the CI run above rather than rebuilt here. CI builds it in
+      # the pinned container and checks it can actually load on a device -
+      # glibc 2.30, no GLIBCXX - and a rebuild on this runner would be a
+      # different binary than the one those checks passed on.
+      - name: Fetch the device library from CI
+        uses: actions/download-artifact@v4
+        with:
+          name: libnotrix-so
+          path: dist
+
       - name: Assemble artifacts
         run: |
           set -euo pipefail
@@ -130,6 +140,12 @@ jobs:
           done
 
           zip -j -q "dist/notrix-emulator-${VERSION}.zip" dist/emulator/*
+
+          # Renamed so a downloaded file says what it is and which version it
+          # is. The device does not care about the name: installing it is an
+          # upload through Settings > Firmware, which writes it where the shim
+          # looks.
+          mv dist/libnotrix.so "dist/libnotrix-${VERSION}.so"
 
           api_version="$(sed -nE 's/.*kApiVersion[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' firmware/include/notrix/core/Version.h | head -1)"
 
@@ -144,13 +160,19 @@ jobs:
             "buildDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "apiVersion": ${api_version},
             "hardware": [],
-            "installable": false,
-            "note": "Emulator build only. No device firmware exists at this version; TC002 support is Phase 7.",
+            "installable": true,
+            "note": "Updates an existing NOTRIX device through Settings > Firmware. It does not install NOTRIX onto a stock device - that needs a res image built from your own device's capture, which cannot be published because it contains vendor firmware. See docs/install.md.",
             "artifacts": [
               {
                 "name": "notrix-emulator-${VERSION}.zip",
                 "sha256": "$(sha256sum "dist/notrix-emulator-${VERSION}.zip" | cut -d' ' -f1)",
                 "bytes": $(stat -c%s "dist/notrix-emulator-${VERSION}.zip")
+              },
+              {
+                "name": "libnotrix-${VERSION}.so",
+                "sha256": "$(sha256sum "dist/libnotrix-${VERSION}.so" | cut -d' ' -f1)",
+                "bytes": $(stat -c%s "dist/libnotrix-${VERSION}.so"),
+                "target": "tc002"
               }
             ]
           }
@@ -159,7 +181,7 @@ jobs:
           python3 -c "import json,sys; json.load(open('dist/manifest.json'))" \
             || { echo "::error::generated manifest.json is not valid JSON"; exit 1; }
 
-          ( cd dist && sha256sum "notrix-emulator-${VERSION}.zip" manifest.json > SHA256SUMS )
+          ( cd dist && sha256sum "notrix-emulator-${VERSION}.zip" "libnotrix-${VERSION}.so" manifest.json > SHA256SUMS )
           cat dist/SHA256SUMS
 
       - name: Upload release artifacts
@@ -197,14 +219,37 @@ jobs:
           cat > notes.md <<EOF
           ## NOTRIX ${VERSION}
 
-          **This release does not contain installable firmware.** There is no
-          TC002 build yet — device bring-up is Phase 7 and is blocked on
-          hardware. Nothing in NOTRIX has run on a real device.
+          Two things: a device update, and the browser emulator.
 
-          What this release *is*: the browser emulator, running the same
-          framebuffer, font engine, scene renderer, app scheduler and
-          \`/api/v1\` router that the device will run. Only the platform
-          adapter differs ([ADR 0011](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/adr/0011-simulator-first-development-order.md)).
+          > **Use at your own risk.** NOTRIX replaces firmware on hardware it
+          > was not designed for. It can leave your device unusable and will
+          > probably void your warranty. It comes with **no warranty and no
+          > liability** (GPL-3.0 sections 15-16). Do not install it on a
+          > device you are not prepared to lose.
+
+          ### \`libnotrix-${VERSION}.so\` — for a device already running NOTRIX
+
+          Install it through **Settings → Firmware** in the device's web UI.
+          It is written beside the running version and renamed into place, so
+          a failed upload changes nothing, and the previous version is kept so
+          you can go back. Nothing is flashed.
+
+          Built in the pinned toolchain and checked, in CI, that it can
+          actually load on the hardware: 32-bit ARM, no \`GLIBCXX\` symbols,
+          and nothing newer than \`GLIBC_2.30\`. A library that fails those is
+          not published, because it would flash and verify perfectly and then
+          fail at \`dlopen\` where only ADB can see it.
+
+          **This does not install NOTRIX onto a stock device.** That needs a
+          \`res\` image built from a capture of your own device, which cannot
+          be published — it contains Ulanzi's firmware. See
+          [docs/install.md](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/install.md).
+
+          ### \`notrix-emulator-${VERSION}.zip\` — no hardware needed
+
+          The same framebuffer, font engine, scene renderer, app scheduler and
+          \`/api/v1\` router the device runs. Only the platform adapter
+          differs ([ADR 0011](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/adr/0011-simulator-first-development-order.md)).
 
           ### Try it
 

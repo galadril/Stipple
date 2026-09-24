@@ -17,6 +17,7 @@
 #include "notrix/input/InputMapper.h"
 #include "notrix/input/Navigator.h"
 #include "notrix/input/Rescue.h"
+#include "notrix/input/SetupHold.h"
 #include "notrix/json/Json.h"
 #include "notrix/mqtt/MqttService.h"
 #include "notrix/notify/Notifications.h"
@@ -72,7 +73,14 @@ struct HostConfig {
     /// How long the boot splash stays up. Long enough for a scrolling IP
     /// address to finish at least once; zero disables it. Any button press
     /// dismisses it early.
-    std::uint32_t splashMillis = 5000;
+    /// Ten seconds, split into two pages of five.
+    ///
+    /// Longer than it looks like it needs to be, on purpose. The second page
+    /// reports the address, and the radio takes ten to twenty seconds to
+    /// associate from cold - so a shorter splash guarantees the one screen
+    /// that talks about the network is drawn before there is a network to
+    /// talk about. Five seconds of wave first is what buys that time.
+    std::uint32_t splashMillis = 10000;
 
     /// Register the built-in clock so a fresh device shows something.
     bool installClockApp = true;
@@ -149,6 +157,23 @@ public:
     /// The rescue gesture, for the renderer that draws its countdown and for
     /// tests that drive it.
     const input::Rescue& rescue() const noexcept { return rescue_; }
+
+    /// The knob-hold gesture, for the countdown renderer and for tests.
+    const input::SetupHold& setupHold() const noexcept { return setupHold_; }
+
+    /// True once, for the caller that starts the hotspot.
+    ///
+    /// Deliberately not the persisted `hotspotRequested` flag. That one is
+    /// only honoured on a device with no address, because honouring it
+    /// unconditionally once made a rescued device host a setup network on
+    /// every boot. A hold means "host one now", on a device that may be
+    /// perfectly online - a different question needing a different channel,
+    /// and one that must not survive a reboot.
+    bool takeSetupRequest() noexcept {
+        const bool asked = setupRequested_;
+        setupRequested_ = false;
+        return asked;
+    }
 
     mqtt::MqttService& mqttService() noexcept { return mqtt_; }
     const mqtt::MqttService& mqttService() const noexcept { return mqtt_; }
@@ -282,6 +307,9 @@ private:
     /// Clear the way back in: access password gone, hotspot requested.
     void performRescue();
 
+    /// Ask for a hotspot and change nothing else.
+    void performSetupRequest();
+
 
     /// Whether the overnight dimming window applies right now.
     bool nightModeActive() const;
@@ -314,7 +342,12 @@ private:
     void tickTheClock();
 
     /// Draw the rescue countdown, which outranks everything on the panel.
-    void renderRescue(Canvas& canvas, std::uint64_t remainingMillis) const;
+    /// The countdown shared by both hold gestures. `label` is what the hold
+    /// will do, because "RESET" and "SETUP" must not look alike on a panel
+    /// somebody is deciding whether to let go of.
+    void renderHoldCountdown(Canvas& canvas, const char* label,
+                             std::uint64_t remainingMillis,
+                             std::uint64_t holdMillis) const;
     void renderNotice(Canvas& canvas, std::uint64_t nowMillis) const;
 
     /// Draw one setting, label and value, filling the panel.
@@ -349,10 +382,17 @@ private:
     input::InputMapper mapper_;
     input::Navigator navigator_;
     input::Rescue rescue_;
+    input::SetupHold setupHold_;
+
+    /// One-shot, taken by takeSetupRequest().
+    bool setupRequested_ = false;
 
     /// Whole seconds last shown on the rescue countdown, or -1 when it is not
     /// running. Drives one redraw per second rather than one per frame.
     int lastRescueSecond_ = -1;
+
+    /// The same, for the setup-hold countdown.
+    int lastSetupSecond_ = -1;
 
     /// Whether settings were open on the previous tick, so the tick that closes
     /// them does not immediately bill the carousel for the time spent inside.
@@ -446,6 +486,9 @@ private:
     std::uint64_t firstTickMillis_ = 0;
     /// Built once at boot; rendering it per frame would allocate.
     std::string splashDetail_;
+
+    /// The address alone, for the splash second page lower line.
+    std::string splashAddress_;
 
     // Declared last: its context holds pointers to the members above, which must
     // already be constructed when it is built.

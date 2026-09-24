@@ -12,6 +12,7 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <time.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <cstdio>
@@ -400,6 +401,7 @@ void Tc002Dhcp::writeResolvConf(std::uint32_t dns) {
     // configuration page needs. So this is attempted and not insisted upon.
     const std::string line = "nameserver " + net::dhcp::formatIpv4(dns) + "\n";
     FILE* file = std::fopen("/etc/resolv.conf", "w");
+    const bool wroteEtc = file != nullptr;
     if (file == nullptr) {
         file = std::fopen("/tmp/resolv.conf", "w");
     }
@@ -408,6 +410,18 @@ void Tc002Dhcp::writeResolvConf(std::uint32_t dns) {
     }
     std::fwrite(line.data(), 1, line.size(), file);
     std::fclose(file);
+
+    // Note for whoever needs DNS here later: this file is the reason
+    // hostname resolution does not work on this device. The resolver only
+    // reads /etc/resolv.conf, that path is on the read-only rootfs, and it
+    // lists 114.114.114.114 first - a China-only service that does not answer
+    // from elsewhere, so getaddrinfo stalls rather than failing.
+    //
+    // A bind mount of /tmp/resolv.conf over it was tried and backed out: it
+    // is unproven, and writeResolvConf runs on every renewal, so it would
+    // stack a fresh mount each time. The clock sidesteps the whole problem by
+    // defaulting to a numeric NTP address (ClockSettings::ntpServer).
+    (void)wroteEtc;
 }
 
 bool Tc002Dhcp::applyLease(const net::dhcp::Lease& granted) {

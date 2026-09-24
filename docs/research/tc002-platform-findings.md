@@ -1515,3 +1515,166 @@ Unmounting restored the original, and a power cycle would have done the same.
 Any future change to the startup path should be tried this way before it is
 written to flash. See
 [ADR 0021](../adr/0021-notrix-as-the-startup-library.md).
+
+## The application owns the Wi-Fi, all of it (2026-09-24)
+
+Measured after a flashed NOTRIX booted with no network *and* no setup
+hotspot. Both symptoms have one cause, and it is not the one the earlier
+"there is no DHCP client on this device" section implies.
+
+**There is no `wlan0` until somebody loads the driver, and nobody does but the
+application.**
+
+```
+/lib/modules/4.9.84/aic8800_bsp.ko     74712 bytes
+/lib/modules/4.9.84/aic8800_fdrv.ko   310464 bytes
+```
+
+That directory holds the two modules and **nothing else** - no `modules.dep`,
+no `modules.alias`. Without an index the kernel cannot autoload them, so
+`request_module` and `modprobe` are both out. Nor does anything in userspace
+start them: `/etc/init.rc` has no `insmod` at all, `/bin/ssd_init.sh` loads
+only the display and audio modules (`mhal`, `mi_*`, `fbdev`), and
+`/bin/zkdaemon` does not mention them.
+
+`/lib/libzknet.so` does. It is the vendor's network HAL, and the stock
+application drives it:
+
+```
+'start to insmod %s'        'insmod args: %s'      'insmod %s failed!'
+'aic8800_bsp#aic8800_fdrv'  'aic_load_fw#aic8800_fdrv'
+'ifname=wlan0 if2name=p2p0'
+'ctl.start'  'ctl.stop'  'init.svc.wpa_supplicant'
+'/data/misc/wifi/wpa_supplicant.conf'
+```
+
+`libzkgui.so` itself only `insmod`s `aic_btusb.ko`, the Bluetooth driver; the
+Wi-Fi pair comes through this HAL. The `#`-separated strings are the load
+order - `bsp` first, then `fdrv`, which depends on it.
+
+`wpa_supplicant` is a service, and a deliberately inert one:
+
+```
+service wpa_supplicant /bin/wpa_supplicant -iwlan0 -Dnl80211 \
+    -c/data/misc/wifi/wpa_supplicant.conf -C/dev/socket/ \
+    -e/data/misc/wifi/entropy.bin
+    class main
+    disabled
+    oneshot
+```
+
+`disabled` means it never starts on its own. `ctl.start wpa_supplicant` is the
+only thing that starts it, and the HAL above is what sends it.
+
+### Confirmed by tearing it down and putting it back
+
+Not inferred. On a live device, with the vendor application stopped:
+
+```
+busybox rmmod aic8800_fdrv        rc=0
+busybox rmmod aic8800_bsp         rc=0
+ls /sys/class/net/                lo                <- no wlan0, no p2p0
+busybox insmod .../aic8800_bsp.ko  rc=0
+busybox insmod .../aic8800_fdrv.ko rc=0
+ls /sys/class/net/                lo  p2p0  wlan0
+/sbin/ifconfig wlan0 up           rc=0
+```
+
+The interface is **created by the module load**. Remove the driver and there
+is no `wlan0` to configure, to associate, or to hand to `hostapd` - which is
+why a NOTRIX that replaced the application had neither a network nor a setup
+hotspot. The hotspot was not failing to broadcast; it could not start, because
+its first step is `ifconfig wlan0 ...` on an interface that did not exist.
+
+### What NOTRIX has to do, and where
+
+`Tc002Hotspot::ensureRadio()` loads the pair if `/sys/class/net/wlan0` is
+absent, building the path from `uname()` rather than hard-coding `4.9.84`.
+`ensureStation()` then brings the interface up and sends `ctl.start
+wpa_supplicant`. Both are idempotent and both are cheap when the work is
+already done, because during development the stock application has usually
+done it already - which is exactly how this went unnoticed for so long.
+
+### Why it was missed
+
+The startup hook was proven by bind-mounting a modified `EasyUI.cfg` over the
+read-only one. A bind mount does not survive a reboot, so that test ran on a
+system where the stock application had already loaded the driver, brought up
+the interface and started the supplicant. **The test inherited the very thing
+it should have been checking for**, and the lease it observed was real but
+told us nothing about a cold boot.
+
+The general lesson is worth more than the specific bug: a test that reuses a
+running system's state cannot tell you what happens without it.
+
+## zkdaemon will delete NOTRIX if NOTRIX does not announce itself (2026-09-24)
+
+The most consequential thing on this device, and the explanation for a revert
+that had been blamed on a stale upgrade flag.
+
+`/bin/zkdaemon` is 13 KB, runs as a `oneshot` service in `class main`, and is
+not a daemon in the usual sense. It is the recovery mechanism. Its strings,
+in full for the part that matters:
+
+```
+'/sys/class/gpio/gpio%d/value'      'gpio%d is not exist, need to export.'
+'[D][zkdaemon] Start key monitor loop'
+'[D][zkdaemon] Key pressed confirmed'
+'[D][zkdaemon] Key long press %dms detected, trigger recovery'
+'setprop ctl.stop zkswe'            'rm -rf /data/*'
+'[D][zkdaemon] Key released early (%dms), ignore'
+
+'sys.zkapp.state'    'running'      'ZK_APPCHECK_DELAY'
+'[D][zkdaemon] app state: %s'
+'[D][zkdaemon] Auto recovery triggered'
+
+'persist.zkupgrade.dir'  '/mnt/storage'  '%s/update.img'
+'/bin/zkupgradebin'      'sys.zkupgrade.flag'   'ctl.restart'
+```
+
+Two paths into the same recovery. One is the reset button, read straight off
+GPIO. **The other needs no button at all**: it reads the property
+`sys.zkapp.state`, waits `ZK_APPCHECK_DELAY`, and if the application has not
+declared itself `running`, triggers *auto recovery* - `rm -rf /data/*` and a
+reinstall from `/mnt/storage/update.img`.
+
+`libzkgui.so` carries the string `sys.zkapp.state`; `libzknet.so` does not.
+**The stock application sets it, and nothing else does.**
+
+### What that meant for the first flashed build
+
+NOTRIX replaced the application and never set the property, so:
+
+1. NOTRIX flashed, booted, and ran - the shim and the panel both worked.
+2. `zkdaemon` waited, saw no `running`, and called it a failed application.
+3. `rm -rf /data/*` deleted **`/data/notrix/libnotrix.so`** and
+   **`/data/misc/wifi/wpa_supplicant.conf`** in the same sweep.
+4. It reinstalled `/mnt/storage/update.img` - which at the time held the
+   *stock* image, staged there as a safety net.
+5. The device came back on stock **with no Wi-Fi credentials**.
+
+Every observed symptom falls out of that: the unexplained progress bar, the
+revert, and the detail that had refused to reconcile - why *stock* also came
+up without Wi-Fi, when `/data` had obviously survived well enough to keep
+`libnotrix.so` from an earlier test. It had not survived. It had been emptied
+and partly rewritten.
+
+It also reframes the earlier lockout. That was attributed to holding the reset
+button wiping `/data`; the button certainly does that, but auto recovery
+reaches the same `rm -rf /data/*` with nobody touching anything.
+
+### What NOTRIX has to do
+
+`Tc002Platform::announceRunning()` sends `setprop sys.zkapp.state running`,
+and `notrixMain` calls it **before opening the panel, the MCU or the
+network** - none of which are worth losing NOTRIX over if they are slow or
+fail.
+
+### The consequence for staging an image
+
+An image at `/mnt/storage/update.img` is not passive. It is what *both*
+recovery paths install, one of which can fire on its own. Staging a stock
+image there as a safety net is therefore a way of arming an automatic revert,
+which is exactly what it did. The guidance in `docs/recovery.md` - remove the
+stick, keep the volume empty - is now backed by the mechanism rather than by
+one bad night.

@@ -10,10 +10,14 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
 #include <cstdio>
+#include <algorithm>
+#include <functional>
+#include <vector>
 #include <cstring>
 #include <string>
 #include <utility>
@@ -26,6 +30,31 @@ namespace notrix {
 namespace platform {
 namespace tc002 {
 namespace {
+
+/// Run a command to completion, saying nothing.
+///
+/// Deliberately not `system()`: this process owns the panel, and a shell
+/// inheriting its stdout would put vendor chatter into the log the web UI
+/// shows.
+void runQuietly(const char* const argv[]) {
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+        return;
+    }
+    if (pid == 0) {
+        const int null = ::open("/dev/null", O_RDWR);
+        if (null >= 0) {
+            ::dup2(null, STDOUT_FILENO);
+            ::dup2(null, STDERR_FILENO);
+            if (null > STDERR_FILENO) {
+                ::close(null);
+            }
+        }
+        ::execv(argv[0], const_cast<char* const*>(argv));
+        ::_exit(127);
+    }
+    ::waitpid(pid, nullptr, 0);
+}
 
 /// Same source as Tc002Input's timestamps, and it has to stay that way:
 /// InputMapper subtracts one from the other to get press duration, and two
@@ -492,6 +521,23 @@ bool Tc002Network::beginJoin(const std::string& ssid, const std::string& passwor
 }
 
 bool Tc002Network::configureNetwork() {
+    // Replace this SSID rather than adding another copy of it.
+    //
+    // Without this, every trip through setup appended a block and
+    // SAVE_CONFIG wrote them all. A device provisioned a few times ended up
+    // with three blocks for one network, two marked `disabled=1` - seen on
+    // hardware. That grows without bound, which the project rules forbid, and
+    // it is one bad save away from a device that boots with every copy of its
+    // network disabled and no way back except the knob.
+    //
+    // Removed highest-first: wpa_supplicant renumbers the ids above one that
+    // goes away, so descending order keeps the rest of the list valid.
+    std::vector<int> stale = wpa::networkIdsForSsid(control_.ask("LIST_NETWORKS"), joinSsid_);
+    std::sort(stale.begin(), stale.end(), std::greater<int>());
+    for (const int old : stale) {
+        control_.ask("REMOVE_NETWORK " + std::to_string(old));
+    }
+
     const int id = wpa::parseNetworkId(control_.ask("ADD_NETWORK"));
     if (id < 0) {
         return false;
@@ -651,6 +697,11 @@ void Tc002Platform::close() noexcept {
     mcu_.close();
     input_.close();
     display_.close();
+}
+
+void Tc002Platform::announceRunning() const {
+    const char* const argv[] = {"/bin/setprop", "sys.zkapp.state", "running", nullptr};
+    runQuietly(argv);
 }
 
 }  // namespace tc002

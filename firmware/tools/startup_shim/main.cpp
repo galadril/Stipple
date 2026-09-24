@@ -37,10 +37,30 @@
 
 namespace {
 
-/// Where NOTRIX lives. `/data` is the only writable persistent filesystem on
-/// this device, which is what lets a release be a file copy rather than a
-/// flash (ADR 0021).
-constexpr const char* kNotrix = "/data/notrix/libnotrix.so";
+/// Tried in order, first one that loads wins.
+///
+/// 1. **An override in /data.** This is how a NOTRIX update lands without
+///    flashing, and - more importantly - how it is rolled back: delete one
+///    file and the device returns to the version that was flashed with it.
+///
+/// 2. **The copy flashed beside this shim.** Known-good, because it shipped
+///    as one image with the shim that loads it, and read-only, because /res
+///    is squashfs. A device can always reach this.
+///
+/// 3. Neither, and the stock clock runs.
+///
+/// **Note what is deliberately absent: `/data/notrix/libnotrix.so`.** An
+/// earlier design loaded exactly that and nothing else, which meant a stale
+/// copy in /data silently shadowed a freshly flashed one - a correct image
+/// would be flashed and then load the old broken code out of /data, with
+/// nothing on the panel to say so. Seen on hardware, twice, and diagnosed
+/// as a bad flash both times. The override path is spelled differently so
+/// that cannot happen by accident: an override is something somebody put
+/// there on purpose.
+constexpr const char* kCandidates[] = {
+    "/data/notrix/libnotrix.so.override",
+    "/res/lib/libnotrix.so",
+};
 
 /// Kept on flash rather than in /tmp, because the one time anybody reads
 /// this is after a boot that went wrong - and /tmp does not survive the
@@ -64,29 +84,33 @@ void note(const char* what, const char* detail) {
 /// Runs when the framework `dlopen`s this library, before it can look up a
 /// single symbol.
 __attribute__((constructor)) static void chooseApplication() {
-    // RTLD_GLOBAL so anything NOTRIX itself loads can resolve against it,
-    // and RTLD_NOW so a NOTRIX with an unresolved symbol fails *here* -
-    // where there is still a stock clock to fall back to - rather than
-    // half-way through running.
-    void* notrix = ::dlopen(kNotrix, RTLD_NOW | RTLD_GLOBAL);
+    for (const char* const candidate : kCandidates) {
+        // RTLD_GLOBAL so anything NOTRIX itself loads can resolve against
+        // it, and RTLD_NOW so a NOTRIX with an unresolved symbol fails
+        // *here* - where there is still a next candidate, and a stock clock
+        // behind that - rather than half-way through running.
+        void* notrix = ::dlopen(candidate, RTLD_NOW | RTLD_GLOBAL);
+        if (notrix != nullptr) {
+            // Unreachable in practice: NOTRIX takes the process in its own
+            // constructor and does not come back. Reaching here means it
+            // loaded and declined to start, which is worth recording and
+            // worth carrying on from.
+            note("loaded but returned, trying the next", candidate);
+            continue;
+        }
 
-    if (notrix != nullptr) {
-        // Unreachable in practice. NOTRIX takes the process in its own
-        // constructor and does not come back, so returning here means it
-        // loaded and then declined to start - worth recording, and worth
-        // falling through to the vendor application rather than leaving the
-        // device with nothing.
-        note("notrix loaded but returned; falling back to the stock clock", nullptr);
-        return;
+        // Only interesting for the override, and only worth a line when
+        // somebody actually put one there. "No override present" is the
+        // ordinary case and would be noise on every single boot.
+        const char* why = ::dlerror();
+        if (candidate != kCandidates[0]) {
+            note("could not load", why);
+        }
     }
 
-    // The interesting path. dlerror() says whether the file is missing, the
-    // architecture is wrong, or a symbol did not resolve - all of which look
-    // identical from the outside and are not.
-    const char* why = ::dlerror();
-    note("no notrix, starting the stock clock", why);
-
-    // Nothing else to do. The framework will dlsym this handle and find the
+    // Nothing loaded. The framework will dlsym this handle and find the
     // vendor application's entry points through the DT_NEEDED link, exactly
-    // as if it had opened libzkgui.so itself.
+    // as if it had opened libzkgui.so itself - so the device is a working
+    // clock on the network rather than a device nobody can reach.
+    note("no notrix, starting the stock clock", nullptr);
 }

@@ -183,6 +183,27 @@ struct ClockSettings {
     /// stored. Nothing should have to be re-entered to keep working.
     int utcOffsetSeconds = 0;
 
+    /// Where to ask what time it is. A hostname or a dotted quad; empty
+    /// turns synchronisation off.
+    ///
+    /// This device has no RTC battery, so it boots at 1970 every time and
+    /// this is the only thing between a cold boot and a clock that shows
+    /// `__:__` for ever. Configurable because a network that blocks outbound
+    /// NTP, or one with its own server, is ordinary rather than exotic.
+    /// Numeric on purpose, and this is not a stylistic choice.
+    ///
+    /// DNS does not work on a stock TC002: the resolver reads only
+    /// /etc/resolv.conf, that file is on the read-only rootfs, and it lists
+    /// 114.114.114.114 first - a China-only service that does not answer from
+    /// elsewhere, so getaddrinfo stalls instead of failing over. Measured:
+    /// resolving pool.ntp.org never returned and the clock stayed at 1970;
+    /// the same code pointed at this address set it in under eight seconds.
+    ///
+    /// 162.159.200.1 is time.cloudflare.com's anycast address, so it is close
+    /// to wherever the device is. A hostname still works if DNS does, and
+    /// empty turns synchronisation off entirely.
+    std::string ntpServer = "162.159.200.1";
+
     /// A POSIX TZ rule, e.g. "CET-1CEST,M3.5.0,M10.5.0/3".
     ///
     /// When set and parseable this wins, and the clock follows daylight saving

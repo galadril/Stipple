@@ -147,6 +147,16 @@ int notrixMain(int argc, char** argv) {
     std::signal(SIGHUP, SIG_IGN);
 
     notrix::platform::tc002::Tc002Platform platform;
+
+    // First, and before anything that can fail.
+    //
+    // /bin/zkdaemon is counting, and if it reaches ZK_APPCHECK_DELAY without
+    // seeing sys.zkapp.state become "running" it wipes /data and reinstalls
+    // whatever image is staged. Opening the panel, the MCU and the network
+    // all happen after this line precisely because none of them are worth
+    // losing NOTRIX and the Wi-Fi credentials over.
+    platform.announceRunning();
+
     if (!platform.open()) {
         std::fprintf(stderr,
                      "platform unavailable - is zkgui still running, or /data "
@@ -211,6 +221,12 @@ int notrixMain(int argc, char** argv) {
     } else {
         std::printf("  battery     : unavailable (MCU link not open)\n");
     }
+    // Before asking for a lease, make sure there is an association to ask
+    // over. Nothing else on this device starts the supplicant once the vendor
+    // application is out of the picture.
+    platform.hotspot().ensureStation();
+    std::printf("  station     : wpa_supplicant asked to start\n");
+
     if (wantDhcp) {
         platform.dhcp().setObserveOnly(observeDhcp);
         const bool started =
@@ -264,6 +280,50 @@ int notrixMain(int argc, char** argv) {
     // implementation dropped it by gating on first run.
     constexpr std::uint64_t kLostNetworkMillis = 300000;
 
+    // And a third, for the case the other two missed.
+    //
+    // A configured device that has *never* associated since it booted is not
+    // riding out a blip - its stored network is gone, or its password is
+    // wrong, or it has been carried somewhere else. Waiting five minutes for
+    // that produces a clock that sits there doing nothing while its owner
+    // concludes it is broken, which is what happened on hardware: the
+    // automatic hotspot was technically working and nobody ever saw it,
+    // because reaching for the knob took less than five minutes.
+    //
+    // Long enough for a cold boot to associate and get a lease - ten to
+    // twenty seconds is typical here, so this is several times over - and
+    // short enough to still feel like the device noticed.
+    constexpr std::uint64_t kNeverJoinedMillis = 60000;
+
+    /// A failed start is retried rather than given up on.
+    constexpr std::uint64_t kHotspotRetryMillis = 30000;
+    std::uint64_t hotspotRetryAtMillis = 0;
+
+    /// A knob request, held until a hotspot actually starts.
+    ///
+    /// takeSetupRequest() is one-shot, and the start now waits for a scan, so
+    /// without this the request would be consumed on the tick it arrived and
+    /// forgotten before anything happened.
+    bool knobPending = false;
+
+    /// Whether this boot has ever had an address. Distinguishes "the network
+    /// went away" from "it was never there", which want different patience.
+    bool everBound = false;
+
+    /// The server currently being asked. Compared against settings each tick
+    /// so a change in the web UI takes effect without a reboot.
+    std::string sntpServer;
+
+    /// Scanning before the radio changes job.
+    ///
+    /// One radio cannot be an access point and a station at once, so starting
+    /// the hotspot stops wpa_supplicant - and scanning needs wpa_supplicant.
+    /// Ask first, and the setup page can offer a list of networks instead of
+    /// an empty box and an apology. Reported from hardware, where the page
+    /// said it could not scan and the only option was to type an SSID.
+    constexpr std::uint64_t kHotspotScanGraceMillis = 4000;
+    bool hotspotScanRequested = false;
+    std::uint64_t hotspotScanStartedAt = 0;
     bool hotspotStarted = false;
     bool hotspotShowing = false;
 
@@ -332,6 +392,16 @@ int notrixMain(int argc, char** argv) {
         // The last one is what a new owner meets: an unconfigured clock that
         // cannot reach a network has no other way to explain itself, and
         // waiting for somebody to guess is not a plan.
+        // Asked for at the device, by somebody holding the knob. Taken every
+        // tick because it is one-shot, and it clears the latch because a
+        // deliberate request has to work on a device that already hosted once
+        // and reverted.
+        if (host.takeSetupRequest()) {
+            knobPending = true;
+            hotspotStarted = false;
+            hotspotRetryAtMillis = 0;
+        }
+
         const bool askedByFlag =
             hotspotAfter >= 0 &&
             now >= started + static_cast<std::uint64_t>(hotspotAfter) * 1000u;
@@ -346,8 +416,13 @@ int notrixMain(int argc, char** argv) {
         // every boot from then on - seen on hardware, where it looked like a
         // crash. If an address turns up, the device is reachable and setup
         // mode has nothing left to do.
+        if (platform.dhcp().bound()) {
+            everBound = true;
+        }
+
         const std::uint64_t patience =
-            host.firstRun() ? kNeverConfiguredMillis : kLostNetworkMillis;
+            host.firstRun() ? kNeverConfiguredMillis
+                            : (everBound ? kLostNetworkMillis : kNeverJoinedMillis);
         const bool unreachable =
             !platform.dhcp().bound() && now >= started + patience;
 
@@ -359,8 +434,35 @@ int notrixMain(int argc, char** argv) {
         // new one. It was unreachable forever by design.
         const bool nowhereToGo = unreachable;
 
-        if (!hotspotStarted && (askedByFlag || askedByRescue || nowhereToGo)) {
-            hotspotStarted = true;
+        const bool wantHotspot = !hotspotStarted && now >= hotspotRetryAtMillis &&
+                                 (askedByFlag || askedByRescue || nowhereToGo || knobPending);
+
+        // Ask the supplicant what it can see, while it still can.
+        if (wantHotspot && !hotspotScanRequested) {
+            hotspotScanRequested = true;
+            hotspotScanStartedAt = now;
+            if (platform.wifi().canScan() && platform.wifi().beginScan()) {
+                host.logger().info(now, "setup mode: scanning before the radio changes job");
+            }
+        }
+
+        // Bounded, because the hotspot matters more than the list. A device
+        // nobody can reach is the problem being solved; a scan that never
+        // comes back must not become a second way to be unreachable.
+        const bool scanSettled = !hotspotScanRequested ||
+                                 !platform.wifi().networks().empty() ||
+                                 now >= hotspotScanStartedAt + kHotspotScanGraceMillis;
+
+        if (wantHotspot && scanSettled) {
+            // The latch goes on *success*, not on the attempt.
+            //
+            // It used to be set here, before start() was called, so a single
+            // failure - an interface that is not up yet, a hostapd that will
+            // not spawn - meant the device never tried again and stayed
+            // unreachable for the rest of its uptime. That is the worst
+            // possible thing for the one feature whose entire job is to
+            // rescue an unreachable device.
+            hotspotRetryAtMillis = now + kHotspotRetryMillis;
             if (nowhereToGo && !askedByFlag && !askedByRescue) {
                 host.logger().info(now, host.firstRun()
                                             ? "nothing configured and no network; hosting"
@@ -371,6 +473,9 @@ int notrixMain(int argc, char** argv) {
                     static_cast<std::uint64_t>(hotspotSeconds) * 1000u);
             }
             if (platform.hotspot().start("NOTRIX-setup", now)) {
+                hotspotStarted = true;
+                knobPending = false;
+                hotspotScanRequested = false;
                 hotspotShowing = true;
                 // Said on the panel before anything else, because the panel
                 // is the only channel left once the radio changes job.
@@ -404,6 +509,21 @@ int notrixMain(int argc, char** argv) {
             std::printf("  %s\n", hotspotEvent.c_str());
             std::fflush(stdout);
         }
+        // The clock, which nothing else on this device sets.
+        //
+        // Started only once there is an address, and re-armed whenever the
+        // configured server changes, so editing it in the web UI takes effect
+        // without a reboot.
+        if (platform.dhcp().bound() && sntpServer != host.settings().clock.ntpServer) {
+            sntpServer = host.settings().clock.ntpServer;
+            platform.sntp().begin(sntpServer);
+        }
+        platform.sntp().tick(now, platform.dhcp().bound());
+        const std::string timeEvent = platform.sntp().takeEvent();
+        if (!timeEvent.empty()) {
+            host.logger().info(now, timeEvent);
+        }
+
         const std::string leaseEvent = platform.dhcp().takeEvent();
         if (!leaseEvent.empty()) {
             host.logger().info(now, leaseEvent);

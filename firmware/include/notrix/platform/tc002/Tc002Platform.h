@@ -8,6 +8,7 @@
 
 #include "notrix/platform/PlatformServices.h"
 #include "notrix/platform/tc002/Tc002Dhcp.h"
+#include "notrix/platform/tc002/Tc002Sntp.h"
 #include "notrix/platform/tc002/Tc002Hotspot.h"
 #include "notrix/platform/tc002/Tc002Upgrade.h"
 #include "notrix/platform/tc002/Tc002Display.h"
@@ -198,6 +199,27 @@ private:
 /// wrong answer.
 class Tc002Platform final : public IPlatformServices {
 public:
+    /// Tell the vendor's recovery daemon that the application is alive.
+    ///
+    /// `/bin/zkdaemon` polls the property `sys.zkapp.state` and, if it has
+    /// not become "running" within `ZK_APPCHECK_DELAY`, does what its own
+    /// strings call auto recovery:
+    ///
+    ///     '[D][zkdaemon] Auto recovery triggered'
+    ///     'setprop ctl.stop zkswe'    'rm -rf /data/*'
+    ///     '/mnt/storage'  '%s/update.img'  '/bin/zkupgradebin'
+    ///
+    /// The stock application sets the property - `libzkgui.so` carries the
+    /// string, `zkdaemon` carries the check. **NOTRIX replaces that
+    /// application, so without this the device deletes NOTRIX, deletes the
+    /// Wi-Fi credentials sitting beside it in /data, and reinstalls whatever
+    /// image happens to be staged.**
+    ///
+    /// That is not hypothetical. It is what happened to the first flashed
+    /// build, and from the outside it looked like a mysterious revert with a
+    /// progress bar - see docs/research/tc002-platform-findings.md.
+    void announceRunning() const;
+
     /// Points the read-only network view at the lease. A fact about how this
     /// object is assembled, not about whether any device opened, so it
     /// belongs here rather than in open().
@@ -287,6 +309,9 @@ public:
     /// allowed to ask for, not how the adapter keeps its promises.
     Tc002Network& wifi() noexcept { return network_; }
 
+    /// The time source. Nothing else on this device sets the clock.
+    Tc002Sntp& sntp() noexcept { return sntp_; }
+
 private:
     Tc002Display display_;
     Tc002Input input_;
@@ -298,6 +323,7 @@ private:
     Tc002MqttClient mqtt_;
     Tc002HttpServer http_;
     Tc002Dhcp dhcp_;
+    Tc002Sntp sntp_;
     Tc002Hotspot hotspot_;
     Tc002Upgrade upgrade_;
 };
