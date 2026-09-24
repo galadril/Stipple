@@ -127,6 +127,19 @@ if(NOTRIX_DEVICE_BUILD)
 
     target_link_libraries(notrix_platform_tc002 PUBLIC notrix_core notrix_warnings ${CMAKE_DL_LIBS})
 
+    # PUBLIC, so it reaches everything that links this library.
+    #
+    # Tc002Sntp resolves a hostname on a worker thread, so the whole platform
+    # adapter now needs pthread - and at the glibc this device runs,
+    # pthread_create still lives in libpthread rather than libc. It was first
+    # added to notrix_startup alone, which linked fine and then failed on CI
+    # at notrix_device: same library, different consumer, no -pthread.
+    #
+    # Putting it on the library rather than on each of the five targets that
+    # link it means the next tool to be added cannot miss it.
+    target_compile_options(notrix_platform_tc002 PUBLIC -pthread)
+    target_link_options(notrix_platform_tc002 PUBLIC -pthread)
+
     add_library(notrix::platform_tc002 ALIAS notrix_platform_tc002)
 endif()
 
@@ -256,17 +269,11 @@ if(NOTRIX_DEVICE_BUILD)
         -static-libstdc++
         -static-libgcc)
 
-    # Threads, explicitly, and it is not optional.
-    #
-    # The SNTP client resolves a hostname on a worker so a slow or dead
-    # nameserver cannot stall the panel. At the glibc this device runs,
-    # pthread_create still lives in libpthread rather than libc, and
-    # libstdc++ reaches it through *weak* symbols - so without -pthread the
-    # link succeeds, the binary loads, and std::thread fails at runtime
-    # instead. Which is exactly what it did: the clock stayed at 1970 with no
-    # error anywhere, because the failure was a thread that never ran.
-    target_compile_options(notrix_startup PRIVATE -pthread)
-    target_link_options(notrix_startup PRIVATE -pthread)
+    # -pthread comes from notrix_platform_tc002, which needs it for the SNTP
+    # resolver thread and declares it PUBLIC. Worth knowing why it matters
+    # here: libstdc++ reaches pthread through *weak* symbols, so without it
+    # the link succeeds, the library loads, and std::thread fails at runtime.
+    # The clock stayed at 1970 with no error anywhere.
 
     # Dynamic, because the speaker is only reachable through a vendor library.
     #
