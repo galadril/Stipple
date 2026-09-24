@@ -377,3 +377,28 @@ should fall back to `/res/lib/libzkgui.so`.** The framework already logs the
 `dlerror` and carries on; it simply carries on with nothing. A `res` image
 that pointed at a small shim which loads NOTRIX if present and the vendor
 application otherwise would have made all of this a non-event.
+
+## Update: the second gate is met
+
+A restore has now been **demonstrated**, not designed. The device that this
+ADR's post-mortem describes was brought back to stock from the exact state
+that needed it — no application, no network, no USB gadget — using a USB
+stick and the vendor's own loader. Confirmed afterwards over ADB:
+`startupLibPath` back to `/res/lib/libzkgui.so`, `/bin/zkgui` running,
+`/data` wiped.
+
+The procedure is in [`docs/recovery.md`](../recovery.md). The part worth
+repeating here is the one nothing in the binaries revealed: the loader
+ignores external media unless a **`zkautoupgrade`** file sits beside the
+image. One byte, ASCII `0`. An attempt with four plausible image filenames
+and no sentinel did nothing whatsoever.
+
+**So both gates are now satisfied** — a verified restore image captured from
+the device, and a restore path somebody has actually walked. Flashing is no
+longer blocked by this ADR.
+
+It should still not happen without the fallback shim in
+[ADR 0021](0021-notrix-as-the-startup-library.md). The gates were about
+being able to recover; the shim is about not needing to. Both matter, and
+this ADR is the wrong place to relax the second one having just spent a day
+proving the first.

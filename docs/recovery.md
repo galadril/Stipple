@@ -66,6 +66,59 @@ Or just power cycle.
 
 ---
 
+## USB stick recovery — the one that works
+
+**Proven on hardware.** A device stuck at the Ulanzi logo with no
+application, no network and no USB gadget was brought back to stock with
+this. It is the procedure Ulanzi support provides, and the part nobody can
+guess from the binaries is the sentinel file.
+
+### What you need
+
+- A **plain USB flash drive** — not a card reader. Readers present as
+  removable media with an empty-slot state and sometimes several LUNs, and
+  the device's `vold` did not mount one.
+- **FAT32 with 4 KB clusters.** Windows defaults a 32 GB volume to 16 KB,
+  which is what a failed attempt used. Force it:
+  `format D: /FS:FAT32 /A:4096 /Q`
+- Two files in the root, and nothing else:
+
+```
+update.img       the firmware image  (dev.ps1 capture makes one for your unit)
+zkautoupgrade    a single ASCII '0'  (one byte, no extension)
+```
+
+`zkautoupgrade` is the piece that matters. Without it the loader ignores
+external media entirely — an attempt with `update.img`, `extupdate.img`,
+`full_update.zk` and `zkimg/update.img` but no sentinel did nothing at all.
+Its content is one byte, `0x30`.
+
+### The procedure
+
+1. Power the clock **from the base pins**, not USB — the USB-C port has to
+   stay free.
+2. Switch it on.
+3. **Then** insert the stick into the left USB-C port.
+4. Wait. It restarts and reflashes on its own.
+5. **Remove the stick** when the Ulanzi logo appears.
+
+That last step is not optional housekeeping. An image the loader can still
+find on the next boot is how a device ends up reflashing forever — which is
+exactly what a staged `update.img` on internal storage did.
+
+### What it does
+
+A full `res` reflash **and** a `/data` wipe. Stock application, stock
+configuration, and anything in `/data` — including NOTRIX and its settings —
+is gone. That is a restore, not a repair.
+
+### Honest note on what was tested
+
+Two variables changed between the attempt that failed and the one that
+worked: a card reader became a plain stick, and 16 KB clusters became 4 KB.
+Either could have been the cause; both were fixed at once. If you only have a
+card reader, reformatting at 4 KB is worth trying before buying anything.
+
 ## If the device boots but shows no application
 
 The panel lights up, maybe shows the vendor logo, and nothing else happens.
