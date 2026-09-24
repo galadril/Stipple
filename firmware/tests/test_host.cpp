@@ -3,8 +3,14 @@
 
 #include <string>
 
+#include "notrix/apps/VisualizerApp.h"
 #include "notrix/asset/IconStore.h"
+#include "notrix/graphics/Canvas.h"
+#include "notrix/time/Timezone.h"
+#include "notrix/input/Navigator.h"
+#include "notrix/input/Rescue.h"
 #include "notrix/platform/simulator/SimulatorPlatform.h"
+#include "notrix/core/Base64.h"
 #include "support/TestFramework.h"
 
 using notrix::Framebuffer;
@@ -48,6 +54,26 @@ void run(ApplicationHost& host, SimulatorPlatform& platform, std::uint64_t until
         platform.simulatedClock().advance(static_cast<std::uint64_t>(stepMillis));
         now = platform.simulatedClock().monotonicMillis();
     }
+}
+
+/// Hold the knob, which is the way into settings and back out (ADR 0017).
+void holdKnob(ApplicationHost& host, SimulatorPlatform& platform, std::uint64_t atMillis) {
+    platform.simulatedInput().pressAndRelease(RawInput::RotaryPress, atMillis, 900);
+    host.tick(atMillis + 1000);
+}
+
+/// Turn the knob until the named setting is selected, or give up rather than
+/// spin forever if it is not reachable.
+bool selectSetting(ApplicationHost& host, SimulatorPlatform& platform,
+                   notrix::input::SettingSlot slot, std::uint64_t atMillis) {
+    for (int i = 0; i < 8; ++i) {
+        if (host.navigator().current() == slot) {
+            return true;
+        }
+        platform.simulatedInput().rotate(true, atMillis + static_cast<std::uint64_t>(i) * 200u);
+        host.tick(atMillis + static_cast<std::uint64_t>(i) * 200u + 100u);
+    }
+    return host.navigator().current() == slot;
 }
 
 bool logContains(const ApplicationHost& host, const char* fragment) {
@@ -253,56 +279,149 @@ NOTRIX_TEST(Host, TimeKeepsRunningWhileTheDisplayIsOff) {
 
 // --- volume and brightness from the buttons ----------------------------------
 
-NOTRIX_TEST(Host, TappingPlusAndMinusChangesVolume) {
-    SimulatorPlatform platform;
+NOTRIX_TEST(Host, TappingPlusAndMinusChangesVolumeWhereThereIsASpeaker) {
+    // These used to tap volume on hardware reporting no audio output, so they
+    // did nothing whatsoever. Volume is back on them now that there is a
+    // speaker behind it, which is where it belongs on a device that makes
+    // noise: brightness is set once, volume is reached for.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
     ApplicationHost host(platform, quietConfig());
     host.initialize();
 
-    const int start = static_cast<int>(host.settings().audio.volumePercent);
+    const int begin = static_cast<int>(host.settings().audio.volumePercent);
     const int step = host.inputMapper().config().volumeStepPercent;
 
     platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
     host.tick(200);
-    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), start + step);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), begin + step);
 
     platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 300, 50);
     host.tick(400);
-    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), start);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), begin);
 }
 
-NOTRIX_TEST(Host, VolumeReachesTheSpeaker) {
-    SimulatorPlatform platform;
+NOTRIX_TEST(Host, WithNoSpeakerTheSameTapReachesBrightnessInstead) {
+    // The buttons must not go dead again on hardware without audio. The
+    // control still means "adjust the thing"; what the thing is depends on
+    // what the device can actually do.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = false;
+    SimulatorPlatform platform(capabilities);
     ApplicationHost host(platform, quietConfig());
-    host.settings().audio.volumePercent = 100;
-    host.initialize();  // re-reads config, so set it again below
+    host.initialize();
 
-    host.settings().audio.volumePercent = 40;
+    const int begin = static_cast<int>(host.settings().display.brightness);
+    const int step = host.inputMapper().config().brightnessStep;
+
     platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 50);
     host.tick(200);
-
-    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedAudio().volume()),
-                    static_cast<int>(notrix::config::volumeToByte(45)));
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), begin + step);
 }
 
-NOTRIX_TEST(Host, VolumeStopsAtTheEnds) {
-    // Holding a button against the end of the range must not wrap around.
+NOTRIX_TEST(Host, HoldingPlusReachesBrightnessWithoutTouchingVolume) {
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    const int begin = static_cast<int>(host.settings().display.brightness);
+    const int volumeBefore = static_cast<int>(host.settings().audio.volumePercent);
+    const int step = host.inputMapper().config().brightnessStep;
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 900);
+    host.tick(1200);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), begin + step);
+    // And holding must not also move the thing a tap would have moved.
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), volumeBefore);
+}
+NOTRIX_TEST(Host, BrightnessFromTheButtonsReachesThePanel) {
+    // Changing the stored setting without telling the display would look
+    // exactly like a working control and do nothing at all.
     SimulatorPlatform platform;
     ApplicationHost host(platform, quietConfig());
     host.initialize();
 
+    // Held, because a tap reaches volume on a platform with a speaker.
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 100, 900);
+    host.tick(1200);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()),
+                    static_cast<int>(host.settings().display.brightness));
+}
+
+NOTRIX_TEST(Host, VolumeReachesTheSpeakerThroughSettings) {
+    // Volume is no longer on a button; it lives in settings, where a device
+    // with no speaker can decline to offer it at all. The plumbing still has to
+    // work, so this drives the real path: hold the knob, turn to VOL, press +.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().audio.volumePercent = 40;
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+    NOTRIX_REQUIRE(selectSetting(host, platform, notrix::input::SettingSlot::Volume, 2000));
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 4000, 50);
+    host.tick(4100);
+
+    const int step = host.inputMapper().config().volumeStepPercent;
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 40 + step);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedAudio().volume()),
+                    static_cast<int>(notrix::config::volumeToByte(
+                        static_cast<std::uint8_t>(40 + step))));
+}
+
+NOTRIX_TEST(Host, ADeviceWithNoSpeakerDoesNotOfferVolume) {
+    // ADR 0013 on a panel this size: the honest way to show an absent
+    // capability is not to offer the control, rather than to offer one that
+    // silently does nothing. This is the defect that put volume on the buttons
+    // and left them dead.
+    // The simulator claims audio by default, which is how the old dead
+    // bindings survived: every test that pressed those buttons had a speaker,
+    // and the device does not.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = false;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+
+    NOTRIX_CHECK_FALSE(host.navigator().available(notrix::input::SettingSlot::Volume));
+    NOTRIX_CHECK_FALSE(selectSetting(host, platform, notrix::input::SettingSlot::Volume, 2000));
+}
+
+NOTRIX_TEST(Host, BrightnessStopsAtTheEnds) {
+    // Holding a button against the end of the range must not wrap around: a
+    // panel that goes from fully dark to fully bright on one more press reads
+    // as a fault.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    // Held throughout: a tap reaches volume where there is a speaker.
     for (int i = 0; i < 40; ++i) {
-        platform.simulatedInput().pressAndRelease(
-            RawInput::KeyMinus, static_cast<std::uint64_t>(i) * 100u + 100u, 50);
-        host.tick(static_cast<std::uint64_t>(i) * 100u + 180u);
+        const std::uint64_t at = static_cast<std::uint64_t>(i) * 1000u + 100u;
+        platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, at, 900);
+        host.tick(at + 950);
     }
-    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 0);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), 0);
 
     for (int i = 0; i < 40; ++i) {
-        platform.simulatedInput().pressAndRelease(
-            RawInput::KeyPlus, 10000u + static_cast<std::uint64_t>(i) * 100u, 50);
-        host.tick(10000u + static_cast<std::uint64_t>(i) * 100u + 80u);
+        const std::uint64_t at = 60000u + static_cast<std::uint64_t>(i) * 1000u;
+        platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, at, 900);
+        host.tick(at + 950);
     }
-    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 100);
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), 255);
 }
 
 NOTRIX_TEST(Host, HoldingPlusAndMinusChangesBrightness) {
@@ -713,6 +832,98 @@ NOTRIX_TEST(Host, ServesTheApi) {
     NOTRIX_CHECK(response.body.find("clock") != std::string::npos);
 }
 
+namespace {
+
+/// The header a browser or curl would send.
+std::string basicHeader(const std::string& user, const std::string& password) {
+    const std::string joined = user + ":" + password;
+    return "Basic " + notrix::base64::encode(
+                          reinterpret_cast<const std::uint8_t*>(joined.data()), joined.size());
+}
+
+}  // namespace
+
+NOTRIX_TEST(Host, ServesEverythingWhenNoPasswordIsSet) {
+    // Off by default. A device that demanded a password before it would show
+    // a clock would be a worse first five minutes than the risk it removes.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    notrix::api::Request page;
+    page.method = notrix::api::Method::Get;
+    page.path = "/";
+    NOTRIX_CHECK_EQ(host.handle(page).status, 200);
+
+    notrix::api::Request api;
+    api.method = notrix::api::Method::Get;
+    api.path = "/api/v1/apps";
+    NOTRIX_CHECK_EQ(host.handle(api).status, 200);
+}
+
+NOTRIX_TEST(Host, ThePasswordCoversThePageAndTheApiAlike) {
+    // One gate, because they are the same server and two schemes would be two
+    // things to get wrong (ADR 0018). The page matters as much as the API: it
+    // is what somebody uses to change the device.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().web.username = "mark";
+    host.settings().web.password = "hunter22";
+
+    const char* paths[] = {"/", "/app.js", "/api/v1/apps", "/api/v1/settings",
+                           "/api/v1/health"};
+    for (const char* path : paths) {
+        notrix::api::Request request;
+        request.method = notrix::api::Method::Get;
+        request.path = path;
+        NOTRIX_CHECK_EQ(host.handle(request).status, 401);
+
+        request.authorization = basicHeader("mark", "hunter22");
+        NOTRIX_CHECK(host.handle(request).status != 401);
+    }
+}
+
+NOTRIX_TEST(Host, ADeniedRequestTellsTheBrowserHowToAsk) {
+    // Without WWW-Authenticate a browser shows a bare error page and the
+    // person has no way to supply what is missing.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().web.username = "mark";
+    host.settings().web.password = "hunter22";
+
+    notrix::api::Request request;
+    request.method = notrix::api::Method::Get;
+    request.path = "/";
+
+    const notrix::api::Response denied = host.handle(request);
+    NOTRIX_CHECK_EQ(denied.status, 401);
+    NOTRIX_CHECK(denied.wwwAuthenticate.find("Basic") != std::string::npos);
+    NOTRIX_CHECK(denied.wwwAuthenticate.find("NOTRIX") != std::string::npos);
+}
+
+NOTRIX_TEST(Host, AWrongPasswordChangesNothing) {
+    // The one that matters. A gate that refuses reads and lets writes through
+    // would be worse than no gate, because it would look like one.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().web.username = "mark";
+    host.settings().web.password = "hunter22";
+
+    const auto before = host.settings().display.brightness;
+
+    notrix::api::Request write;
+    write.method = notrix::api::Method::Patch;
+    write.path = "/api/v1/settings";
+    write.body = R"({"display":{"brightness":7}})";
+    write.authorization = basicHeader("mark", "wrong");
+
+    NOTRIX_CHECK_EQ(host.handle(write).status, 401);
+    NOTRIX_CHECK_EQ(host.settings().display.brightness, before);
+}
+
 NOTRIX_TEST(Host, ServesTheConfigurationUi) {
     SimulatorPlatform platform;
     ApplicationHost host(platform, quietConfig());
@@ -990,4 +1201,1162 @@ NOTRIX_TEST(Host, BatteryIsOnlyInstalledWhereOneCanBeReported) {
     ApplicationHost with(battered, quietConfig());
     with.initialize();
     NOTRIX_CHECK(with.apps().find("battery") != nullptr);
+}
+
+NOTRIX_TEST(Host, OneDetentMovesExactlyOneApp) {
+    // Rotary acceleration multiplies fast detents up to 5x, which is right for
+    // brightness and wrong for a carousel. With three apps installed it made an
+    // ordinary turn jump two to five of them and land somewhere that looked
+    // random.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    capabilities.microphone = true;
+    SimulatorPlatform platform(capabilities);
+    platform.simulatedClock().setWallClock(1'700'000'000);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    // clock + visualizer + battery
+    NOTRIX_CHECK_EQ(host.apps().count(), 3);
+
+    const notrix::app::App* first = host.carousel().active();
+    NOTRIX_CHECK(first != nullptr);
+    const std::string startId = first->id;
+
+    // Three detents in quick succession - well inside the 120 ms acceleration
+    // window, so the mapper will report a repeat above one.
+    for (int i = 0; i < 3; ++i) {
+        InputEvent tick;
+        tick.source = RawInput::RotaryRight;
+        tick.phase = ButtonPhase::Tick;
+        tick.timestampMillis = platform.simulatedClock().monotonicMillis();
+        host.handleInput(tick);
+        platform.simulatedClock().advance(20);
+    }
+
+    // Three detents, three apps forward. With two system apps installed that
+    // is exactly one full lap back to where it started.
+    const notrix::app::App* landed = host.carousel().active();
+    NOTRIX_CHECK(landed != nullptr);
+    NOTRIX_CHECK_EQ(landed->id, startId);
+}
+
+NOTRIX_TEST(Host, AMicrophoneThatNeverDeliversSaysSoRatherThanDrawingSilence) {
+    // The exact shape of the TC002 bug. The adapter offers itself as an
+    // IMicrophone the moment its serial port opens, then never receives an
+    // audio frame. The old render path checked only the pointer, so the app
+    // drew its baseline: a flat line across the middle of the panel, which
+    // reads as a silent room rather than as a device that cannot hear.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.microphone = true;  // present...
+    SimulatorPlatform platform(capabilities);
+    // ...but never told to hear anything, which is what the device does.
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    NOTRIX_REQUIRE(host.carousel().activate(ApplicationHost::kVisualizerAppId,
+                                            platform.simulatedClock().monotonicMillis()));
+    run(host, platform, 400);
+
+    // What a flat line would look like: the baseline spans the full width and
+    // is two rows tall, and nothing else is drawn.
+    const int flatline = Framebuffer::kWidth * 2;
+    NOTRIX_CHECK(countLit(host.frame()) != flatline);
+
+    // And what it should look like instead.
+    Framebuffer expected;
+    notrix::Canvas canvas(expected);
+    notrix::apps::renderNoMicrophone(canvas, colors::kWhite);
+    for (int y = 0; y < Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            NOTRIX_CHECK(host.frame().at(x, y) == expected.at(x, y));
+        }
+    }
+}
+
+NOTRIX_TEST(Host, TheVisualizerDrawsSoundOnceItActuallyHearsSomething) {
+    // The other half: the honesty check must not have broken the working case.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.microphone = true;
+    SimulatorPlatform platform(capabilities);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    NOTRIX_REQUIRE(host.carousel().activate(ApplicationHost::kVisualizerAppId,
+                                            platform.simulatedClock().monotonicMillis()));
+
+    platform.simulatedMicrophone().hear(12000);
+    run(host, platform, 600);
+
+    Framebuffer noMic;
+    notrix::Canvas canvas(noMic);
+    notrix::apps::renderNoMicrophone(canvas, colors::kWhite);
+
+    bool differs = false;
+    for (int y = 0; y < Framebuffer::kHeight && !differs; ++y) {
+        for (int x = 0; x < Framebuffer::kWidth && !differs; ++x) {
+            differs = host.frame().at(x, y) != noMic.at(x, y);
+        }
+    }
+    NOTRIX_CHECK(differs);
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
+}
+
+NOTRIX_TEST(Host, AdjustingVolumeDoesNotReconfigureTheBroker) {
+    // A copy of initialize()'s MQTT setup had been spliced into the volume
+    // handler. It compiled, because every line of it is a legal statement
+    // inside a case block, and no test pressed a volume key while a broker was
+    // configured - so every tap of the minus and plus buttons quietly re-ran
+    // setContext and configure, and in safe mode wrote "safe mode: MQTT not
+    // started" to the ring log on each one.
+    //
+    // This pins the boundary rather than the symptom: handling an input event
+    // is not a configuration event, whatever the action turns out to be.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    const int before = host.logger().count();
+
+    for (int i = 0; i < 8; ++i) {
+        InputEvent down;
+        down.source = RawInput::KeyPlus;
+        down.phase = ButtonPhase::Down;
+        down.timestampMillis = platform.simulatedClock().monotonicMillis();
+        host.handleInput(down);
+        platform.simulatedClock().advance(40);
+
+        InputEvent up;
+        up.source = RawInput::KeyPlus;
+        up.phase = ButtonPhase::Up;
+        up.timestampMillis = platform.simulatedClock().monotonicMillis();
+        host.handleInput(up);
+        platform.simulatedClock().advance(40);
+    }
+
+    // Whatever the button is bound to, pressing it must not talk to MQTT.
+    NOTRIX_CHECK_FALSE(logContains(host, "MQTT"));
+    NOTRIX_CHECK_FALSE(logContains(host, "safe mode"));
+    NOTRIX_CHECK_EQ(host.logger().count(), before);
+}
+
+// --- navigating the device itself (ADR 0017) ---------------------------------
+
+NOTRIX_TEST(Host, ThePanelSwitchIsNotOfferedOnThePanel) {
+    // It is circular: the control lives on the only surface it switches off,
+    // so using it hides the way back. It stays in the settings model and over
+    // the API, where a browser can blank the panel and plainly still be used.
+    //
+    // Turning brightness up already revives a blank panel, which is the
+    // gesture someone reaches for anyway - that is the recovery path, and the
+    // test below it pins it.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+
+    const bool powerBefore = host.settings().display.power;
+    for (int i = 0; i < 12; ++i) {
+        platform.simulatedInput().rotate(true, 2000 + static_cast<std::uint64_t>(i) * 200u);
+        host.tick(2000 + static_cast<std::uint64_t>(i) * 200u + 100u);
+        platform.simulatedInput().pressAndRelease(
+            RawInput::KeyMinus, 2100 + static_cast<std::uint64_t>(i) * 200u, 50);
+        host.tick(2100 + static_cast<std::uint64_t>(i) * 200u + 100u);
+    }
+    // Nothing reachable from the knob can have switched the panel off.
+    NOTRIX_CHECK_EQ(host.settings().display.power, powerBefore);
+}
+
+NOTRIX_TEST(Host, TurningBrightnessUpRevivesABlankedPanel) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    host.settings().display.power = false;
+    host.settings().display.brightness = 0;
+
+    // Held, because that is what reaches brightness.
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 1000, 900);
+    host.tick(2000);
+
+    NOTRIX_CHECK(host.settings().display.power);
+    NOTRIX_CHECK(host.settings().display.brightness > 0);
+}
+
+NOTRIX_TEST(Host, TheCarouselDoesNotAdvanceWhileSettingsAreOpen) {
+    // It used to. Every few seconds the timer moved the carousel underneath
+    // the menu, which started a transition and slid the settings screen
+    // sideways like an app - so settings read as a page in the rotation rather
+    // than a mode on top of it. Leaving also landed on whatever app the timer
+    // had reached rather than the one the user left.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+
+    const std::string parked = host.carousel().active()->id;
+
+    // Well past any app's dwell time, with activity so settings stay open.
+    for (int i = 0; i < 12; ++i) {
+        const std::uint64_t at = 2000 + static_cast<std::uint64_t>(i) * 3000u;
+        run(host, platform, at, 100);
+        platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, at, 50);
+        host.tick(at + 50);
+    }
+
+    NOTRIX_CHECK_EQ(host.carousel().active()->id, parked);
+
+    // And leaving puts the user back where they were, with a full turn ahead
+    // of the app rather than an instant jump to the next one.
+    const std::uint64_t leaveAt = platform.simulatedClock().monotonicMillis() + 100;
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMiddle, leaveAt, 50);
+    host.tick(leaveAt + 60);
+    run(host, platform, leaveAt + 500);
+    NOTRIX_CHECK_FALSE(host.navigator().inSettings());
+    NOTRIX_CHECK_EQ(host.carousel().active()->id, parked);
+}
+
+NOTRIX_TEST(Host, TheKnobMovesBetweenAppsOutsideSettingsAndSettingsInside) {
+    // The one rule the whole model rests on: a control means the same thing
+    // everywhere, and only what it points at changes.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    const std::string before = host.carousel().active()->id;
+
+    platform.simulatedInput().rotate(true, 500);
+    host.tick(600);
+    NOTRIX_CHECK(host.carousel().active()->id != before);
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+
+    const std::string parked = host.carousel().active()->id;
+    const notrix::input::SettingSlot start = host.navigator().current();
+
+    platform.simulatedInput().rotate(true, 2000);
+    host.tick(2100);
+
+    // The cursor moved; the carousel did not.
+    NOTRIX_CHECK(host.navigator().current() != start);
+    NOTRIX_CHECK_EQ(host.carousel().active()->id, parked);
+}
+
+NOTRIX_TEST(Host, BackLeavesSettingsBeforeAnythingElse) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMiddle, 2000, 50);
+    host.tick(2100);
+    NOTRIX_CHECK_FALSE(host.navigator().inSettings());
+}
+
+NOTRIX_TEST(Host, BackReturnsToTheClockWhenThereIsNothingToLeave) {
+    // The last step of "back", and the one that makes it predictable: wherever
+    // you are, pressing it enough times lands on the clock.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    NOTRIX_REQUIRE(host.carousel().activate(ApplicationHost::kBatteryAppId, 300));
+    NOTRIX_REQUIRE(host.carousel().active()->id != std::string(ApplicationHost::kClockAppId));
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMiddle, 500, 50);
+    host.tick(600);
+
+    NOTRIX_CHECK_EQ(host.carousel().active()->id, std::string(ApplicationHost::kClockAppId));
+}
+
+NOTRIX_TEST(Host, SettingsCloseThemselvesIfTheUserWalksAway) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(host.navigator().inSettings());
+
+    run(host, platform, 2000 + notrix::input::Navigator::kIdleExitMillis, 100);
+    NOTRIX_CHECK_FALSE(host.navigator().inSettings());
+    NOTRIX_CHECK(logContains(host, "settings closed after idle"));
+}
+
+NOTRIX_TEST(Host, AdjustingBrightnessWhileBrowsingShowsWhatItChanged) {
+    // A brightness step is invisible in daylight and at night reads as the
+    // panel having glitched. A control with no feedback is indistinguishable
+    // from a broken one, which is how volume sat on these buttons doing
+    // nothing without anyone noticing.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+
+    const Framebuffer quiet = host.frame();
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 600, 50);
+    host.tick(700);
+    run(host, platform, 800);
+
+    NOTRIX_CHECK(host.frame() != quiet);
+}
+
+NOTRIX_TEST(Host, ChangingVolumePlaysTheNewLevel) {
+    // Setting a volume you cannot hear is guesswork, and on a panel showing one
+    // number at a time the number is the only other feedback there would be.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    host.settings().audio.volumePercent = 40;
+    platform.simulatedAudio().clear();
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(selectSetting(host, platform, notrix::input::SettingSlot::Volume, 2000));
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 4000, 50);
+    host.tick(4100);
+
+    NOTRIX_CHECK(!platform.simulatedAudio().requests().empty());
+    NOTRIX_CHECK(platform.simulatedAudio().requests().front().isTone);
+}
+
+NOTRIX_TEST(Host, TurningVolumeDownToSilenceDoesNotBeep) {
+    // A confirmation beep for "silence" is a contradiction, and zero is the one
+    // setting where the absence of sound is itself the feedback.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+
+    const int step = host.inputMapper().config().volumeStepPercent;
+    host.settings().audio.volumePercent = static_cast<std::uint8_t>(step);
+
+    holdKnob(host, platform, 1000);
+    NOTRIX_REQUIRE(selectSetting(host, platform, notrix::input::SettingSlot::Volume, 2000));
+    platform.simulatedAudio().clear();
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 4000, 50);
+    host.tick(4100);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().audio.volumePercent), 0);
+    NOTRIX_CHECK(platform.simulatedAudio().requests().empty());
+}
+
+// --- sounds the device makes on its own behalf -------------------------------
+
+NOTRIX_TEST(Host, ANotificationAnnouncesItselfOnce) {
+    // Once, not once per frame. The sound marks an event arriving, and a
+    // notification that holds the panel for five seconds is one event.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+    platform.simulatedAudio().clear();
+
+    notrix::notify::Notification alert;
+    alert.id = "test";
+    alert.text = "HELLO";
+    host.notifications().push(alert, platform.simulatedClock().monotonicMillis());
+
+    run(host, platform, 2000);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedAudio().requests().size()), 1);
+    NOTRIX_CHECK_EQ(platform.simulatedAudio().requests().front().sound, std::string("chime"));
+}
+
+NOTRIX_TEST(Host, ANotificationCanNameItsOwnSound) {
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 200);
+    platform.simulatedAudio().clear();
+
+    notrix::notify::Notification alert;
+    alert.id = "test";
+    alert.text = "UP";
+    alert.sound = "alert";
+    host.notifications().push(alert, platform.simulatedClock().monotonicMillis());
+
+    run(host, platform, 2000);
+
+    NOTRIX_REQUIRE(!platform.simulatedAudio().requests().empty());
+    NOTRIX_CHECK_EQ(platform.simulatedAudio().requests().front().sound, std::string("alert"));
+}
+
+NOTRIX_TEST(Host, NotificationsCanBeSilent) {
+    // "none" is a real choice, and the reason the setting is a string rather
+    // than a bool: a clock in a bedroom should be able to say nothing.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().notifications.sound = "none";
+    run(host, platform, 200);
+    platform.simulatedAudio().clear();
+
+    notrix::notify::Notification alert;
+    alert.id = "quiet";
+    alert.text = "SHH";
+    host.notifications().push(alert, platform.simulatedClock().monotonicMillis());
+    run(host, platform, 2000);
+
+    NOTRIX_CHECK(platform.simulatedAudio().requests().empty());
+}
+
+NOTRIX_TEST(Host, TheClockTicksOnlyWhenAskedTo) {
+    // Off by default, and not out of timidity: a sound a device makes once a
+    // second without being asked is the easiest way to make somebody unplug it.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    platform.simulatedClock().setWallClock(1'700'000'000);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+    platform.simulatedAudio().clear();
+
+    NOTRIX_CHECK_FALSE(host.settings().clock.tick);
+
+    for (int i = 0; i < 5; ++i) {
+        platform.simulatedClock().setWallClock(1'700'000'000 + i);
+        run(host, platform, 1000 + static_cast<std::uint64_t>(i) * 200u);
+    }
+    NOTRIX_CHECK(platform.simulatedAudio().requests().empty());
+}
+
+NOTRIX_TEST(Host, WhenAskedTheClockAlternatesTickAndTock) {
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    platform.simulatedClock().setWallClock(1'700'000'000);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().clock.tick = true;
+    run(host, platform, 500);
+    platform.simulatedAudio().clear();
+
+    for (int i = 1; i <= 4; ++i) {
+        platform.simulatedClock().setWallClock(1'700'000'000 + i);
+        run(host, platform, 500 + static_cast<std::uint64_t>(i) * 200u);
+    }
+
+    const auto& played = platform.simulatedAudio().requests();
+    NOTRIX_REQUIRE(played.size() >= 2);
+    // Alternating, so a second sounds like a second rather than a repeated blip.
+    for (std::size_t i = 1; i < played.size(); ++i) {
+        NOTRIX_CHECK(played[i].sound != played[i - 1].sound);
+    }
+}
+
+NOTRIX_TEST(Host, TheClockDoesNotTickOverANotification) {
+    // Ticking under an alarm is being annoying for nobody's benefit.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.audio = true;
+    SimulatorPlatform platform(capabilities);
+    platform.simulatedClock().setWallClock(1'700'000'000);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    host.settings().clock.tick = true;
+    host.settings().notifications.sound = "none";
+    run(host, platform, 500);
+
+    notrix::notify::Notification alert;
+    alert.id = "hold";
+    alert.text = "BUSY";
+    alert.hold = true;
+    host.notifications().push(alert, platform.simulatedClock().monotonicMillis());
+    run(host, platform, 700);
+    platform.simulatedAudio().clear();
+
+    for (int i = 1; i <= 4; ++i) {
+        platform.simulatedClock().setWallClock(1'700'000'000 + i);
+        run(host, platform, 700 + static_cast<std::uint64_t>(i) * 200u);
+    }
+    NOTRIX_CHECK(platform.simulatedAudio().requests().empty());
+}
+
+// --- app order ---------------------------------------------------------------
+
+NOTRIX_TEST(Host, AppOrderSurvivesARestart) {
+    // Blueprint §12 says the app manager owns ordering and it must never be
+    // inferred. An order the user arranged is therefore theirs only if it is
+    // written down - otherwise every reboot silently overrules them.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    capabilities.microphone = true;
+    SimulatorPlatform platform(capabilities);
+
+    std::string reversedFirst;
+    {
+        ApplicationHost host(platform, quietConfig());
+        host.initialize();
+        run(host, platform, 200);
+        NOTRIX_REQUIRE(host.apps().count() >= 3);
+
+        // Move the last app to the front.
+        const std::string last = host.apps().at(host.apps().count() - 1)->id;
+        NOTRIX_REQUIRE(host.apps().move(last, 0));
+        reversedFirst = last;
+
+        run(host, platform, 1000);
+        host.shutdown();
+    }
+
+    ApplicationHost restarted(platform, quietConfig());
+    restarted.initialize();
+    run(restarted, platform, 2000);
+
+    NOTRIX_REQUIRE(restarted.apps().count() >= 3);
+    NOTRIX_CHECK_EQ(restarted.apps().at(0)->id, reversedFirst);
+}
+
+NOTRIX_TEST(Host, ADisabledAppStaysDisabledAcrossARestart) {
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+
+    {
+        ApplicationHost host(platform, quietConfig());
+        host.initialize();
+        run(host, platform, 200);
+        NOTRIX_REQUIRE(host.apps().setEnabled(ApplicationHost::kBatteryAppId, false));
+        run(host, platform, 1000);
+        host.shutdown();
+    }
+
+    ApplicationHost restarted(platform, quietConfig());
+    restarted.initialize();
+    run(restarted, platform, 2000);
+
+    const notrix::app::App* battery = restarted.apps().find(ApplicationHost::kBatteryAppId);
+    NOTRIX_REQUIRE(battery != nullptr);
+    NOTRIX_CHECK_FALSE(battery->enabled);
+}
+
+NOTRIX_TEST(Host, AStoredOrderNamingAnAppThatIsGoneStillBoots) {
+    // Firmware changes and integrations stop pushing, so an order that names a
+    // missing app is normal rather than exceptional. It must not cost the
+    // arrangement of the apps that *are* there, and certainly must not stop
+    // the device starting.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+
+    // Written through the store, because initialize() loads settings and
+    // would overwrite anything set on the host beforehand - which is also
+    // exactly how a real device meets a stored order.
+    {
+        notrix::config::Config stored;
+        notrix::config::AppPreference ghost;
+        ghost.id = "an-app-that-never-existed";
+        stored.apps.order.push_back(ghost);
+
+        notrix::config::AppPreference battery;
+        battery.id = std::string(ApplicationHost::kBatteryAppId);
+        stored.apps.order.push_back(battery);
+
+        notrix::config::ConfigStore store(platform.storage());
+        NOTRIX_REQUIRE(store.save(stored));
+    }
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+
+    NOTRIX_CHECK(host.healthy());
+    // The real app named after the ghost still took the first position.
+    NOTRIX_CHECK_EQ(host.apps().at(0)->id, std::string(ApplicationHost::kBatteryAppId));
+}
+
+NOTRIX_TEST(Host, AnAppInstalledSinceTheOrderWasSavedAppearsRatherThanVanishing) {
+    // Apps not named by the stored order keep their natural position after the
+    // ones that are. Dropping them, or sorting them to the front, would both
+    // be the device overruling an arrangement it was only asked to restore.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    capabilities.microphone = true;
+    SimulatorPlatform platform(capabilities);
+
+    {
+        notrix::config::Config stored;
+        notrix::config::AppPreference battery;
+        battery.id = std::string(ApplicationHost::kBatteryAppId);
+        stored.apps.order.push_back(battery);
+
+        notrix::config::ConfigStore store(platform.storage());
+        NOTRIX_REQUIRE(store.save(stored));
+    }
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+
+    NOTRIX_CHECK_EQ(host.apps().at(0)->id, std::string(ApplicationHost::kBatteryAppId));
+    // Clock and visualiser were not mentioned, and are still installed.
+    NOTRIX_CHECK(host.apps().find(ApplicationHost::kClockAppId) != nullptr);
+    NOTRIX_CHECK(host.apps().find(ApplicationHost::kVisualizerAppId) != nullptr);
+}
+
+NOTRIX_TEST(Host, ChangingTheAppDurationTakesEffectWithoutARestart) {
+    // It was copied into the carousel in initialize() and nowhere else, so
+    // changing it over the API updated the stored setting and did nothing at
+    // all until the next restart. From outside, a setting that only applies
+    // after a reboot and does not say so is a setting that is ignored.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+    NOTRIX_REQUIRE(host.apps().count() >= 2);
+
+    host.settings().apps.defaultDurationSeconds = 1;
+    run(host, platform, 700);
+
+    const std::string before = host.carousel().active()->id;
+
+    // Past one second and well short of two. With only two apps installed, a
+    // wider window would advance twice and land back where it started - which
+    // is a test that passes for "never moved" and for "moved correctly" alike.
+    run(host, platform, 1800);
+    NOTRIX_CHECK(host.carousel().active()->id != before);
+
+    // And nowhere near the eight-second default it would have used before.
+    NOTRIX_CHECK(host.carousel().config().defaultDurationSeconds == 1);
+}
+
+NOTRIX_TEST(Host, ALongerDurationAlsoTakesEffectImmediately) {
+    // The other direction, because "it advances sooner" could be satisfied by
+    // something ignoring the setting entirely and rotating fast.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+
+    host.settings().apps.defaultDurationSeconds = 60;
+    run(host, platform, 700);
+
+    const std::string before = host.carousel().active()->id;
+    run(host, platform, 20000);
+    NOTRIX_CHECK_EQ(host.carousel().active()->id, before);
+}
+
+NOTRIX_TEST(Host, ATimezoneRuleBeatsTheStoredOffset) {
+    // The bug this replaces: a fixed offset is right for about half the year
+    // anywhere that observes daylight saving, and wrong the rest of it.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().clock.utcOffsetSeconds = 0;
+    host.settings().clock.timezone = "CET-1CEST,M3.5.0,M10.5.0/3";
+
+    // Deep winter: one hour ahead of UTC.
+    platform.simulatedClock().setWallClock(
+        notrix::timezone_::daysFromCivil(2026, 1, 15) * 86400);
+    run(host, platform, 300);
+    NOTRIX_CHECK_EQ(host.clockStyle().utcOffsetSeconds, 3600);
+
+    // Deep summer: two.
+    platform.simulatedClock().setWallClock(
+        notrix::timezone_::daysFromCivil(2026, 7, 15) * 86400);
+    run(host, platform, 600);
+    NOTRIX_CHECK_EQ(host.clockStyle().utcOffsetSeconds, 7200);
+}
+
+NOTRIX_TEST(Host, WithoutATimezoneTheStoredOffsetStillApplies) {
+    // Every device configured before timezones existed has one of these, and
+    // nothing should have to be re-entered to keep working.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().clock.timezone.clear();
+    host.settings().clock.utcOffsetSeconds = 5 * 3600;
+    platform.simulatedClock().setWallClock(
+        notrix::timezone_::daysFromCivil(2026, 7, 15) * 86400);
+    run(host, platform, 300);
+
+    NOTRIX_CHECK_EQ(host.clockStyle().utcOffsetSeconds, 5 * 3600);
+}
+
+NOTRIX_TEST(Host, AnUnparseableRuleFallsBackAndSaysSo) {
+    // Falling back silently would leave somebody certain they had set a
+    // timezone and puzzled twice a year.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().clock.utcOffsetSeconds = 3 * 3600;
+    host.settings().clock.timezone = "not a timezone";
+    run(host, platform, 300);
+
+    NOTRIX_CHECK_EQ(host.clockStyle().utcOffsetSeconds, 3 * 3600);
+    NOTRIX_CHECK(logContains(host, "timezone rule not understood"));
+}
+
+NOTRIX_TEST(Host, WithoutAWallClockTheStandardOffsetIsUsed) {
+    // Before NTP answers there is no date, so there is no way to know which
+    // side of a changeover we are on. Standard time is the honest answer; a
+    // coin toss dressed as a summer offset is not.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().clock.timezone = "CET-1CEST,M3.5.0,M10.5.0/3";
+    run(host, platform, 300);  // wall clock never set
+
+    NOTRIX_CHECK_FALSE(platform.clock().wallClockValid());
+    NOTRIX_CHECK_EQ(host.clockStyle().utcOffsetSeconds, 3600);
+}
+
+NOTRIX_TEST(Host, ARestoredOrderReachesTheRegistryWithoutARestart) {
+    // Restoring a backup writes settings; the apps on screen are in the
+    // registry. Without this the arrangement would come back only on the next
+    // reboot - the same defect the app duration had, in a place where it is
+    // even less visible.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    capabilities.microphone = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 500);
+    NOTRIX_REQUIRE(host.apps().count() >= 3);
+
+    // An arrangement arriving from outside, exactly as a restore delivers it.
+    const std::string wanted = host.apps().at(host.apps().count() - 1)->id;
+    notrix::config::AppPreference first;
+    first.id = wanted;
+    host.settings().apps.order.clear();
+    host.settings().apps.order.push_back(first);
+
+    run(host, platform, 1000);
+
+    NOTRIX_CHECK_EQ(host.apps().at(0)->id, wanted);
+}
+
+NOTRIX_TEST(Host, AnOrderThatAlreadyMatchesIsNotRewritten) {
+    // The two directions must not fight. If applying an order counted as a
+    // registry change, and writing it back counted as a settings change, the
+    // device would save its configuration on every single tick.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 1000);
+
+    const int before = host.logger().count();
+    run(host, platform, 6000);
+
+    // No errors, and nothing churning: a save failure would log, and a loop
+    // would show up as a stream of them.
+    NOTRIX_CHECK_EQ(host.logger().count(), before);
+}
+
+// --- overnight dimming --------------------------------------------------------
+
+namespace {
+
+/// A unix timestamp at a given UTC time of day, on a fixed date.
+std::uint64_t atUtcHour(int hour, int minute = 0) {
+    return static_cast<std::uint64_t>(
+        notrix::timezone_::daysFromCivil(2026, 6, 15) * 86400 + hour * 3600 + minute * 60);
+}
+
+}  // namespace
+
+NOTRIX_TEST(Host, NightModeDimsInsideItsWindow) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.brightness = 200;
+    host.settings().display.night.enabled = true;
+    host.settings().display.night.startMinutes = 22 * 60;
+    host.settings().display.night.endMinutes = 7 * 60;
+    host.settings().display.night.brightness = 10;
+
+    platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(23)));
+    run(host, platform, 400);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 10);
+
+    // And the setting itself is untouched, so the morning gets the panel back
+    // exactly as the user left it.
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), 200);
+}
+
+NOTRIX_TEST(Host, NightModeWindowWrapsMidnight) {
+    // The normal case for a night, and the one a naive "between two times"
+    // check reports backwards - bright all night and dim all day.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.brightness = 200;
+    host.settings().display.night.enabled = true;
+    host.settings().display.night.startMinutes = 22 * 60;
+    host.settings().display.night.endMinutes = 7 * 60;
+    host.settings().display.night.brightness = 10;
+
+    const struct { int hour; int expected; } moments[] = {
+        {21, 200},  // before it starts
+        {22, 10},   // the moment it starts
+        {3, 10},    // the small hours
+        {6, 10},    // still dim
+        {7, 200},   // the moment it ends
+        {12, 200},  // midday
+    };
+
+    std::uint64_t now = 1000;
+    for (const auto& moment : moments) {
+        platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(moment.hour)));
+        now += 400;
+        run(host, platform, now);
+        NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()),
+                        moment.expected);
+    }
+}
+
+NOTRIX_TEST(Host, NightModeFollowsLocalTimeNotUtc) {
+    // The window is what somebody set looking at their own clock. Applying it
+    // in UTC would dim a device in Sydney over lunch.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.brightness = 200;
+    host.settings().clock.timezone = "AEST-10";  // ten hours ahead
+    host.settings().display.night.enabled = true;
+    host.settings().display.night.startMinutes = 22 * 60;
+    host.settings().display.night.endMinutes = 7 * 60;
+    host.settings().display.night.brightness = 10;
+
+    // 13:00 UTC is 23:00 local, which is inside the window.
+    platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(13)));
+    run(host, platform, 400);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 10);
+
+    // 23:00 UTC is 09:00 local, which is not.
+    platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(23)));
+    run(host, platform, 900);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 200);
+}
+
+NOTRIX_TEST(Host, ChangingBrightnessAtNightDoesNotUndim) {
+    // Somebody pressing + at 3am wants the panel brighter now, and expects the
+    // schedule to still be there tomorrow. The setting moves; what is on the
+    // panel stays where the schedule put it until the window ends.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.brightness = 200;
+    host.settings().display.night.enabled = true;
+    host.settings().display.night.startMinutes = 22 * 60;
+    host.settings().display.night.endMinutes = 7 * 60;
+    host.settings().display.night.brightness = 10;
+
+    platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(3)));
+    run(host, platform, 400);
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 500, 900);
+    run(host, platform, 1600);
+
+    NOTRIX_CHECK(host.settings().display.brightness > 200);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 10);
+}
+
+NOTRIX_TEST(Host, WithoutAWallClockNothingIsDimmed) {
+    // Dimming because NTP has not answered yet would look exactly like a fault.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.brightness = 200;
+    host.settings().display.night.enabled = true;
+    host.settings().display.night.brightness = 10;
+    run(host, platform, 400);
+
+    NOTRIX_CHECK_FALSE(platform.clock().wallClockValid());
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 200);
+}
+
+NOTRIX_TEST(Host, AWindowOfNoLengthDimsNothing) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    host.settings().display.brightness = 200;
+    host.settings().display.night.enabled = true;
+    host.settings().display.night.startMinutes = 8 * 60;
+    host.settings().display.night.endMinutes = 8 * 60;
+    host.settings().display.night.brightness = 10;
+
+    platform.simulatedClock().setWallClock(static_cast<std::int64_t>(atUtcHour(8)));
+    run(host, platform, 400);
+    NOTRIX_CHECK_EQ(static_cast<int>(platform.simulatedDisplay().brightness()), 200);
+}
+
+// --- the way back in (ADR 0018) ----------------------------------------------
+
+namespace {
+
+/// Hold both adjustment buttons for long enough to trigger the rescue.
+void holdBothButtons(ApplicationHost& host, SimulatorPlatform& platform,
+                     std::uint64_t from, std::uint64_t forMillis) {
+    InputEvent down;
+    down.phase = ButtonPhase::Down;
+    down.timestampMillis = from;
+    down.source = RawInput::KeyMinus;
+    host.handleInput(down);
+    down.source = RawInput::KeyPlus;
+    host.handleInput(down);
+
+    run(host, platform, from + forMillis, 100);
+}
+
+}  // namespace
+
+NOTRIX_TEST(Host, HoldingBothButtonsClearsTheWayBackIn) {
+    // The whole point of ADR 0018's ordering: this exists before anything that
+    // can lock somebody out, because it is what makes those safe to build.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 300);
+
+    host.settings().web.username = "admin";
+    host.settings().web.password = "forgotten";
+    host.settings().network.hotspotRequested = false;
+
+    holdBothButtons(host, platform, 1000, notrix::input::Rescue::kHoldMillis + 500);
+
+    NOTRIX_CHECK(host.settings().web.password.empty());
+    NOTRIX_CHECK(host.settings().web.username.empty());
+    NOTRIX_CHECK(host.settings().network.hotspotRequested);
+    NOTRIX_CHECK(logContains(host, "rescue"));
+}
+
+NOTRIX_TEST(Host, TheRescueKeepsAppsAndSettings) {
+    // A rescue that costs a week of an integration's work is one people avoid
+    // using until it is too late. It clears the way back in and nothing else.
+    notrix::platform::simulator::SimulatorCapabilities capabilities;
+    capabilities.power = true;
+    SimulatorPlatform platform(capabilities);
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 300);
+
+    host.settings().web.password = "forgotten";
+    host.settings().clock.theme = "calendar";
+    host.settings().display.brightness = 42;
+    const int appsBefore = host.apps().count();
+
+    holdBothButtons(host, platform, 1000, notrix::input::Rescue::kHoldMillis + 500);
+
+    NOTRIX_CHECK(host.settings().web.password.empty());
+    NOTRIX_CHECK_EQ(host.settings().clock.theme, std::string("calendar"));
+    NOTRIX_CHECK_EQ(static_cast<int>(host.settings().display.brightness), 42);
+    NOTRIX_CHECK_EQ(host.apps().count(), appsBefore);
+}
+
+NOTRIX_TEST(Host, TheRescueSurvivesARestart) {
+    // Persisted, because if it did not the device would be open now and locked
+    // again after the reboot somebody reaches for next - the worst of both and
+    // the one outcome nobody could diagnose.
+    SimulatorPlatform platform;
+    {
+        ApplicationHost host(platform, quietConfig());
+        host.initialize();
+        run(host, platform, 300);
+        host.settings().web.password = "forgotten";
+        holdBothButtons(host, platform, 1000, notrix::input::Rescue::kHoldMillis + 500);
+        host.shutdown();
+    }
+
+    ApplicationHost restarted(platform, quietConfig());
+    restarted.initialize();
+    run(restarted, platform, 20000);
+
+    NOTRIX_CHECK(restarted.settings().web.password.empty());
+    NOTRIX_CHECK(restarted.settings().network.hotspotRequested);
+}
+
+NOTRIX_TEST(Host, TheCountdownIsShownEvenWithThePanelOff) {
+    // This gesture is reached for precisely when nothing else about the device
+    // is behaving. A device that stayed dark and then silently cleared its own
+    // password would be indistinguishable from one that crashed.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 300);
+
+    host.settings().display.power = false;
+    run(host, platform, 600);
+    NOTRIX_CHECK_EQ(countLit(host.frame()), 0);
+
+    InputEvent down;
+    down.phase = ButtonPhase::Down;
+    down.timestampMillis = 1000;
+    down.source = RawInput::KeyMinus;
+    host.handleInput(down);
+    down.source = RawInput::KeyPlus;
+    host.handleInput(down);
+
+    run(host, platform, 2000, 100);
+
+    NOTRIX_CHECK(host.rescue().counting());
+    NOTRIX_CHECK(countLit(host.frame()) > 0);
+}
+
+NOTRIX_TEST(Host, AnOrdinaryPressDoesNotTriggerTheRescue) {
+    // Both buttons are adjustment controls people hold on purpose.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 300);
+
+    host.settings().web.password = "kept";
+
+    platform.simulatedInput().pressAndRelease(RawInput::KeyPlus, 1000, 2000);
+    platform.simulatedInput().pressAndRelease(RawInput::KeyMinus, 4000, 2000);
+    run(host, platform, 9000, 100);
+
+    NOTRIX_CHECK_EQ(host.settings().web.password, std::string("kept"));
+}
+
+NOTRIX_TEST(Host, TheRescueGestureClearsTheLockout) {
+    // The way back that does not need the network (ADR 0018). Somebody locked
+    // out of a clock has no other route in: USB-C on this device is mass
+    // storage, and ADB arrives over the network they cannot reach.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    run(host, platform, 300);
+    host.settings().web.username = "mark";
+    host.settings().web.password = "hunter22";
+
+    notrix::api::Request request;
+    request.method = notrix::api::Method::Get;
+    request.path = "/api/v1/apps";
+    NOTRIX_CHECK_EQ(host.handle(request).status, 401);
+
+    holdBothButtons(host, platform, 1000, notrix::input::Rescue::kHoldMillis + 500);
+
+    NOTRIX_CHECK(host.settings().web.username.empty());
+    NOTRIX_CHECK(host.settings().web.password.empty());
+    NOTRIX_CHECK_EQ(host.handle(request).status, 200);
+}
+
+NOTRIX_TEST(Host, ADeviceWithNothingStoredIsOnItsFirstRun) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    NOTRIX_CHECK(host.firstRun());
+
+    // And says so where the page can see it, because that is what decides
+    // whether it opens on the network step or on a live view of a clock
+    // showing the wrong time.
+    notrix::api::Request request;
+    request.method = notrix::api::Method::Get;
+    request.path = "/api/v1/device";
+    const std::string body = host.handle(request).body;
+    NOTRIX_CHECK(body.find("\"firstRun\":true") != std::string::npos);
+}
+
+NOTRIX_TEST(Host, FirstRunEndsWhenAnythingIsSaved) {
+    // A state, not a wizard. There is no "finish setup" button, because a
+    // button somebody has to find is a step that can be missed.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+    NOTRIX_CHECK(host.firstRun());
+
+    notrix::api::Request patch;
+    patch.method = notrix::api::Method::Patch;
+    patch.path = "/api/v1/settings";
+    patch.body = R"({"display":{"brightness":90}})";
+    NOTRIX_CHECK_EQ(host.handle(patch).status, 200);
+
+    NOTRIX_CHECK_FALSE(host.firstRun());
+
+    notrix::api::Request request;
+    request.method = notrix::api::Method::Get;
+    request.path = "/api/v1/device";
+    NOTRIX_CHECK(host.handle(request).body.find("\"firstRun\":false") != std::string::npos);
+}
+
+NOTRIX_TEST(Host, ADeviceThatHasBeenConfiguredIsNotOnItsFirstRun) {
+    SimulatorPlatform platform;
+    {
+        ApplicationHost host(platform, quietConfig());
+        host.initialize();
+        notrix::api::Request patch;
+        patch.method = notrix::api::Method::Patch;
+        patch.path = "/api/v1/settings";
+        patch.body = R"({"display":{"brightness":90}})";
+        host.handle(patch);
+        host.shutdown();
+    }
+
+    ApplicationHost restarted(platform, quietConfig());
+    restarted.initialize();
+    NOTRIX_CHECK_FALSE(restarted.firstRun());
+}
+
+NOTRIX_TEST(Host, CorruptStorageIsNotAFirstRun) {
+    // That device *was* configured, and telling its owner it is brand new
+    // would be both wrong and the least helpful thing to say while they are
+    // working out what happened to their settings.
+    SimulatorPlatform platform;
+    platform.storage().write(notrix::config::ConfigStore::kPrimaryKey, "{ not json");
+
+    ApplicationHost host(platform, quietConfig());
+    host.initialize();
+
+    NOTRIX_CHECK_FALSE(host.firstRun());
 }

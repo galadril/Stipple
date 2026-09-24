@@ -6,6 +6,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NOTRIX</title>
 <link rel="stylesheet" href="/app.css">
+<!-- Declared, so the browser stops asking for /favicon.ico. A browser that is
+     not told where the icon is guesses that path and logs a 404 on the device
+     every time somebody opens this page. -->
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 </head>
 <body>
 
@@ -20,7 +24,6 @@
 
 <nav class="tabs" role="tablist">
     <button class="tab" data-panel="panel-display" role="tab" type="button">Display</button>
-    <button class="tab" data-panel="panel-clock" role="tab" type="button">Clock</button>
     <button class="tab" data-panel="panel-apps" role="tab" type="button">Apps</button>
     <button class="tab" data-panel="panel-notify" role="tab" type="button">Notify</button>
     <button class="tab" data-panel="panel-mqtt" role="tab" type="button">MQTT</button>
@@ -33,11 +36,26 @@
 <section class="panel" id="panel-display">
     <h2>Live view</h2>
     <div class="field">
-        <!-- 52x16, drawn at integer scale so pixels stay square and crisp. The
-             device sends raw RGB; the scaling all happens here. -->
-        <canvas id="live" class="live" width="52" height="16"
-                aria-label="Live view of the panel"></canvas>
-        <p class="help" id="live-status">connecting&hellip;</p>
+        <!-- Drawn at 10x with a 1px gap per pixel, so this reads as a matrix of
+             discrete LEDs rather than a smeared 52x16 image. The canvas is
+             sized in device pixels; app.js owns the geometry. -->
+        <canvas id="live" class="live" aria-label="Live view of the panel"></canvas>
+        <div class="live-bar">
+            <span class="help" id="live-status">connecting&hellip;</span>
+            <span class="grow"></span>
+            <button class="btn" id="live-shot" type="button"
+                    title="Save the current frame as a PNG">Screenshot</button>
+            <button class="btn" id="live-rec" type="button"
+                    title="Record the panel to an animated view">Record</button>
+        </div>
+
+        <!-- Under the panel and the same width as it, so the readings read as
+             belonging to the thing above them rather than as a separate
+             section. One row: these are glanced at together, and a wrapped
+             grid made the eye hunt. Everything here is polled state, so each
+             tile says when it does not know rather than showing a plausible
+             zero. -->
+        <div class="tiles" id="status-tiles"></div>
     </div>
 
     <h2>Controls</h2>
@@ -47,21 +65,24 @@
              the case. -->
         <div class="pad">
             <button class="btn btn-hw" data-control="left" type="button"
-                    title="Previous app">&#8634;</button>
+                    title="Move back: previous app, or previous setting">&#8634;</button>
             <button class="btn btn-hw" data-control="minus" type="button"
-                    title="Tap: volume down. Hold: dimmer.">&minus;</button>
+                    title="Turn it down: brightness, or whatever setting is open">&minus;</button>
             <button class="btn btn-hw" data-control="press" type="button"
-                    title="Tap: pause. Hold: dismiss notification.">Knob</button>
+                    title="Tap: act on it. Hold: open or close settings.">Knob</button>
             <button class="btn btn-hw" data-control="middle" type="button"
-                    title="Tap: next app. Hold: dismiss notification.">M</button>
+                    title="Back: leave settings, dismiss a notification, or return to the clock">M</button>
             <button class="btn btn-hw" data-control="plus" type="button"
-                    title="Tap: volume up. Hold: brighter.">+</button>
+                    title="Turn it up: brightness, or whatever setting is open">+</button>
             <button class="btn btn-hw" data-control="right" type="button"
-                    title="Next app">&#8635;</button>
+                    title="Move on: next app, or next setting">&#8635;</button>
         </div>
         <p class="help">
-            Click for a tap; press and hold for a long press. The knob buttons
-            turn one detent per click.
+            Each control means one thing everywhere: <strong>turn</strong> to move
+            between things, <strong>press</strong> to act on one,
+            <strong>&minus; / +</strong> to change its value, <strong>M</strong> to go
+            back, and <strong>hold the knob</strong> for settings on the panel
+            itself. Click for a tap; press and hold for a long press.
         </p>
     </div>
 
@@ -83,107 +104,66 @@
         </p>
     </div>
     <div class="field">
+        <label for="overlay">Overlay</label>
+        <select id="overlay" data-setting="display.overlay">
+            <option value="none">None</option>
+            <optgroup label="Weather">
+                <option value="rain">Rain</option>
+                <option value="snow">Snow</option>
+                <option value="storm">Storm</option>
+                <option value="frost">Frost</option>
+                <option value="fog">Fog</option>
+                <option value="stars">Stars</option>
+            </optgroup>
+            <optgroup label="Occasion">
+                <option value="sparkle">Sparkle</option>
+                <option value="confetti">Confetti</option>
+            </optgroup>
+        </select>
+        <p class="help">
+            Drawn over whatever app is showing, and only on pixels it left
+            dark &mdash; so it never covers the time.
+        </p>
+    </div>
+
+    <h2>Overnight</h2>
+    <div class="field">
+        <label class="check">
+            <input type="checkbox" id="night-enabled" data-setting="display.night.enabled">
+            Dim on a schedule
+        </label>
+        <p class="help">
+            A panel bright enough to read across a kitchen is too bright to
+            sleep next to. Times are local, so the window follows the timezone.
+        </p>
+    </div>
+    <div class="row" id="night-fields">
+        <div class="field">
+            <label for="night-start">From</label>
+            <input type="time" id="night-start">
+        </div>
+        <div class="field">
+            <label for="night-end">Until</label>
+            <input type="time" id="night-end">
+        </div>
+        <div class="field">
+            <label for="night-brightness">Brightness</label>
+            <input type="range" id="night-brightness" min="0" max="255"
+                   data-setting="display.night.brightness">
+            <output for="night-brightness" id="night-brightness-out">16</output>
+            <p class="help">Zero switches the panel off until morning.</p>
+        </div>
+    </div>
+
+    <h2>Sound</h2>
+    <div class="field">
         <label for="volume">Volume</label>
         <input type="range" id="volume" min="0" max="100" data-setting="audio.volumePercent">
         <output for="volume" id="volume-out">50</output>
-        <p class="help" id="volume-help">Tap &minus; / + on the device for the same control.</p>
+        <p class="help" id="volume-help">On the device: hold the knob for settings, turn to VOL, then &minus; / +.</p>
     </div>
 </section>
 
-<section class="panel" id="panel-clock">
-    <h2>Clock</h2>
-    <div class="field">
-        <label for="theme">Face</label>
-        <select id="theme" data-setting="clock.theme">
-            <option value="minimal">Minimal &mdash; HH:MM</option>
-            <option value="seconds">Seconds &mdash; HH:MM:SS</option>
-            <option value="date">Date below</option>
-            <option value="weekday">Weekday below</option>
-            <option value="secondsbar">Seconds bar</option>
-            <option value="calendar">Calendar</option>
-        </select>
-    </div>
-    <div class="row">
-        <div class="field">
-            <label for="twentyFourHour">24-hour</label>
-            <label class="switch">
-                <input type="checkbox" id="twentyFourHour" data-setting="clock.twentyFourHour">
-                <span>24h</span>
-            </label>
-        </div>
-        <div class="field">
-            <label for="leadingZero">Leading zero</label>
-            <label class="switch">
-                <input type="checkbox" id="leadingZero" data-setting="clock.leadingZero">
-                <span>07:05</span>
-            </label>
-        </div>
-        <div class="field">
-            <label for="showAmPm">AM/PM</label>
-            <label class="switch">
-                <input type="checkbox" id="showAmPm" data-setting="clock.showAmPm">
-                <span>Show</span>
-            </label>
-            <p class="help">12-hour faces only, where there is room.</p>
-        </div>
-    </div>
-    <div class="row">
-        <div class="field">
-            <label for="color">Digits</label>
-            <input type="color" id="color" data-setting="clock.color">
-        </div>
-        <div class="field">
-            <label for="accentColor">Accent</label>
-            <input type="color" id="accentColor" data-setting="clock.accentColor">
-            <p class="help">Colon, seconds bar, calendar header.</p>
-        </div>
-        <div class="field">
-            <label for="dateColor">Date</label>
-            <input type="color" id="dateColor" data-setting="clock.dateColor">
-        </div>
-    </div>
-    <div class="row">
-        <div class="field">
-            <label for="dateOrder">Date order</label>
-            <select id="dateOrder" data-setting="clock.dateOrder">
-                <option value="dayMonthYear">31.12</option>
-                <option value="monthDayYear">12.31</option>
-                <option value="yearMonthDay">Year first</option>
-            </select>
-        </div>
-        <div class="field">
-            <label for="dateSeparator">Separator</label>
-            <select id="dateSeparator" data-setting="clock.dateSeparator">
-                <option value="dot">31.12</option>
-                <option value="slash">31/12</option>
-                <option value="dash">31-12</option>
-            </select>
-        </div>
-        <div class="field">
-            <label for="dateYear">Year</label>
-            <select id="dateYear" data-setting="clock.dateYear">
-                <option value="none">Hidden</option>
-                <option value="twoDigit">26</option>
-                <option value="fourDigit">2026</option>
-            </select>
-        </div>
-    </div>
-    <div class="row">
-        <div class="field">
-            <label for="blinkPeriodMillis">Colon blink</label>
-            <select id="blinkPeriodMillis" data-setting="clock.blinkPeriodMillis" data-numeric="1">
-                <option value="0">Always lit</option>
-                <option value="500">Fast</option>
-                <option value="1000">One second</option>
-                <option value="2000">Slow</option>
-            </select>
-        </div>
-        <div class="field">
-            <label for="utcOffsetSeconds">UTC offset</label>
-            <select id="utcOffsetSeconds" data-setting="clock.utcOffsetSeconds"></select>
-        </div>
-    </div>
-</section>
 
 <section class="panel" id="panel-apps">
     <h2>Apps</h2>
@@ -200,11 +180,45 @@
                 <span>Animate</span>
             </label>
         </div>
+        <div class="field">
+            <label for="apps-transition">Transition</label>
+            <select id="apps-transition" data-setting="apps.transition">
+                <option value="slide">Slide</option>
+                <option value="fade">Fade</option>
+                <option value="wipe">Wipe</option>
+                <option value="dissolve">Dissolve</option>
+                <option value="none">Cut</option>
+            </select>
+            <p class="help">
+                Between apps. A notification always fades in, whatever this
+                says &mdash; sliding would make it look like the next app
+                rather than an interruption.
+            </p>
+        </div>
     </div>
+    <p class="help">
+        Drag to reorder, or use the arrows. The gear opens an app's own
+        settings; the order and the switches are remembered across restarts.
+    </p>
     <ul class="list" id="app-list"></ul>
 </section>
 
 <section class="panel" id="panel-notify">
+    <h2>Sound</h2>
+    <div class="field">
+        <label for="notify-sound">Notification sound</label>
+        <select id="notify-sound" data-setting="notifications.sound">
+            <option value="none">Silent</option>
+            <option value="beep">Beep</option>
+            <option value="chime">Chime</option>
+            <option value="alert">Alert</option>
+        </select>
+        <p class="help" id="notify-sound-help">
+            Played when a notification appears, unless it asks for a different
+            one.
+        </p>
+    </div>
+
     <h2>Send a notification</h2>
     <div class="field">
         <label for="notify-text">Text</label>
@@ -261,6 +275,15 @@
             <label for="mqtt-password">Password</label>
             <input type="password" id="mqtt-password" maxlength="128" autocomplete="new-password">
             <p class="help" id="mqtt-password-help">Not set.</p>
+            <!-- The browser is right to warn about this, so the page agrees with
+                 it rather than trying to look reassuring. The device serves
+                 plain HTTP: it has no certificate, nothing to get one from, and
+                 no clock it can trust at boot to check an expiry against. -->
+            <p class="help warn-note">
+                This page is served over plain HTTP, so this password crosses
+                your LAN unencrypted. The device also stores it unencrypted.
+                Use a broker account that only NOTRIX uses.
+            </p>
         </div>
     </div>
     <div class="row">
@@ -289,17 +312,130 @@
 </section>
 
 <section class="panel" id="panel-system">
+
+    <!-- Shown once, on a device nobody has configured yet. It is a state and
+         not a wizard: nothing is blocked behind it, and it stops appearing
+         the moment anything is saved rather than when a button is pressed. A
+         button somebody has to find is a step that can be missed. -->
+    <p class="notice" id="first-run" hidden>
+        <strong>Welcome.</strong> This device has not been set up yet. Choose a
+        network below, and set a password under Access if anyone else uses this
+        network. Everything else already works - the clock is running.
+    </p>
     <h2>System</h2>
     <div class="field">
         <label for="deviceName">Device name</label>
         <input type="text" id="deviceName" maxlength="64" data-setting="deviceName">
     </div>
     <dl class="facts" id="device-facts"></dl>
+    <h2>Network</h2>
+    <dl class="facts" id="network-facts"></dl>
+    <div class="toolbar">
+        <button class="btn" id="network-scan" type="button">Scan</button>
+        <span class="muted" id="network-note"></span>
+    </div>
+    <!-- A dropdown, not a list. A dozen networks is a dozen rows on a page
+         that also holds time, panel and maintenance settings, and all anyone
+         does with them is pick one.
+
+         "Other..." is not a fallback for when the list fails: a hidden
+         network never appears in any list, and while the device is hosting
+         its own access point it cannot scan at all - which is precisely when
+         somebody is standing here trying to join one. -->
+    <div class="row">
+        <select id="join-pick"></select>
+        <input id="join-password" type="password" placeholder="Password"
+               autocomplete="new-password" maxlength="63">
+        <button class="btn" id="join-go" type="button">Join</button>
+    </div>
+    <div class="row" id="join-other-row" hidden>
+        <input id="join-ssid" type="text" placeholder="Network name" autocomplete="off"
+               spellcheck="false" maxlength="32">
+    </div>
+    <p class="muted" id="join-note"></p>
+
+    <h2>Access</h2>
+    <!-- Off by default, and offered here rather than left to be discovered.
+         A device that demanded a password before it would show a clock would
+         be a worse first five minutes than the risk it removes.
+
+         One mechanism covers the API and this page, because they are the
+         same server and two schemes would be two things to get wrong. -->
+    <p class="help" id="access-state"></p>
+    <div class="row">
+        <input id="access-user" type="text" placeholder="Username" autocomplete="username"
+               spellcheck="false" maxlength="64">
+        <input id="access-pass" type="password" placeholder="Password"
+               autocomplete="new-password" maxlength="128">
+        <button class="btn" id="access-save" type="button">Set</button>
+        <button class="btn" id="access-clear" type="button">Turn off</button>
+    </div>
+    <p class="help">
+        Sent in the clear over your network, and stored on the device in the clear.
+        It keeps the rest of the LAN out; it is not protection from someone
+        holding the device. Forgotten it? Hold &minus; and + together for five
+        seconds and it is cleared.
+    </p>
+
+    <h2>Firmware</h2>
+    <!-- An update is a file copy, not a flash (ADR 0021). The framework is
+         pointed at a shim in the read-only partition, and the shim tries an
+         override in /data first, then the copy flashed beside it, then the
+         stock clock - so an update that will not load costs a reboot rather
+         than a device.
+
+         This replaced a "stage a recovery image" control that wrote
+         update.img to the USB volume. That turned out to be actively
+         dangerous: the vendor's own zkdaemon installs whatever sits there on
+         unattended recovery, and it reverted a working NOTRIX on real
+         hardware. A staged image is an armed revert, not a safety net. -->
+    <p class="help" id="firmware-state">Checking&hellip;</p>
+    <div class="row">
+        <input id="firmware-file" type="file" accept=".so,application/octet-stream">
+        <button class="btn" id="firmware-upload" type="button">Install</button>
+        <button class="btn" id="firmware-rollback" type="button" hidden>Go back</button>
+    </div>
+    <p class="help">
+        Upload <code>libnotrix.so</code> from a release. It is checked here
+        first &mdash; it has to be a 32-bit ARM shared library, so a host build
+        is refused rather than installed &mdash; then written beside the
+        running one and renamed into place, so a failed upload changes
+        nothing. Nothing is flashed, and the device keeps the previous version
+        so you can go back.
+    </p>
+
+    <h2>Backup</h2>
+    <p class="help">
+        Downloads every setting as a file. The MQTT password is not in it
+        &mdash; the device never gives it back, to anyone &mdash; so it has to
+        be typed in again after a restore.
+    </p>
+    <div class="toolbar">
+        <button class="btn" id="backup" type="button">Download backup</button>
+        <button class="btn" id="restore" type="button">Restore from file</button>
+        <!-- id is settings-specific on purpose: this and the firmware picker
+             both used to be called restore-file, and getElementById returned
+             whichever came first in the document. -->
+        <input type="file" id="settings-file" accept="application/json,.json" hidden>
+    </div>
+
+    <h2>Reset</h2>
+    <p class="help">
+        Puts settings back to their defaults. The device keeps its name, so it
+        is still the one you were looking at.
+    </p>
+    <div class="toolbar">
+        <button class="btn danger" id="reset" type="button">Reset settings</button>
+        <button class="btn danger" id="reset-all" type="button">Reset settings and apps</button>
+    </div>
+
     <h2>Restart</h2>
     <p class="help">
         Settings are saved as you change them, so a restart loses nothing.
     </p>
-    <button class="btn danger" id="reboot" type="button">Restart device</button>
+    <div class="toolbar">
+        <button class="btn danger" id="reboot" type="button">Restart device</button>
+    </div>
 </section>
 
 <section class="panel" id="panel-logs">
@@ -313,6 +449,145 @@
     </div>
     <ol class="logview" id="logview"></ol>
 </section>
+
+
+<!-- Per-app settings.
+     Parked here rather than built when a row expands, so the controls exist in
+     the DOM at load and bindControls() binds them exactly once like every
+     other setting. app.js moves the matching panel into its row and back; it
+     never clones, because two copies of one control is two answers to the same
+     question. -->
+<div id="app-config-stash" hidden>
+    <div class="app-config" data-app="clock">
+    <div class="field">
+        <label for="theme">Face</label>
+        <select id="theme" data-setting="clock.theme">
+            <option value="minimal">Minimal &mdash; HH:MM</option>
+            <option value="seconds">Seconds &mdash; HH:MM:SS</option>
+            <option value="date">Date below</option>
+            <option value="weekday">Weekday below</option>
+            <option value="secondsbar">Seconds bar</option>
+            <option value="calendar">Calendar</option>
+        </select>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="twentyFourHour">24-hour</label>
+            <label class="switch">
+                <input type="checkbox" id="twentyFourHour" data-setting="clock.twentyFourHour">
+                <span>24h</span>
+            </label>
+        </div>
+        <div class="field">
+            <label for="leadingZero">Leading zero</label>
+            <label class="switch">
+                <input type="checkbox" id="leadingZero" data-setting="clock.leadingZero">
+                <span>07:05</span>
+            </label>
+        </div>
+        <div class="field">
+            <label for="showAmPm">AM/PM</label>
+            <label class="switch">
+                <input type="checkbox" id="showAmPm" data-setting="clock.showAmPm">
+                <span>Show</span>
+            </label>
+            <p class="help" id="ampm-help">12-hour faces only, where there is room.</p>
+        </div>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="color">Digits</label>
+            <input type="color" id="color" data-setting="clock.color">
+        </div>
+        <div class="field">
+            <label for="accentColor">Accent</label>
+            <input type="color" id="accentColor" data-setting="clock.accentColor">
+            <p class="help">Colon, seconds bar, calendar header.</p>
+        </div>
+        <div class="field">
+            <label for="dateColor">Date</label>
+            <input type="color" id="dateColor" data-setting="clock.dateColor">
+        </div>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="dateOrder">Date order</label>
+            <select id="dateOrder" data-setting="clock.dateOrder">
+                <option value="dayMonthYear">31.12</option>
+                <option value="monthDayYear">12.31</option>
+                <option value="yearMonthDay">Year first</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="dateSeparator">Separator</label>
+            <select id="dateSeparator" data-setting="clock.dateSeparator">
+                <option value="dot">31.12</option>
+                <option value="slash">31/12</option>
+                <option value="dash">31-12</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="dateYear">Year</label>
+            <select id="dateYear" data-setting="clock.dateYear">
+                <option value="none">Hidden</option>
+                <option value="twoDigit">26</option>
+                <option value="fourDigit">2026</option>
+            </select>
+        </div>
+    </div>
+    <div class="row">
+        <div class="field">
+            <label for="blinkPeriodMillis">Colon blink</label>
+            <select id="blinkPeriodMillis" data-setting="clock.blinkPeriodMillis" data-numeric="1">
+                <option value="0">Always lit</option>
+                <option value="500">Fast</option>
+                <option value="1000">One second</option>
+                <option value="2000">Slow</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="timezone">Timezone</label>
+            <select id="timezone" data-setting="clock.timezone"></select>
+            <p class="help" id="timezone-help">
+                Follows daylight saving on its own.
+            </p>
+        </div>
+        <div class="field" id="offset-field">
+            <label for="utcOffsetSeconds">UTC offset</label>
+            <select id="utcOffsetSeconds" data-setting="clock.utcOffsetSeconds"></select>
+            <p class="help">
+                Used only when no timezone is chosen.
+            </p>
+        </div>
+    </div>
+    <div class="field">
+        <label class="check">
+            <input type="checkbox" id="clock-tick" data-setting="clock.tick">
+            Audible tick
+        </label>
+        <p class="help" id="clock-tick-help">
+            A quiet tick and tock once a second, only while the clock is on
+            screen. Off by default.
+        </p>
+    </div>
+    </div>
+
+    <div class="app-config" data-app="visualizer">
+        <div class="field">
+            <label for="visualizer-style">Style</label>
+            <select id="visualizer-style" data-setting="visualizer.style">
+                <option value="wave">Wave &mdash; travelling, playful</option>
+                <option value="meter">Meter &mdash; a level rising from the bottom</option>
+                <option value="trace">Trace &mdash; scrolling history</option>
+            </select>
+            <p class="help">
+                All three draw the same reading. The panel reports loudness about
+                twenty times a second, not audio, so none of them is a waveform of
+                the room.
+            </p>
+        </div>
+    </div>
+</div>
 
 </main>
 

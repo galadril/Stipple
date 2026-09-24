@@ -30,16 +30,27 @@ add_library(notrix_core
     src/text/Scroll.cpp
     src/notify/Notifications.cpp
     src/input/InputMapper.cpp
+    src/input/Navigator.cpp
+    src/input/Rescue.cpp
+    src/input/SetupHold.cpp
     src/json/Json.cpp
     src/scene/Scene.cpp
+    src/audio/Tone.cpp
+    src/time/Timezone.cpp
+    src/net/DhcpClient.cpp
+    src/net/SntpMessage.cpp
     src/core/Base64.cpp
     src/core/Checksum.cpp
+    src/core/Md5.cpp
     src/core/Log.cpp
     src/core/Rgb.cpp
     src/render/FrameScheduler.cpp
+    src/render/Overlay.cpp
+    src/render/Transition.cpp
     src/asset/IconStore.cpp
     src/apps/BatteryApp.cpp
     src/apps/ClockApp.cpp
+    src/apps/VisualizerApp.cpp
     src/apps/SplashScreen.cpp
     src/host/ApplicationHost.cpp
     src/app/AppRegistry.cpp
@@ -48,6 +59,7 @@ add_library(notrix_core
     src/api/Http.cpp
     src/api/JsonWriter.cpp
     src/api/ApiServer.cpp
+    src/api/BasicAuth.cpp
     src/mqtt/MqttBridge.cpp
     src/mqtt/MqttService.cpp
 )
@@ -99,15 +111,21 @@ add_library(notrix::platform_simulator ALIAS notrix_platform_simulator)
 # violation a link error rather than a review comment.
 if(NOTRIX_DEVICE_BUILD)
     add_library(notrix_platform_tc002
+        src/platform/tc002/Tc002Audio.cpp
         src/platform/tc002/Tc002Display.cpp
+        src/platform/tc002/Tc002Hotspot.cpp
+        src/platform/tc002/Tc002Dhcp.cpp
+        src/platform/tc002/Tc002Sntp.cpp
         src/platform/tc002/Tc002HttpServer.cpp
         src/platform/tc002/Tc002Input.cpp
         src/platform/tc002/Tc002Mcu.cpp
         src/platform/tc002/Tc002MqttClient.cpp
         src/platform/tc002/Tc002Platform.cpp
+        src/platform/tc002/Tc002Upgrade.cpp
+        src/platform/tc002/WpaControl.cpp
     )
 
-    target_link_libraries(notrix_platform_tc002 PUBLIC notrix_core notrix_warnings)
+    target_link_libraries(notrix_platform_tc002 PUBLIC notrix_core notrix_warnings ${CMAKE_DL_LIBS})
 
     add_library(notrix::platform_tc002 ALIAS notrix_platform_tc002)
 endif()
@@ -152,6 +170,22 @@ if(NOTRIX_DEVICE_BUILD)
     target_link_libraries(notrix_hal_probe PRIVATE ${CMAKE_DL_LIBS} notrix_warnings)
 endif()
 
+# Asks the SigmaStar audio-out library what it is configured for. Read-only:
+# it sets nothing and plays nothing. Dynamic for the same reason as the HAL
+# probe - it dlopens a vendor library, which a static binary cannot do - so it
+# needs the bullseye toolchain.
+#
+# notrix_warnings is deliberately not linked: it carries -Wold-style-cast and
+# friends, which GCC reports as "valid for C++ but not for C", and the device
+# preset turns warnings into errors.
+if(NOTRIX_DEVICE_BUILD)
+    enable_language(C)
+    add_executable(notrix_audio_probe tools/audio_probe/main.c)
+    target_compile_options(notrix_audio_probe PRIVATE
+        -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
+    target_link_libraries(notrix_audio_probe PRIVATE ${CMAKE_DL_LIBS})
+endif()
+
 # The last unknown in the display protocol: channel order.
 #
 # The spidev capture settled the device node, the SPI mode, the 3072-byte frame
@@ -183,7 +217,75 @@ if(NOTRIX_DEVICE_BUILD)
         notrix_core
         notrix_platform_tc002
         notrix_warnings)
-    target_link_options(notrix_device PRIVATE -static)
+
+    # The same firmware, as the library the TC002 framework loads.
+    #
+    # /bin/zkgui dlopens whatever /res/etc/EasyUI.cfg names and NOTRIX takes
+    # the process in a static constructor (ADR 0021). Built from the very
+    # same translation unit as the executable, with one define, because a
+    # device build that took a different path from the one tested over ADB
+    # would be a second firmware wearing the first one's tests.
+    #
+    # Named libnotrix.so rather than libzkgui.so on purpose: it does not
+    # replace the vendor application, it is pointed at instead of it, and the
+    # vendor's own library stays where it is.
+    add_library(notrix_startup SHARED tools/device/main.cpp)
+    set_target_properties(notrix_startup PROPERTIES OUTPUT_NAME notrix)
+    target_compile_definitions(notrix_startup PRIVATE NOTRIX_AS_LIBRARY)
+    target_link_libraries(notrix_startup PRIVATE
+        notrix_core
+        notrix_platform_tc002
+        notrix_warnings)
+
+    # The C++ runtime travels with us. The device ships libstdc++.so.6.0.26,
+    # whose newest symbol set is GLIBCXX_3.4.26 - GCC 9. Every toolchain in
+    # tooling/cross/ is newer than that: bookworm emits GLIBCXX_3.4.30 and
+    # bullseye 3.4.28, so *neither* container can produce a library this
+    # device can dlopen if it links libstdc++ dynamically.
+    #
+    # Measured the hard way. A build that flashed and verified perfectly
+    # failed at dlopen with
+    #
+    #     /lib/libstdc++.so.6: version `GLIBCXX_3.4.29' not found
+    #
+    # and the only reason that was diagnosable is that the shim fell back to
+    # the stock clock and left the device on the network.
+    #
+    # Static libgcc too, for the unwinder: a mixed pair is worse than either.
+    target_link_options(notrix_startup PRIVATE
+        -static-libstdc++
+        -static-libgcc)
+
+    # Threads, explicitly, and it is not optional.
+    #
+    # The SNTP client resolves a hostname on a worker so a slow or dead
+    # nameserver cannot stall the panel. At the glibc this device runs,
+    # pthread_create still lives in libpthread rather than libc, and
+    # libstdc++ reaches it through *weak* symbols - so without -pthread the
+    # link succeeds, the binary loads, and std::thread fails at runtime
+    # instead. Which is exactly what it did: the clock stayed at 1970 with no
+    # error anywhere, because the failure was a thread that never ran.
+    target_compile_options(notrix_startup PRIVATE -pthread)
+    target_link_options(notrix_startup PRIVATE -pthread)
+
+    # Dynamic, because the speaker is only reachable through a vendor library.
+    #
+    # Static linking was the right first answer: it removed every question
+    # about which glibc the device carries, and those questions cost days
+    # elsewhere. They are now answered - the device has 2.30, and the bullseye
+    # toolchain in tooling/cross/ produces executables it accepts.
+    #
+    # What static cannot do is dlopen, and /lib/libmi_ao.so is the only route
+    # to the speaker: there is no ALSA on this device and the vendor
+    # application reaches it the same way. A static binary would mean a device
+    # that can never make a sound.
+    #
+    # The cost is that notrix_device now depends on libraries that live on the
+    # device. That is a real dependency and it is on the device's own runtime,
+    # which is present on every unit that can run the stock application at all.
+    if(NOTRIX_DEVICE_STATIC)
+        target_link_options(notrix_device PRIVATE -static)
+    endif()
 endif()
 
 # NOTRIX core rendering on the real panel.
@@ -223,6 +325,19 @@ if(NOTRIX_DEVICE_BUILD)
     target_compile_options(notrix_mcu_probe PRIVATE
         -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
     target_link_options(notrix_mcu_probe PRIVATE -static)
+endif()
+
+# Brings the access point up, waits, and puts the network back on its own.
+#
+# A separate tool rather than a flag on the firmware, deliberately: the
+# firmware's trigger is a *stored* setting, and a device that boots into
+# hotspot mode because a test left a flag behind is the failure this is meant
+# to avoid.
+if(NOTRIX_DEVICE_BUILD)
+    add_executable(notrix_hotspot_test tools/hotspot_test/main.cpp)
+    target_link_libraries(notrix_hotspot_test PRIVATE
+        notrix_platform_tc002
+        notrix_warnings)
 endif()
 
 # Host-only frame previewer. Renders through the simulator adapter and writes

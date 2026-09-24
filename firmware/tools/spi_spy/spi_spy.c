@@ -27,10 +27,13 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
+/// Overridable with NOTRIX_SPY_LOG, so two captures can be taken without one
+/// overwriting the other.
 #define LOG_PATH "/tmp/notrix-spi.log"
 
 // Whole frames, but few of them. The first attempt kept 160 bytes of 400
@@ -38,6 +41,24 @@
 // pixels are further in. Full frames are what make the layout readable, and
 // eight of them at ~9 KB of hex each is still nothing against 16 MB of tmpfs.
 #define MAX_RECORDS 600
+
+/// The cap exists because an unfiltered capture takes 3072 bytes forty times a
+/// second, and /tmp is RAM on a device with 36 MB of it. With NOTRIX_SPY_ONLY
+/// narrowing the watch to one slow link, the same cap is the wrong tool: it
+/// stopped a capture of the MCU after nine minutes, silently, right before the
+/// thing it was taken to see. NOTRIX_SPY_MAX raises it deliberately, which is
+/// the only way it should ever be raised.
+static int record_limit(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char* text = getenv("NOTRIX_SPY_MAX");
+        cached = (text != NULL && text[0] != 0) ? atoi(text) : MAX_RECORDS;
+        if (cached < 1) {
+            cached = MAX_RECORDS;
+        }
+    }
+    return cached;
+}
 
 // A frame turned out to be exactly 3072 bytes: 1024 pixels of RGB. Capturing
 // all of it means the pixel layout can be recovered by comparing frames.
@@ -112,7 +133,18 @@ static void note(const char* format, ...) {
 /// descriptors the old filter ignored. The SigmaStar MI layer is the obvious
 /// candidate. Watching everything costs log volume, which is cheap; watching
 /// too little costs a day, which is not.
+///
+/// NOTRIX_SPY_ONLY narrows it to paths containing a given substring. Watching
+/// everything is right when hunting for an unknown enable; it is wrong when the
+/// hunt is for something slow and the log has to run for minutes, because
+/// spidev takes 3072 bytes forty times a second and /tmp is RAM on a device
+/// with 36 MB of it. A capture that fills tmpfs does not just truncate, it
+/// takes the running application down with it.
 static int interesting(const char* path) {
+    const char* only = getenv("NOTRIX_SPY_ONLY");
+    if (only != NULL && only[0] != '\0') {
+        return strstr(path, only) != NULL;
+    }
     return strncmp(path, "/dev/", 5) == 0 || strncmp(path, "/sys/", 5) == 0;
 }
 
@@ -156,7 +188,7 @@ static void untrack(int fd) {
 /// Hex dump, truncated. The length is always reported in full even when the
 /// bytes are not, so a frame size can be trusted from the log.
 static void dump(const char* kind, int fd, const unsigned char* data, size_t length) {
-    if (records >= MAX_RECORDS) {
+    if (records >= record_limit()) {
         return;
     }
     ++records;
@@ -253,9 +285,25 @@ int ioctl(int fd, unsigned long request, ...) {
         // spidev's ioctls carry magic 'k'. The direction, size and number are
         // all encoded in the request, and printing them raw avoids guessing at
         // which kernel's headers this device was built with.
+        const unsigned long size = (request >> 16) & 0x3FFF;
+        const unsigned long dir = (request >> 30) & 0x3;
         note("IOCTL fd=%d req=0x%08lx magic=%c nr=%lu size=%lu dir=%lu\n",
              fd, request, (char)((request >> 8) & 0xFF), (request & 0xFF),
-             (request >> 16) & 0x3FFF, (request >> 30) & 0x3);
+             size, dir);
+
+        // The payload, not just the request number.
+        //
+        // Knowing that MI_AO_SetPubAttr marshals a 56-byte struct says
+        // nothing about what is *in* it, and the whole reason to watch a
+        // vendor library is to avoid guessing at a layout and then writing
+        // the guess into a driver. These are bytes the device is known to
+        // accept.
+        //
+        // Bounded by the size the request itself declares, so a malformed
+        // request cannot walk off the end of whatever the caller passed.
+        if (argument != NULL && (dir & 1) != 0 && size > 0 && size <= MAX_BYTES) {
+            dump("  ARG", fd, (const unsigned char*)argument, (size_t)size);
+        }
         inside = 0;
     }
 

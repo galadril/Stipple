@@ -167,6 +167,21 @@ void Tc002HttpServer::stop() {
     port_ = 0;
 }
 
+std::size_t Tc002HttpServer::ceilingFor(const std::string& inbound) const {
+    // Decided from the first line, which arrives in the first packet. Until
+    // enough has arrived to tell, the small ceiling applies - and it is far
+    // larger than a request line, so nothing is ever refused for being
+    // undecidable.
+    const std::size_t prefix = std::strlen(kUploadRequestLine);
+    if (inbound.size() < prefix) {
+        return kMaxRequestBytes;
+    }
+    if (inbound.compare(0, prefix, kUploadRequestLine) != 0) {
+        return kMaxRequestBytes;
+    }
+    return kMaxUploadBytes;
+}
+
 void Tc002HttpServer::closeConnection(Connection& connection) noexcept {
     if (connection.fd >= 0) {
         ::close(connection.fd);
@@ -294,7 +309,10 @@ bool Tc002HttpServer::tryParse(const std::string& raw, api::Request& request,
                     break;
                 }
                 parsed = parsed * 10 + static_cast<std::size_t>(c - '0');
-                if (parsed > kMaxRequestBytes) {
+                if (parsed > kMaxUploadBytes) {
+                    // The wider bound here, because the narrower one is
+                    // enforced on accumulation where the request line is
+                    // known. A Content-Length check cannot see the path.
                     malformed = true;
                     return true;
                 }
@@ -310,9 +328,11 @@ bool Tc002HttpServer::tryParse(const std::string& raw, api::Request& request,
         } else if (equalsIgnoreCase(name, "x-api-key")) {
             request.authToken = std::string(value);
         } else if (equalsIgnoreCase(name, "authorization")) {
-            // Only Bearer is recognised. api::Request wants the token itself,
-            // not the scheme, so anything else is left for the handler to
-            // reject as missing rather than half-understood here.
+            // Kept whole as well as split. Basic is decided in the core, and
+            // the transport's job is to hand over what arrived rather than
+            // to decide what it means.
+            request.authorization = std::string(value);
+
             constexpr std::string_view kBearer = "Bearer ";
             if (value.size() > kBearer.size() &&
                 equalsIgnoreCase(value.substr(0, kBearer.size()), kBearer)) {
@@ -365,6 +385,9 @@ void Tc002HttpServer::queueResponse(Connection& connection,
     if (!response.etag.empty()) {
         connection.outbound += "ETag: " + response.etag + "\r\n";
     }
+    if (!response.wwwAuthenticate.empty()) {
+        connection.outbound += "WWW-Authenticate: " + response.wwwAuthenticate + "\r\n";
+    }
     if (!response.cacheControl.empty()) {
         connection.outbound += "Cache-Control: " + response.cacheControl + "\r\n";
     }
@@ -399,15 +422,18 @@ void Tc002HttpServer::service(Connection& connection, std::uint64_t nowMillis) {
     }
 
     // --- read what has arrived -----------------------------------------------
+    const std::size_t ceiling = ceilingFor(connection.inbound);
     char chunk[kReadChunk];
     for (;;) {
         const ssize_t got = ::recv(connection.fd, chunk, sizeof(chunk), 0);
         if (got > 0) {
             if (connection.inbound.size() + static_cast<std::size_t>(got) >
-                kMaxRequestBytes) {
+                ceilingFor(connection.inbound)) {
                 ++rejected_;
-                queueResponse(connection,
-                              api::payloadTooLarge("request exceeds 64 KiB"));
+                queueResponse(connection, api::payloadTooLarge(
+                                              ceiling > kMaxRequestBytes
+                                                  ? "image exceeds 4 MiB"
+                                                  : "request exceeds 64 KiB"));
                 return;
             }
             connection.inbound.append(chunk, static_cast<std::size_t>(got));

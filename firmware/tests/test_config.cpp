@@ -6,11 +6,13 @@
 
 #include "notrix/json/Json.h"
 
+#include "notrix/app/AppRegistry.h"
 #include "notrix/apps/ClockApp.h"
 #include "notrix/core/Checksum.h"
 #include "notrix/platform/simulator/SimulatorPlatform.h"
 #include "support/TestFramework.h"
 
+using notrix::config::AppPreference;
 using notrix::config::Config;
 using notrix::config::ConfigStore;
 using notrix::config::kCurrentSchemaVersion;
@@ -416,6 +418,18 @@ NOTRIX_TEST(Config, TokenBudgetHasHeadroom) {
     config.mqtt.username = "user";
     config.mqtt.password = "secret";
 
+    // A full registry of remembered apps, which is what a maximal document
+    // actually looks like now. Each one is about seven tokens, so this is more
+    // of the budget than everything above it put together - and leaving it out
+    // would have made this test measure a document no real device writes.
+    for (int i = 0; i < notrix::config::kMaxRememberedApps; ++i) {
+        AppPreference preference;
+        preference.id = std::string(notrix::app::AppRegistry::kMaxIdBytes, 'a');
+        preference.enabled = (i % 2) == 0;
+        preference.durationSeconds = 3600;
+        config.apps.order.push_back(std::move(preference));
+    }
+
     const std::string payload = ConfigStore::serialize(config);
 
     // Find what a maximal document actually costs, by parsing it at rising
@@ -498,4 +512,105 @@ NOTRIX_TEST(Config, EveryStatusHasADescription) {
         const char* text = notrix::config::describe(static_cast<LoadStatus>(i));
         NOTRIX_CHECK(text != nullptr && text[0] != '\0');
     }
+}
+
+NOTRIX_TEST(Config, RememberedAppsMatchWhatTheRegistryCanHold) {
+    // kMaxRememberedApps is duplicated rather than included, to keep
+    // configuration from depending on the app layer for one number. That is
+    // only safe if something notices when the two drift.
+    NOTRIX_CHECK_EQ(notrix::config::kMaxRememberedApps,
+                    notrix::app::AppRegistry::kMaxApps);
+}
+
+NOTRIX_TEST(Config, AppOrderSurvivesASaveAndLoad) {
+    SimulatorPlatform platform;
+    ConfigStore store(platform.storage());
+
+    Config written;
+    AppPreference first;
+    first.id = "battery";
+    first.enabled = false;
+    first.durationSeconds = 12;
+    written.apps.order.push_back(first);
+
+    AppPreference second;
+    second.id = "clock";
+    written.apps.order.push_back(second);
+
+    NOTRIX_REQUIRE(store.save(written));
+
+    Config read;
+    store.load(read);
+
+    NOTRIX_REQUIRE(read.apps.order.size() == 2);
+    NOTRIX_CHECK_EQ(read.apps.order[0].id, std::string("battery"));
+    NOTRIX_CHECK_FALSE(read.apps.order[0].enabled);
+    NOTRIX_CHECK_EQ(read.apps.order[0].durationSeconds, 12);
+    NOTRIX_CHECK_EQ(read.apps.order[1].id, std::string("clock"));
+    NOTRIX_CHECK(read.apps.order[1].enabled);
+}
+
+NOTRIX_TEST(Config, AnOrderEntryWithNoIdIsSkippedOnLoad) {
+    // An entry naming nothing orders nothing, and keeping it would leave a
+    // permanent no-op sitting in the user's arrangement. Driven through save()
+    // rather than by hand-writing the document, because a stored document
+    // carries a checksum and one written by hand is simply rejected - which
+    // would have made this test pass for the wrong reason.
+    SimulatorPlatform platform;
+    ConfigStore store(platform.storage());
+
+    Config written;
+    AppPreference nameless;          // id left empty
+    nameless.enabled = true;
+    written.apps.order.push_back(nameless);
+
+    AppPreference real;
+    real.id = "clock";
+    written.apps.order.push_back(real);
+
+    NOTRIX_REQUIRE(store.save(written));
+
+    Config read;
+    store.load(read);
+
+    NOTRIX_REQUIRE(read.apps.order.size() == 1);
+    NOTRIX_CHECK_EQ(read.apps.order[0].id, std::string("clock"));
+}
+
+NOTRIX_TEST(Config, NightSettingsRoundTrip) {
+    // Nesting matters: the serialiser wrote this at the top level while the
+    // parser read it from inside "display", so it saved and never came back -
+    // and nothing else in the suite would have noticed.
+    SimulatorPlatform platform;
+    ConfigStore store(platform.storage());
+
+    Config written;
+    written.display.night.enabled = true;
+    written.display.night.startMinutes = 23 * 60 + 15;
+    written.display.night.endMinutes = 6 * 60 + 30;
+    written.display.night.brightness = 9;
+    NOTRIX_REQUIRE(store.save(written));
+
+    Config read;
+    store.load(read);
+
+    NOTRIX_CHECK(read.display.night.enabled);
+    NOTRIX_CHECK_EQ(read.display.night.startMinutes, 23 * 60 + 15);
+    NOTRIX_CHECK_EQ(read.display.night.endMinutes, 6 * 60 + 30);
+    NOTRIX_CHECK_EQ(static_cast<int>(read.display.night.brightness), 9);
+}
+
+NOTRIX_TEST(Config, ATimeOutsideADayIsClamped) {
+    SimulatorPlatform platform;
+    ConfigStore store(platform.storage());
+
+    Config written;
+    written.display.night.startMinutes = 99999;
+    written.display.night.endMinutes = -5;
+    NOTRIX_REQUIRE(store.save(written));
+
+    Config read;
+    store.load(read);
+    NOTRIX_CHECK(read.display.night.startMinutes >= 0 && read.display.night.startMinutes <= 1439);
+    NOTRIX_CHECK(read.display.night.endMinutes >= 0 && read.display.night.endMinutes <= 1439);
 }

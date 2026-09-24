@@ -94,13 +94,26 @@ h2:first-child { margin-top: 0; }
 /* --- fields ------------------------------------------------------------- */
 
 .field { margin-bottom: 18px; }
-.row { display: flex; gap: 18px; flex-wrap: wrap; }
+/* align-items matters more than it looks. Without it a select, an input and
+   a button in one row sit on three different baselines, because each has its
+   own intrinsic height - which is exactly what made the settings page look
+   untidy without any single thing being wrong. */
+.row { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
 .row .field { flex: 1 1 150px; }
+
+/* Bare controls in a row share the space; buttons keep their own width, so a
+   long network name grows the select rather than squeezing the Join button
+   into two lines. min-width:0 because flex items refuse to shrink below
+   their content otherwise, and a 32-character SSID would force a scrollbar. */
+.row > input,
+.row > select { flex: 1 1 160px; min-width: 0; }
+.row > .btn { flex: 0 0 auto; }
 
 label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
 
 input[type="text"],
 input[type="number"],
+input[type="password"],
 select {
     width: 100%;
     padding: 8px 10px;
@@ -219,9 +232,12 @@ input[type="color"] {
    clock into a blur, which is exactly what this view exists to avoid. */
 .live {
     width: 100%;
-    max-width: 624px;          /* 52 * 12 */
+    max-width: 936px;          /* 52 * 18 */
     height: auto;
-    aspect-ratio: 52 / 16;
+    /* The LED grid including its gaps: 52*18-2 by 16*18-2. Not 52/16, which
+       ignores the gaps and squashed the dots by a hair. Held here so the box
+       does not resize when the first frame arrives. */
+    aspect-ratio: 934 / 286;
     image-rendering: pixelated;
     background: #000;
     border: 1px solid var(--line, #2a2f3a);
@@ -239,4 +255,298 @@ input[type="color"] {
     min-width: 56px;
     font-variant-numeric: tabular-nums;
     touch-action: manipulation;  /* no double-tap zoom eating a long press */
+}
+
+/* --- live view capture bar ------------------------------------------------ */
+
+.live-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+
+/* Recording is a mode, and a mode should be visible without reading the label. */
+.btn-live { border-color: var(--danger, #f85149); color: var(--danger, #f85149); }
+
+
+/* --- colour picker -------------------------------------------------------- */
+
+/* The native input stays in the DOM because it is what the setting is bound to,
+   and it is the one element that already knows how to hold a colour value. It
+   is never shown. */
+.color-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.color-trigger {
+    width: 44px;
+    height: 28px;
+    border: 1px solid #ffffff2e;
+    border-radius: 6px;
+    padding: 0;
+    cursor: pointer;
+    box-shadow: inset 0 0 0 1px #00000055;
+}
+
+.color-trigger:hover { border-color: var(--accent, #00beff); }
+
+/* Anchored, not modal. A full-screen dialog would cover the live view, which is
+   the only place the colour can actually be judged. */
+.picker {
+    position: absolute;
+    z-index: 40;
+    margin-top: 6px;
+    padding: 10px;
+    display: grid;
+    gap: 8px;
+    width: 200px;
+    background: var(--panel, #161b22);
+    border: 1px solid var(--line, #2a2f3a);
+    border-radius: 10px;
+    box-shadow: 0 12px 30px #000000a8;
+}
+
+.picker-field {
+    width: 180px;
+    height: 120px;
+    border-radius: 6px;
+    cursor: crosshair;
+    touch-action: none;
+    display: block;
+}
+
+.picker-hue {
+    width: 100%;
+    margin: 0;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 12px;
+    border-radius: 6px;
+    background: linear-gradient(to right,
+        #ff0000 0%, #ffff00 17%, #00ff00 33%,
+        #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%);
+}
+
+.picker-hue::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #00000080;
+    cursor: pointer;
+}
+
+.picker-hue::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #00000080;
+    cursor: pointer;
+}
+
+.picker-row { display: flex; align-items: center; gap: 8px; }
+
+.picker-preview {
+    width: 28px;
+    height: 24px;
+    border-radius: 5px;
+    border: 1px solid #ffffff2e;
+    flex: none;
+}
+
+.picker-hex {
+    flex: 1;
+    min-width: 0;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    text-transform: uppercase;
+}
+
+/* Presets are a shortcut inside the picker, not a replacement for it. These are
+   colours known to read well on 832 diffused LEDs. */
+.picker-presets {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+}
+
+.picker-preset {
+    aspect-ratio: 1;
+    border: 1px solid #00000055;
+    border-radius: 4px;
+    padding: 0;
+    min-width: 0;
+    cursor: pointer;
+}
+
+.picker-preset:hover { border-color: #fff; }
+
+/* The field needs a positioned ancestor to anchor against. */
+.field { position: relative; }
+
+/* An honest warning, styled as one. Not an error - nothing is broken - but it
+   should not read as ordinary help text either. */
+.warn-note {
+    color: #d29922;
+    border-left: 2px solid #d29922;
+    padding-left: 8px;
+}
+
+/* --- status tiles -------------------------------------------------------- */
+
+/* A row of small readings above the live view. Deliberately not a table: these
+   are glanced at, not read, and a grid that reflows to one column on a phone
+   is better than a table that scrolls sideways. */
+/* One row, the same width as the panel above it.
+   936px is 52 pixels at 18 each - the canvas's own ceiling - so the readings
+   line up with the thing they describe instead of with the section. The two
+   numbers have to move together; a tile row that is wider or narrower than
+   the panel looks like a mistake rather than a choice. */
+.tiles {
+    display: flex;
+    gap: 8px;
+    max-width: 936px;
+    margin-top: 10px;
+}
+
+.tile {
+    flex: 1 1 0;
+    min-width: 0;            /* or a long value stretches its column */
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 9px 11px;
+}
+
+/* Below this the columns get narrower than the words in them. Wrapping is the
+   honest failure. */
+@media (max-width: 720px) {
+    .tiles { flex-wrap: wrap; }
+    .tile { flex: 1 1 100px; }
+}
+
+.tile .label {
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tile .value {
+    display: block;
+    margin-top: 3px;
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* What a tile says when it has nothing to say. Dimmed rather than hidden: a
+   missing reading is information, and a tile that vanishes makes the row jump
+   about as things connect. */
+.tile.unknown .value { color: var(--muted); font-size: 13px; }
+
+.tile .note {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tile .meter {
+    display: block;
+    height: 3px;
+    margin-top: 6px;
+    border-radius: 2px;
+    background: var(--line);
+    overflow: hidden;
+}
+
+.tile .meter i { display: block; height: 100%; background: var(--accent); }
+.tile .meter i.ok { background: var(--ok); }
+.tile .meter i.low { background: var(--danger); }
+
+/* --- reordering apps ------------------------------------------------------ */
+
+/* Blueprint §12 puts ordering in the user's hands, so the list has to look
+   rearrangeable before anybody tries. The grip is the affordance; the arrows
+   are the part that works on a phone, where dragging does not exist without a
+   pile of pointer-event code. */
+.list li { gap: 8px; }
+
+.grip {
+    cursor: grab;
+    color: var(--muted);
+    user-select: none;
+    line-height: 1;
+}
+
+.list li.dragging { opacity: 0.45; cursor: grabbing; }
+
+/* The row the drop would land on. A line rather than a fill, so it reads as
+   "here" rather than as "this one is selected". */
+.list li.over { border-color: var(--accent); box-shadow: inset 0 2px 0 var(--accent); }
+
+.btn-move {
+    padding: 2px 7px;
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+.btn-move:disabled { opacity: 0.3; cursor: default; }
+
+/* --- per-app settings ----------------------------------------------------- */
+
+/* Settings belong to the app they configure, so they open under it rather than
+   living in a tab of their own. Adding an app then means adding its settings in
+   one place instead of two. */
+.btn-gear { padding: 2px 8px; font-size: 13px; line-height: 1.6; }
+.btn-gear.on { border-color: var(--accent); color: var(--accent); }
+
+.list li.expanded {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-bottom: 0;
+    border-bottom-color: transparent;
+}
+
+/* Its own list item, not part of the row: the row is a flex line of controls,
+   and a block of fields dropped into it lays out like a car crash. */
+.app-config-row {
+    display: block;
+    padding: 14px 12px 4px;
+    border: 1px solid var(--line);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    margin-bottom: 8px;
+    background: var(--bg);
+}
+
+.app-config-row .field:last-child { margin-bottom: 10px; }
+
+/* The network picker takes the room, because a network name is the long part
+   and a password field only ever shows dots. */
+#join-pick { flex: 2 1 12em; min-width: 0; }
+#join-password { flex: 1 1 8em; min-width: 0; }
+#join-other-row input { flex: 1 1 auto; }
+
+/* Shown once, to somebody who has just plugged a clock in. Loud enough to
+   read at a glance and not so loud it looks like an error - nothing has gone
+   wrong, the device simply has not been told anything yet. */
+.notice {
+    padding: 10px 12px;
+    margin: 0 0 14px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: rgba(0, 200, 255, 0.08);
+    color: var(--text);
 }

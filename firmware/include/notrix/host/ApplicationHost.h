@@ -9,18 +9,24 @@
 #include "notrix/app/Carousel.h"
 #include "notrix/asset/IconStore.h"
 #include "notrix/apps/ClockApp.h"
+#include "notrix/apps/VisualizerApp.h"
 #include "notrix/apps/SplashScreen.h"
 #include "notrix/config/Config.h"
 #include "notrix/core/Log.h"
 #include "notrix/graphics/Framebuffer.h"
 #include "notrix/input/InputMapper.h"
+#include "notrix/input/Navigator.h"
+#include "notrix/input/Rescue.h"
+#include "notrix/input/SetupHold.h"
 #include "notrix/json/Json.h"
 #include "notrix/mqtt/MqttService.h"
 #include "notrix/notify/Notifications.h"
 #include "notrix/platform/HttpServer.h"
 #include "notrix/platform/PlatformServices.h"
 #include "notrix/render/FrameScheduler.h"
+#include "notrix/render/Transition.h"
 #include "notrix/scene/Scene.h"
+#include "notrix/time/Timezone.h"
 
 namespace notrix {
 namespace host {
@@ -67,7 +73,14 @@ struct HostConfig {
     /// How long the boot splash stays up. Long enough for a scrolling IP
     /// address to finish at least once; zero disables it. Any button press
     /// dismisses it early.
-    std::uint32_t splashMillis = 5000;
+    /// Ten seconds, split into two pages of five.
+    ///
+    /// Longer than it looks like it needs to be, on purpose. The second page
+    /// reports the address, and the radio takes ten to twenty seconds to
+    /// associate from cold - so a shorter splash guarantees the one screen
+    /// that talks about the network is drawn before there is a network to
+    /// talk about. Five seconds of wave first is what buys that time.
+    std::uint32_t splashMillis = 10000;
 
     /// Register the built-in clock so a fresh device shows something.
     bool installClockApp = true;
@@ -91,6 +104,7 @@ public:
     static constexpr std::string_view kBootStateKey = "boot";
     static constexpr std::string_view kClockAppId = "clock";
     static constexpr std::string_view kBatteryAppId = "battery";
+    static constexpr std::string_view kVisualizerAppId = "visualizer";
     static constexpr std::string_view kIconStateKey = "icons";
     static constexpr int kSceneTokens = 512;
 
@@ -136,6 +150,31 @@ public:
     /// than hard-coding a copy of the default mapping that then drifts.
     const input::InputMapper& inputMapper() const noexcept { return mapper_; }
 
+    /// Which mode the physical controls are pointed at, and what they are
+    /// pointed at inside it (ADR 0017).
+    const input::Navigator& navigator() const noexcept { return navigator_; }
+
+    /// The rescue gesture, for the renderer that draws its countdown and for
+    /// tests that drive it.
+    const input::Rescue& rescue() const noexcept { return rescue_; }
+
+    /// The knob-hold gesture, for the countdown renderer and for tests.
+    const input::SetupHold& setupHold() const noexcept { return setupHold_; }
+
+    /// True once, for the caller that starts the hotspot.
+    ///
+    /// Deliberately not the persisted `hotspotRequested` flag. That one is
+    /// only honoured on a device with no address, because honouring it
+    /// unconditionally once made a rescued device host a setup network on
+    /// every boot. A hold means "host one now", on a device that may be
+    /// perfectly online - a different question needing a different channel,
+    /// and one that must not survive a reboot.
+    bool takeSetupRequest() noexcept {
+        const bool asked = setupRequested_;
+        setupRequested_ = false;
+        return asked;
+    }
+
     mqtt::MqttService& mqttService() noexcept { return mqtt_; }
     const mqtt::MqttService& mqttService() const noexcept { return mqtt_; }
     render::FrameScheduler& scheduler() noexcept { return scheduler_; }
@@ -162,6 +201,46 @@ public:
     // panel does not have.
     void inject(const platform::InputEvent& event) override { handleInput(event); }
 
+    /// Show a full-screen notice instead of everything else, until cleared.
+    ///
+    /// **The panel is the only channel that still works when the network is
+    /// the thing that is broken**, which is exactly when this is needed: a
+    /// device hosting an access point whose name nobody can see is a device
+    /// nobody can reach. Two live hotspot tests were diagnosed entirely from
+    /// the outside because the panel said nothing.
+    ///
+    /// Core does not know what a hotspot is and does not need to - it is
+    /// given two lines and shows them. The detail line scrolls, because an
+    /// address truncated to "192..." helps nobody.
+    void setNotice(std::string title, std::string detail);
+    void clearNotice() noexcept;
+    bool showingNotice() const noexcept { return !noticeTitle_.empty(); }
+
+    /// Nothing was stored when this device started: it has never been set up.
+    ///
+    /// A state, not a wizard (ADR 0018). Nothing about the device behaves
+    /// differently because of it - the clock still runs, the apps still
+    /// rotate - but the panel explains itself and the configuration page
+    /// opens on the step that matters instead of on the live view.
+    ///
+    /// It stops being true the moment anything is saved, which is the first
+    /// thing a person does. There is no "finish setup" button, because a
+    /// button somebody has to find is a step that can be missed.
+    bool firstRun() const noexcept { return firstRun_; }
+
+    /// Forget that setup mode was asked for, and persist that.
+    ///
+    /// ADR 0018 always said the flag is cleared once a real network is
+    /// joined. It was set and persisted and never cleared, so a single use
+    /// of the rescue gesture turned into a device that hosted a setup
+    /// network on every boot from then on - seen on real hardware, where it
+    /// looked like a crash.
+    ///
+    /// Not exposed through the API: it is internal state, not a setting
+    /// somebody should be able to toggle from a page that may itself only be
+    /// reachable because the flag is set.
+    void clearHotspotRequest();
+
     /// True while the boot splash is still showing.
     bool showingSplash() const noexcept { return splashActive_; }
 
@@ -185,6 +264,11 @@ private:
     void renderSafeMode();
     bool refreshActiveScene();
 
+    /// Start a transition from whatever is currently on screen.
+    void beginTransition(std::uint64_t nowMillis, render::TransitionDirection direction);
+    /// True while one is still running at `nowMillis`.
+    bool transitionRunning(std::uint64_t nowMillis) const noexcept;
+
     bool splashElapsed(std::uint64_t nowMillis) const noexcept;
 
     platform::IPlatformServices& platform_;
@@ -198,7 +282,151 @@ private:
     app::Carousel carousel_;
     notify::NotificationQueue notifications_;
     asset::IconStore icons_;
+    /// Move brightness by `steps` of the configured step size, clamped, and
+    /// bring the panel back on if it was off.
+    void adjustBrightness(int steps);
+
+    /// Move volume by `steps`. Returns false when the platform has no speaker,
+    /// which is what lets settings hide the control rather than offer a dead
+    /// one (ADR 0013).
+    bool adjustVolume(int steps);
+
+    /// Apply an adjustment to whatever the navigator has selected.
+    void adjustCurrentSetting(int steps);
+
+    /// The knob press, inside settings: toggles what can be toggled.
+    void activateCurrentSetting();
+
+    /// Re-parse the timezone rule when it changes, and say so in the log.
+    void applyTimeSettings();
+
+    /// Seconds to add to UTC right now, from the timezone rule where one is
+    /// configured and from the stored offset where it is not.
+    int currentUtcOffsetSeconds() const;
+
+    /// Clear the way back in: access password gone, hotspot requested.
+    void performRescue();
+
+    /// Ask for a hotspot and change nothing else.
+    void performSetupRequest();
+
+
+    /// Whether the overnight dimming window applies right now.
+    bool nightModeActive() const;
+
+    /// Push whichever brightness should be in force to the panel.
+    void applyBrightness();
+
+    /// Keep the carousel in step with the stored app settings.
+    void applyCarouselSettings();
+
+    /// Put the registry into the order the user last arranged, and apply the
+    /// enabled flags and durations that went with it.
+    void applyStoredAppOrder();
+
+    /// Whether the stored order still describes the live registry. False
+    /// means the settings changed from outside - a restored backup, say.
+    bool storedOrderMatchesRegistry() const;
+
+    /// Write the order out when the registry says it changed, and apply it
+    /// when the settings changed instead.
+    void persistAppOrderIfChanged();
+
+    /// Copy the registry's current order back into settings, ready to persist.
+    void rememberAppOrder();
+
+    /// Play a notification's sound, once, when it first appears.
+    void announceNotification();
+
+    /// The optional once-a-second clock tick.
+    void tickTheClock();
+
+    /// Draw the rescue countdown, which outranks everything on the panel.
+    /// The countdown shared by both hold gestures. `label` is what the hold
+    /// will do, because "RESET" and "SETUP" must not look alike on a panel
+    /// somebody is deciding whether to let go of.
+    void renderHoldCountdown(Canvas& canvas, const char* label,
+                             std::uint64_t remainingMillis,
+                             std::uint64_t holdMillis) const;
+    void renderNotice(Canvas& canvas, std::uint64_t nowMillis) const;
+
+    /// Draw one setting, label and value, filling the panel.
+    void renderSettings(Canvas& canvas) const;
+
+    /// Draw the transient readout shown after − or + while browsing.
+    void renderAdjustment(Canvas& canvas) const;
+
+    /// The confirmation beep played when volume changes. A short mid tone:
+    /// high enough to carry from a small speaker, short enough that holding
+    /// the button does not turn into an alarm.
+    static constexpr int kVolumeFeedbackHz = 1000;
+    static constexpr int kVolumeFeedbackMillis = 60;
+
+    /// How often the visualiser takes a column, in milliseconds.
+    ///
+    /// 52 columns at 100 ms is a little over five seconds of history on
+    /// screen - slow enough to watch, long enough that a phrase of music has
+    /// a shape. Independent of the frame rate on purpose: the trace should
+    /// look the same whether the panel is managing 20 FPS or 40.
+    static constexpr std::uint64_t kVisualizerSampleMillis = 100;
+
+    /// Loudest reading since the last column was taken, so slowing the trace
+    /// down cannot swallow a transient.
+    int visualizerPeak_ = 0;
+    std::uint64_t lastVisualizerPushMillis_ = 0;
+
+    /// How long the browsing adjustment readout stays up. Long enough to read
+    /// after the press that caused it, short enough not to hide the clock.
+    static constexpr std::uint64_t kAdjustmentReadoutMillis = 1200;
+
     input::InputMapper mapper_;
+    input::Navigator navigator_;
+    input::Rescue rescue_;
+    input::SetupHold setupHold_;
+
+    /// One-shot, taken by takeSetupRequest().
+    bool setupRequested_ = false;
+
+    /// Whole seconds last shown on the rescue countdown, or -1 when it is not
+    /// running. Drives one redraw per second rather than one per frame.
+    int lastRescueSecond_ = -1;
+
+    /// The same, for the setup-hold countdown.
+    int lastSetupSecond_ = -1;
+
+    /// Whether settings were open on the previous tick, so the tick that closes
+    /// them does not immediately bill the carousel for the time spent inside.
+    bool wasInSettings_ = false;
+
+    /// What the panel was last told, so brightness is pushed on change rather
+    /// than on every tick. 256 is deliberately not a valid byte: it means
+    /// nothing has been pushed yet, so the first tick always sends one.
+    int appliedBrightness_ = 256;
+
+    /// The parsed timezone and the string it came from, so a rule is parsed
+    /// once per change rather than once per rendered frame.
+    timezone_::Timezone timezone_;
+    std::string timezoneSpec_;
+    bool timezoneValid_ = false;
+
+    /// When the on-screen adjustment readout stops being drawn, or 0 when
+    /// nothing is showing. Pressing − or + while browsing has to show what
+    /// it changed: a brightness step is invisible in daylight and at night
+    /// it looks like the whole panel flickered for no reason.
+    std::uint64_t adjustmentShownUntilMillis_ = 0;
+
+    /// Which quantity the readout is showing. A bare number answers "something
+    /// changed" and not "what", and − / + reach two different things depending
+    /// on whether this device has a speaker.
+    bool adjustmentIsVolume_ = false;
+
+    /// Sequence of the notification already announced, so a sound plays once
+    /// when it appears rather than on every frame it is showing.
+    std::uint32_t announcedSequence_ = 0;
+
+    /// Wall-clock second the last tick was played for.
+    static constexpr std::int64_t kNoSecond = -1;
+    std::int64_t lastTickedSecond_ = kNoSecond;
     render::FrameScheduler scheduler_;
 
     Framebuffer framebuffer_;
@@ -218,17 +446,49 @@ private:
     std::uint64_t lastTickMillis_ = 0;
     std::uint64_t lastClockMillis_ = 0;
     std::uint32_t persistedIconRevision_ = 0;
+    std::uint32_t persistedAppRevision_ = 0;
     /// Display power as of the last rendered frame, so a change made through any
     /// route forces one more redraw. Starts true to match the default setting.
     bool renderedWithPower_ = true;
 
+    /// The frame as it was when the active app last changed, and the clock and
+    /// direction of the transition running over it. One extra framebuffer is
+    /// 2496 bytes, which is far cheaper than teaching the renderer to draw an
+    /// app that is no longer active.
+    /// History for the visualiser app. Fed every tick while the microphone
+    /// is present, so the trace keeps scrolling whether or not that app is
+    /// the one on screen - switching to it mid-sound should show what just
+    /// happened, not start from an empty panel.
+    apps::Visualizer visualizer_;
+
+    Framebuffer previousFrame_;
+    /// The incoming frame, held while it is composited over the outgoing
+    /// one. A member rather than a local so the render path allocates
+    /// nothing, on the stack or otherwise.
+    Framebuffer transitionScratch_;
+    std::uint64_t transitionStartMillis_ = 0;
+    render::TransitionStyle transitionStyle_ = render::TransitionStyle::None;
+    render::TransitionDirection transitionDirection_ = render::TransitionDirection::Forward;
+    bool transitionActive_ = false;
+
     bool splashActive_ = false;
+    bool firstRun_ = false;
+
+    /// Empty when there is nothing to say. Held rather than passed per frame
+    /// because the detail line scrolls, and scrolling needs a start time.
+    std::string noticeTitle_;
+    std::string noticeDetail_;
+    std::uint64_t noticeStartedMillis_ = 0;
+
     bool ticking_ = false;
     /// When tick() was first called; the splash and the health timer both
     /// measure from here.
     std::uint64_t firstTickMillis_ = 0;
     /// Built once at boot; rendering it per frame would allocate.
     std::string splashDetail_;
+
+    /// The address alone, for the splash second page lower line.
+    std::string splashAddress_;
 
     // Declared last: its context holds pointers to the members above, which must
     // already be constructed when it is built.

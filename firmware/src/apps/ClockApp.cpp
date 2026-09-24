@@ -375,12 +375,18 @@ void renderClock(Canvas& canvas, const platform::ISystemClock& clock, const Cloc
     const LocalTime time = localTimeOf(clock, style.utcOffsetSeconds);
     const bool colonLit = colonIsLit(clock, style);
 
+    // AM/PM used to be handled inside the Minimal case and nowhere else, so the
+    // setting silently did nothing on four of the six faces. It applies wherever
+    // there is room for the extra 14 columns: HH:MM is 25, and 25 + 14 = 39,
+    // which fits. HH:MM:SS is already 39 and the calendar face is 41, so both
+    // stay suppressed - there is no honest way to show it on either.
+    const bool meridiem = style.showAmPm && !style.twentyFourHour;
+    const int meridiemWidth = kPairWidth + kSeparatorWidth;
+    const int timeBlockWidth = kTimeWidth + (meridiem ? meridiemWidth : 0);
+
     switch (style.theme) {
         case ClockTheme::Minimal: {
-            const bool meridiem = style.showAmPm && !style.twentyFourHour;
-            const int meridiemWidth = kPairWidth + kSeparatorWidth;
-            const int total = kTimeWidth + (meridiem ? meridiemWidth : 0);
-            const int x = centreX(total);
+            const int x = centreX(timeBlockWidth);
             const int y = (Framebuffer::kHeight - 7) / 2;
 
             drawHourMinute(canvas, x, y, time, style, colonLit);
@@ -397,20 +403,32 @@ void renderClock(Canvas& canvas, const platform::ISystemClock& clock, const Cloc
         }
 
         case ClockTheme::DateBelow: {
-            drawHourMinute(canvas, centreX(kTimeWidth), 0, time, style, colonLit);
+            const int x = centreX(timeBlockWidth);
+            drawHourMinute(canvas, x, 0, time, style, colonLit);
+            if (meridiem) {
+                drawMeridiem(canvas, x + kTimeWidth + kSeparatorWidth, 0, time, style);
+            }
             drawDate(canvas, civilFromDays(time.days), 9, style);
             break;
         }
 
         case ClockTheme::Weekday: {
-            drawHourMinute(canvas, centreX(kTimeWidth), 0, time, style, colonLit);
+            const int x = centreX(timeBlockWidth);
+            drawHourMinute(canvas, x, 0, time, style, colonLit);
+            if (meridiem) {
+                drawMeridiem(canvas, x + kTimeWidth + kSeparatorWidth, 0, time, style);
+            }
             drawCentredText(canvas, weekdayName(weekdayFromDays(time.days)), 9,
                             style.dateColor);
             break;
         }
 
         case ClockTheme::SecondsBar: {
-            drawHourMinute(canvas, centreX(kTimeWidth), 2, time, style, colonLit);
+            const int barX = centreX(timeBlockWidth);
+            drawHourMinute(canvas, barX, 2, time, style, colonLit);
+            if (meridiem) {
+                drawMeridiem(canvas, barX + kTimeWidth + kSeparatorWidth, 2, time, style);
+            }
 
             // A bar filling over the minute. Rounded up so it is visible from
             // the first second rather than staying dark for most of it.

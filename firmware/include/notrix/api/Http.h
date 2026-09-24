@@ -47,6 +47,14 @@ struct Request {
     /// separate from the body so no handler has to know how it arrived.
     std::string authToken;
 
+    /// The Authorization header, verbatim.
+    ///
+    /// Carried whole rather than pre-split, because Basic is decided in the
+    /// core (ADR 0018) - the transport's job is to hand over what arrived,
+    /// not to decide what it means. That also means the simulator and the
+    /// browser emulator enforce exactly what the device does.
+    std::string authorization;
+
     /// If-None-Match, for conditional requests. Named rather than reached for
     /// through a header map: the set of headers this device understands is small
     /// and fixed, and spelling it out keeps it auditable — the same reasoning
@@ -68,6 +76,13 @@ struct Response {
     /// not cacheable.
     std::string etag;
     std::string cacheControl;
+
+    /// Emitted as WWW-Authenticate when non-empty.
+    ///
+    /// This is the whole reason a browser shows a password box rather than a
+    /// bare 401 page: without the header the request just fails, and the
+    /// person has no way to supply what is missing.
+    std::string wwwAuthenticate;
 };
 
 // --- response helpers --------------------------------------------------------
@@ -111,6 +126,19 @@ enum class Resource : std::uint8_t {
     AssetItem,
     Settings,
     SystemReboot,
+    /// Put configuration back to defaults. Separate from a DELETE on settings
+    /// because "reset" and "delete" are different promises: this leaves a
+    /// working configuration behind rather than an absent one.
+    SystemReset,
+    /// What the device can see, and what it is on. Read-only: joining is a
+    /// provisioning concern with its own gates (ADR 0018).
+    Network,
+    /// Ask the radio to look. A POST because it does something.
+    NetworkScan,
+    NetworkJoin,
+    /// Install a new NOTRIX. Replaced SystemRestoreImage, which staged an
+    /// image the vendor's recovery daemon would install unattended.
+    SystemFirmware,
     /// The frame currently on the panel, for the web UI's live view.
     DisplayFrame,
     /// A button press injected from somewhere that is not the hardware.

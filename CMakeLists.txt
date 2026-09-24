@@ -1,4 +1,11 @@
-cmake_minimum_required(VERSION 3.21)
+# 3.18, not 3.21.
+#
+# CMakePresets.json still needs 3.21 and every host build uses it, but the
+# device build cannot: notrix_device has to be linked by the bullseye
+# toolchain to reach the speaker, and bullseye ships cmake 3.18. Raising the
+# floor here would have meant either no audio or an unpinned toolchain, and
+# nothing in this file uses anything newer.
+cmake_minimum_required(VERSION 3.18)
 
 project(notrix
     VERSION 0.1.0
@@ -25,6 +32,11 @@ option(NOTRIX_WARNINGS_AS_ERRORS "Treat compiler warnings as errors"      OFF)
 # never be linked into the memory-constrained device build - so make that a
 # build-system fact rather than a habit.
 option(NOTRIX_DEVICE_BUILD   "Cross build for the TC002: core only, no host tools" OFF)
+
+# Kept as an escape hatch rather than deleted. A static notrix_device cannot
+# reach the speaker, but it also cannot be broken by anything on the device's
+# filesystem - which is the right trade while bringing up an unfamiliar unit.
+option(NOTRIX_DEVICE_STATIC "Link notrix_device statically; disables audio" OFF)
 
 # Included after the options above: NotrixWarnings reads them at include time.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")

@@ -28,12 +28,28 @@
 #include <stdlib.h>
 #include <string.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 #define PORT "/dev/ttyS1"
 
+/// Milliseconds since the probe started.
+///
+/// Without a timestamp a frame log says what the MCU reports but not when, and
+/// every question left about this link is a question about timing: whether a
+/// command appears only while something is on screen, and whether a flag flips
+/// when the cable is pulled. Correlating a log against a person's actions needs
+/// a clock on every line.
+static long long now_millis(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static long long started = 0;
+
 static void dump(const uint8_t* frame, int length) {
-    printf("cmd=%02x len=%02x  payload:", frame[2], frame[3]);
+    printf("[%7lld] cmd=%02x len=%02x  payload:", now_millis() - started, frame[2], frame[3]);
     for (int i = 0; i < frame[3]; ++i) {
         printf(" %02x", frame[4 + i]);
     }
@@ -51,6 +67,7 @@ static void dump(const uint8_t* frame, int length) {
 
 int main(int argc, char** argv) {
     const int seconds = (argc > 1) ? atoi(argv[1]) : 20;
+    started = now_millis();
 
     const int fd = open(PORT, O_RDWR | O_NOCTTY);
     if (fd < 0) {
@@ -89,14 +106,33 @@ int main(int argc, char** argv) {
         printf("(version query could not be written)\n");
     }
 
+    // Optional second argument: seconds to wait before switching the
+    // microphone on. Sending it immediately after the version query did not
+    // work, and the vendor application sends it much later - so the question
+    // this answers is whether the MCU needs a gap, or something else entirely.
+    const int mic_after = (argc > 2) ? atoi(argv[2]) : -1;
+    int mic_sent = 0;
+    const uint8_t mic_on[] = {0xff, 0x55, 0x04, 0x01, 0x01, 0x01, 0x5a};
+
     uint8_t buffer[512];
     int held = 0;
 
-    for (int elapsed = 0; elapsed < seconds; ) {
+    // Wall clock rather than a timeout counter: the old loop only advanced when
+    // a read timed out, so a link that never went quiet ran indefinitely.
+    const long long deadline = started + (long long)seconds * 1000;
+    while (now_millis() < deadline) {
+        if (mic_after >= 0 && !mic_sent &&
+            now_millis() - started >= (long long)mic_after * 1000) {
+            mic_sent = 1;
+            const ssize_t wrote = write(fd, mic_on, sizeof(mic_on));
+            printf("[%7lld] --- microphone on, write returned %d ---\n",
+                   now_millis() - started, (int)wrote);
+            fflush(stdout);
+        }
+
         uint8_t chunk[256];
         const ssize_t got = read(fd, chunk, sizeof(chunk));
         if (got <= 0) {
-            ++elapsed;  // VTIME made this a one second timeout
             continue;
         }
 

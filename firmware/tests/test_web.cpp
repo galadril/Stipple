@@ -206,3 +206,19 @@ NOTRIX_TEST(StaticFiles, PagesRevalidateRatherThanCachingByAge) {
     const Response response = serve(get("/index.html"));
     NOTRIX_CHECK(response.cacheControl.find("no-cache") != std::string::npos);
 }
+
+NOTRIX_TEST(WebAssets, ThePageDeclaresAnIconSoBrowsersStopGuessing) {
+    // A browser not told where the icon is asks for /favicon.ico, which this
+    // device does not have - so every visit wrote a 404 into the device's own
+    // log. Serving an icon is only half of it; the page has to say so, or the
+    // browser never looks.
+    const Asset* icon = findAsset("/favicon.svg");
+    NOTRIX_REQUIRE(icon != nullptr);
+    NOTRIX_CHECK_EQ(std::string(icon->contentType), std::string("image/svg+xml"));
+
+    const Asset* page = findAsset("/index.html");
+    NOTRIX_REQUIRE(page != nullptr);
+    const std::string html(page->body);
+    NOTRIX_CHECK(html.find("rel=\"icon\"") != std::string::npos);
+    NOTRIX_CHECK(html.find("/favicon.svg") != std::string::npos);
+}

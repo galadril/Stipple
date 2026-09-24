@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/host/ApplicationHost.h"
 
+#include "notrix/api/BasicAuth.h"
+
 #include "notrix/apps/BatteryApp.h"
+#include "notrix/render/Overlay.h"
+#include "notrix/apps/VisualizerApp.h"
 
 #include "notrix/api/JsonWriter.h"
 #include "notrix/core/Version.h"
@@ -36,10 +40,12 @@ api::ApiContext ApplicationHost::makeContext() noexcept {
     context.icons = &icons_;
     context.config = &settings_;
     context.configStore = &configStore_;
+    context.firstRun = &firstRun_;
     context.platform = &platform_;
     context.logger = &logger_;
     context.frame = &framebuffer_;
     context.input = this;
+    context.scheduler = &scheduler_;
     return context;
 }
 
@@ -58,7 +64,8 @@ BootRecord ApplicationHost::readBootRecord() {
     if (document.parse(stored) != json::Error::None) {
         // Unreadable boot state is itself suspicious, but it must not be what
         // stops the device starting.
-        logger_.warn(0, "boot record unreadable; treating as first boot");
+        logger_.warn(platform_.clock().monotonicMillis(),
+                     "boot record unreadable; treating as first boot");
         return record;
     }
 
@@ -98,21 +105,26 @@ void ApplicationHost::markHealthy() {
 // --- startup -----------------------------------------------------------------
 
 bool ApplicationHost::initialize() {
+    // Startup used to log with a literal 0, so every boot line rendered as
+    // 00:00:00 and sorted before everything else. The clock is available the
+    // whole time; there was never a reason not to ask it.
+    const std::uint64_t startedAt = platform_.clock().monotonicMillis();
+
     // 1. Logging first, so everything that follows can be recorded.
-    logger_.info(0, "NOTRIX starting");
+    logger_.info(startedAt, "NOTRIX starting");
 
     // 2. Boot state, before anything that could crash.
     BootRecord record = readBootRecord();
     if (!record.lastBootCompleted) {
         ++record.consecutiveFailures;
-        logger_.warn(0, "previous boot did not complete");
+        logger_.warn(startedAt, "previous boot did not complete");
     }
 
     bootMode_ = record.consecutiveFailures >= static_cast<std::uint32_t>(config_.safeModeThreshold)
                     ? BootMode::SafeMode
                     : BootMode::Normal;
     if (bootMode_ == BootMode::SafeMode) {
-        logger_.error(0, "repeated boot failures; starting in safe mode");
+        logger_.error(startedAt, "repeated boot failures; starting in safe mode");
     }
 
     record.lastBootCompleted = false;
@@ -129,36 +141,45 @@ bool ApplicationHost::initialize() {
     //    failures that got us here.
     if (bootMode_ == BootMode::SafeMode) {
         settings_ = config::Config{};
-        logger_.warn(0, "safe mode: using default settings");
+        logger_.warn(startedAt, "safe mode: using default settings");
     } else {
         const config::LoadReport report = configStore_.load(settings_);
-        logger_.info(0, config::describe(report.status));
+        logger_.info(startedAt, config::describe(report.status));
+
+        // Nothing stored means nobody has ever set this device up. Corrupt
+        // storage deliberately does not count: that device *was* configured,
+        // and telling its owner it is brand new would be both wrong and the
+        // least helpful thing to say while they are trying to work out what
+        // happened to their settings.
+        firstRun_ = report.status == config::LoadStatus::DefaultsMissing;
+        if (firstRun_) {
+            logger_.info(startedAt, "first run: nothing configured yet");
+        }
     }
-    platform_.display().setBrightness(settings_.display.brightness);
+    applyBrightness();
     if (platform_.audio() != nullptr) {
         platform_.audio()->setVolume(config::volumeToByte(settings_.audio.volumePercent));
     }
 
-    app::CarouselConfig carousel;
-    carousel.defaultDurationSeconds = settings_.apps.defaultDurationSeconds;
-    carousel_.setConfig(carousel);
+    applyCarouselSettings();
 
     // 5. Apps and stored assets.
     if (bootMode_ == BootMode::Normal) {
         installBuiltins();
+        applyStoredAppOrder();
         loadIcons();
     } else {
-        logger_.warn(0, "safe mode: no apps or icons loaded");
+        logger_.warn(startedAt, "safe mode: no apps or icons loaded");
     }
     persistedIconRevision_ = icons_.revision();
 
     // 6. Capabilities this build does not have. Logged rather than silently
     //    absent, so a device that cannot be reached says why.
     if (platform_.network() == nullptr) {
-        logger_.info(0, "no network interface on this platform");
+        logger_.info(startedAt, "no network interface on this platform");
     }
     if (platform_.httpServer() == nullptr) {
-        logger_.info(0, "no HTTP transport; API is reachable in-process only");
+        logger_.info(startedAt, "no HTTP transport; API is reachable in-process only");
     }
     mqtt::ServiceContext mqttContext;
     mqttContext.client = platform_.mqtt();
@@ -167,26 +188,30 @@ bool ApplicationHost::initialize() {
     mqttContext.logger = &logger_;
     mqtt_.setContext(mqttContext);
     if (bootMode_ == BootMode::Normal) {
-        mqtt_.configure();
+        mqtt_.configure(startedAt);
     } else {
         // Safe mode stays off the network entirely. Whatever put the device here
         // might be reachable from a broker, and a boot loop that republishes
         // retained state each time is worse than a quiet one.
-        logger_.warn(0, "safe mode: MQTT not started");
+        logger_.warn(startedAt, "safe mode: MQTT not started");
     }
 
+    // Volume is only offered where something can make a sound. On a 52x16
+    // panel the honest way to show an absent capability is to leave the control
+    // out, not to list one that does nothing (ADR 0013) - which is exactly what
+    // the old default bindings did by putting volume on the − / + taps of a
+    // device with no speaker.
+    navigator_.setAvailable(input::SettingSlot::Volume, platform_.audio() != nullptr);
     if (platform_.audio() == nullptr) {
-        // Said out loud because the default button mapping puts volume on the
-        // − / + taps: without a speaker those presses do nothing, and a silent
-        // no-op reads as broken hardware.
-        logger_.info(0, "no audio output; volume controls will do nothing");
+        logger_.info(startedAt, "no audio output; volume is not offered in settings");
     }
 
     splashDetail_ = apps::splashDetail(kVersion, platform_.network());
+    splashAddress_ = apps::splashAddress(platform_.network());
     splashActive_ = config_.splashMillis > 0;
 
     initialized_ = true;
-    logger_.info(0, "startup complete");
+    logger_.info(startedAt, "startup complete");
     return true;
 }
 
@@ -206,6 +231,19 @@ void ApplicationHost::installBuiltins() {
     // Registering it unconditionally would put a permanent "NO BATT" card in
     // the rotation of every mains-only panel, which is the carousel equivalent
     // of a switch that does nothing.
+    // Same rule as the battery app: installed only where the hardware can
+    // actually feed it. A visualiser permanently showing NO MIC is a card in
+    // the rotation that exists to apologise.
+    if (platform_.microphone() != nullptr) {
+        app::App visualizer;
+        visualizer.id = std::string(kVisualizerAppId);
+        visualizer.name = "Visualizer";
+        visualizer.source = app::AppSource::System;
+        visualizer.builtin = app::Builtin::Visualizer;
+        visualizer.durationSeconds = 0;
+        registry_.put(std::move(visualizer));
+    }
+
     if (platform_.power() != nullptr) {
         app::App battery;
         battery.id = std::string(kBatteryAppId);
@@ -227,11 +265,12 @@ void ApplicationHost::loadIcons() {
         // Corrupt icon data must not stop the device starting; it just means no
         // icons. Dropping the key avoids re-reading the same broken blob every
         // boot and keeps the failure from looking intermittent.
-        logger_.warn(0, "stored icons unreadable; discarding them");
+        logger_.warn(platform_.clock().monotonicMillis(),
+                     "stored icons unreadable; discarding them");
         platform_.storage().remove(kIconStateKey);
         return;
     }
-    logger_.info(0, "icons loaded");
+    logger_.info(platform_.clock().monotonicMillis(), "icons loaded");
 }
 
 void ApplicationHost::persistIconsIfChanged() {
@@ -279,6 +318,16 @@ void ApplicationHost::dismissSplash() noexcept {
 }
 
 void ApplicationHost::handleInput(const platform::InputEvent& event) {
+    // Before everything else, deliberately (ADR 0018). The rescue gesture has
+    // to work while a notification is up, while settings are open, and on a
+    // device whose network or password is the thing that is broken. A way back
+    // in that can be blocked by whatever is on screen is not a way back in.
+    rescue_.handle(event);
+
+    // Same reasoning, same position in the order: a hold that only works on
+    // the carousel is one nobody can rely on.
+    setupHold_.handle(event);
+
     // Any interaction means the user is looking at the device and wants to get
     // on with it. The press is consumed rather than also performing its normal
     // action: someone tapping a button to skip the splash does not expect to
@@ -289,23 +338,51 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
         return;
     }
 
+    // Someone pressing a button has already decided; making them watch the
+    // rest of an animation is the interface arguing (DESIGN.md section 6).
+    transitionActive_ = false;
+
     input::ActionEvent action;
     if (!mapper_.handle(event, action)) {
         return;
     }
 
     switch (action.action) {
+        // action.repeat is deliberately ignored for navigation.
+        //
+        // InputMapper accelerates detents that arrive within 120 ms, up to 5x,
+        // which is right for a continuous value and wrong for a short list. On
+        // a device with three apps, any ordinary turn of the knob jumped two to
+        // five of them and landed somewhere that looked arbitrary - the carousel
+        // "weirdly moving between apps".
+        //
+        // Nobody spins a knob to skip apps; they turn it to look at the next
+        // one. One detent, one app, however fast the wrist. Acceleration stays
+        // where it earns its place, on brightness and volume below.
         case input::Action::AppNext:
-            for (int i = 0; i < action.repeat; ++i) {
-                carousel_.next(lastTickMillis_);
+            // The knob means "move between things" in both modes; only the
+            // things differ (ADR 0017). Inside settings that is the cursor.
+            if (navigator_.inSettings()) {
+                navigator_.moveCursor(1, lastTickMillis_);
+                break;
             }
+            transitionDirection_ = render::TransitionDirection::Forward;
+            carousel_.next(lastTickMillis_);
             break;
         case input::Action::AppPrevious:
-            for (int i = 0; i < action.repeat; ++i) {
-                carousel_.previous(lastTickMillis_);
+            if (navigator_.inSettings()) {
+                navigator_.moveCursor(-1, lastTickMillis_);
+                break;
             }
+            transitionDirection_ = render::TransitionDirection::Backward;
+            carousel_.previous(lastTickMillis_);
             break;
         case input::Action::AppAction:
+            if (navigator_.inSettings()) {
+                activateCurrentSetting();
+                navigator_.noteActivity(lastTickMillis_);
+                break;
+            }
             carousel_.setPaused(!carousel_.paused());
             break;
         case input::Action::NotificationDismiss:
@@ -313,55 +390,71 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
                 carousel_.setPaused(!carousel_.paused());
             }
             break;
-        case input::Action::BrightnessUp:
-        case input::Action::BrightnessDown: {
-            const int step = mapper_.config().brightnessStep;
-            const int delta = action.action == input::Action::BrightnessUp ? step : -step;
-            int level = static_cast<int>(settings_.display.brightness) + delta * action.repeat;
-            level = level < 0 ? 0 : (level > 255 ? 255 : level);
-            settings_.display.brightness = static_cast<std::uint8_t>(level);
-            platform_.display().setBrightness(settings_.display.brightness);
-
-            // Turning the panel up is also the obvious way to ask for it back
-            // after switching it off, and leaving it dark would look like the
-            // button had failed.
-            if (level > 0) {
-                settings_.display.power = true;
-            }
-            break;
-        }
-        case input::Action::VolumeUp:
-        case input::Action::VolumeDown: {
-            // Silently ignored when the platform has no speaker: an absent
-            // capability is reported at boot rather than faked here (ADR 0013).
-            mqtt::ServiceContext mqttContext;
-    mqttContext.client = platform_.mqtt();
-    mqttContext.api = &apiServer_;
-    mqttContext.settings = &settings_;
-    mqttContext.logger = &logger_;
-    mqtt_.setContext(mqttContext);
-    if (bootMode_ == BootMode::Normal) {
-        mqtt_.configure();
-    } else {
-        // Safe mode stays off the network entirely. Whatever put the device here
-        // might be reachable from a broker, and a boot loop that republishes
-        // retained state each time is worse than a quiet one.
-        logger_.warn(0, "safe mode: MQTT not started");
-    }
-
-    if (platform_.audio() == nullptr) {
+        case input::Action::Back:
+            // Always backwards, wherever it arrives from. Leaving settings
+            // first, then dismissing a notification, then returning to the
+            // clock - each step is one the user can see having happened, which
+            // is what stops a "back" button feeling like a coin toss.
+            if (navigator_.inSettings()) {
+                navigator_.exitSettings();
                 break;
             }
-            // Percent, because that is how a volume control reads to a person,
-            // converted once at the edge where the hardware wants 0-255.
-            const int step = mapper_.config().volumeStepPercent;
-            const int delta = action.action == input::Action::VolumeUp ? step : -step;
-            int percent = static_cast<int>(settings_.audio.volumePercent) + delta * action.repeat;
-            percent = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
-            settings_.audio.volumePercent = static_cast<std::uint8_t>(percent);
-            platform_.audio()->setVolume(config::volumeToByte(settings_.audio.volumePercent));
+            if (notifications_.dismissActive(lastTickMillis_)) {
+                break;
+            }
+            if (carousel_.activate(kClockAppId, lastTickMillis_)) {
+                transitionDirection_ = render::TransitionDirection::Backward;
+            }
+            break;
+        case input::Action::SettingsToggle:
+            navigator_.toggleSettings(lastTickMillis_);
+            break;
+        case input::Action::AdjustUp:
+        case input::Action::AdjustDown: {
+            const int direction = action.action == input::Action::AdjustUp ? 1 : -1;
+            const int steps = direction * action.repeat;
+            if (navigator_.inSettings()) {
+                adjustCurrentSetting(steps);
+                navigator_.noteActivity(lastTickMillis_);
+                break;
+            }
+            // Browsing: volume where there is a speaker, brightness where
+            // there is not.
+            //
+            // Not a second meaning for the control - it still adjusts "the
+            // thing" - but the thing at the top level depends on what the
+            // device can actually do. On hardware with audio, volume is what
+            // people reach for; on hardware without, falling through to
+            // brightness keeps the buttons useful rather than letting them go
+            // dead, which is the defect this whole model exists to avoid.
+            if (!adjustVolume(steps)) {
+                adjustBrightness(steps);
+            }
+            // Shown on screen because a brightness step is invisible in
+            // daylight and at night reads as the panel having glitched. A
+            // control with no feedback is indistinguishable from a broken one,
+            // which is what put volume on these buttons for so long without
+            // anyone noticing it did nothing.
+            adjustmentShownUntilMillis_ = lastTickMillis_ + kAdjustmentReadoutMillis;
+            adjustmentIsVolume_ = platform_.audio() != nullptr;
             break;
         }
+        case input::Action::BrightnessUp:
+        case input::Action::BrightnessDown:
+            // Named rather than relative, so an API or MQTT caller with no
+            // on-device context still gets exactly what it asked for. Also
+            // what holding − or + does, which is why it shows the readout: a
+            // brightness step is invisible in daylight and at night reads as
+            // the panel having glitched.
+            adjustBrightness((action.action == input::Action::BrightnessUp ? 1 : -1) *
+                             action.repeat);
+            adjustmentShownUntilMillis_ = lastTickMillis_ + kAdjustmentReadoutMillis;
+            adjustmentIsVolume_ = false;
+            break;
+        case input::Action::VolumeUp:
+        case input::Action::VolumeDown:
+            adjustVolume((action.action == input::Action::VolumeUp ? 1 : -1) * action.repeat);
+            break;
         case input::Action::None:
             break;
     }
@@ -380,6 +473,616 @@ void ApplicationHost::pumpInput(std::uint64_t nowMillis) {
     while (platform_.input().poll(event)) {
         handleInput(event);
     }
+}
+
+// --- adjustment ---------------------------------------------------------------
+
+void ApplicationHost::adjustBrightness(int steps) {
+    const int step = mapper_.config().brightnessStep;
+    int level = static_cast<int>(settings_.display.brightness) + step * steps;
+    level = level < 0 ? 0 : (level > 255 ? 255 : level);
+    settings_.display.brightness = static_cast<std::uint8_t>(level);
+    applyBrightness();
+
+    // Turning the panel up is also the obvious way to ask for it back after
+    // switching it off, and leaving it dark would look like the button had
+    // failed.
+    if (level > 0) {
+        settings_.display.power = true;
+    }
+}
+
+bool ApplicationHost::adjustVolume(int steps) {
+    // Refused rather than faked when the platform has no speaker: an absent
+    // capability is reported at boot, not papered over here (ADR 0013). The
+    // return value is what lets settings hide the control entirely instead of
+    // offering one that does nothing.
+    if (platform_.audio() == nullptr) {
+        return false;
+    }
+    // Percent, because that is how a volume control reads to a person,
+    // converted once at the edge where the hardware wants 0-255.
+    const int step = mapper_.config().volumeStepPercent;
+    int percent = static_cast<int>(settings_.audio.volumePercent) + step * steps;
+    percent = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+    settings_.audio.volumePercent = static_cast<std::uint8_t>(percent);
+    platform_.audio()->setVolume(config::volumeToByte(settings_.audio.volumePercent));
+
+    // A short beep at the new level.
+    //
+    // Setting a volume you cannot hear is guesswork, and on a panel that shows
+    // one number at a time the number is the only feedback there would be.
+    // Every device with a volume control does this, for the same reason.
+    //
+    // Skipped at zero: a confirmation beep for "silence" is a contradiction,
+    // and it is the one setting where the absence of sound is the feedback.
+    if (percent > 0) {
+        platform_.audio()->playTone(kVolumeFeedbackHz, kVolumeFeedbackMillis);
+    }
+    return true;
+}
+
+void ApplicationHost::adjustCurrentSetting(int steps) {
+    if (steps == 0) {
+        return;
+    }
+    switch (navigator_.current()) {
+        case input::SettingSlot::Brightness:
+            adjustBrightness(steps);
+            break;
+        case input::SettingSlot::Overlay: {
+            const int count = render::kOverlayCount;
+            int index = 0;
+            const render::Overlay active = render::overlayFromName(settings_.display.overlay);
+            for (int i = 0; i < count; ++i) {
+                if (render::overlayAt(i) == active) {
+                    index = i;
+                    break;
+                }
+            }
+            // Wraps, because a list of five on a panel that shows one at a time
+            // should not have ends a user can get stuck against.
+            index = ((index + steps) % count + count) % count;
+            settings_.display.overlay = render::overlayName(render::overlayAt(index));
+            break;
+        }
+        case input::SettingSlot::Volume:
+            adjustVolume(steps);
+            break;
+        case input::SettingSlot::Count:
+            break;
+    }
+}
+
+void ApplicationHost::activateCurrentSetting() {
+    // Nothing yet, and deliberately nothing.
+    //
+    // The knob press "acts on the thing". Every setting reachable from the
+    // panel is a value that − / + already adjust, so there is nothing here to
+    // act on - and inventing something for the press to do, a reset or a jump
+    // to a default, would put a hidden destructive gesture on the control
+    // people press most. This exists for the first setting that is genuinely a
+    // toggle.
+}
+
+void ApplicationHost::applyCarouselSettings() {
+    // Re-applied whenever it differs rather than copied once at startup.
+    //
+    // It was set in initialize() and nowhere else, so changing the app
+    // duration over the API updated the stored setting and did nothing at all
+    // until the next restart - which reads as the setting being ignored,
+    // because from outside that is exactly what it was.
+    //
+    // Compared rather than assigned blindly: this runs every tick, and a
+    // carousel told its configuration had changed would be entitled to act on
+    // that. Today it would not, but a free "nothing changed" check is cheaper
+    // than depending on it never starting to.
+    if (carousel_.config().defaultDurationSeconds == settings_.apps.defaultDurationSeconds) {
+        return;
+    }
+    app::CarouselConfig carousel;
+    carousel.defaultDurationSeconds = settings_.apps.defaultDurationSeconds;
+    carousel_.setConfig(carousel);
+}
+
+// --- rescue -------------------------------------------------------------------
+
+void ApplicationHost::clearHotspotRequest() {
+    if (!settings_.network.hotspotRequested) {
+        return;
+    }
+    settings_.network.hotspotRequested = false;
+    if (!configStore_.save(settings_)) {
+        // Worth saying. If this does not persist the device is fine now and
+        // back in setup mode after the next reboot, which is the failure
+        // this function exists to end.
+        logger_.error(lastTickMillis_, "could not clear setup mode");
+        return;
+    }
+    logger_.info(lastTickMillis_, "on a network again; setup mode cleared");
+}
+
+void ApplicationHost::performSetupRequest() {
+    // Nothing is cleared and nothing is saved. A hotspot asked for by
+    // somebody standing at the device should not outlive the reboot they do
+    // next - and the persisted flag already has a narrower meaning that this
+    // must not quietly widen.
+    setupRequested_ = true;
+    logger_.info(lastTickMillis_, "setup mode requested from the knob");
+    scheduler_.invalidate();
+}
+
+void ApplicationHost::performRescue() {
+    // Deliberately narrow. This clears the way back in and nothing else:
+    // somebody locked out of a clock wants their apps and settings to still be
+    // there afterwards, and a rescue that costs a week of an integration's work
+    // is one people avoid using until it is too late.
+    settings_.web.password.clear();
+    settings_.web.username.clear();
+    settings_.network.hotspotRequested = true;
+
+    if (!configStore_.save(settings_)) {
+        // Said out loud rather than swallowed. If this did not persist, the
+        // device is open now and locked again after the next reboot - which is
+        // the worst of both and the one outcome nobody could diagnose.
+        logger_.error(lastTickMillis_, "rescue applied but could not be saved");
+    } else {
+        logger_.warn(lastTickMillis_, "rescue: access password cleared");
+    }
+
+    scheduler_.invalidate();
+}
+
+// --- overnight dimming --------------------------------------------------------
+
+bool ApplicationHost::nightModeActive() const {
+    const config::NightSettings& night = settings_.display.night;
+    if (!night.enabled) {
+        return false;
+    }
+
+    const platform::ISystemClock& clock = platform_.clock();
+    if (!clock.wallClockValid()) {
+        // Without a date there is no local time, and dimming a panel because
+        // NTP has not answered yet would look exactly like a fault.
+        return false;
+    }
+
+    const std::int64_t local = clock.unixSeconds() + currentUtcOffsetSeconds();
+    // Floor rather than truncate: a local time west of UTC before the epoch is
+    // negative, and so is a device whose clock has not been set properly.
+    const std::int64_t dayStart = (local >= 0 ? local / 86400 : (local - 86399) / 86400) * 86400;
+    const int minutes = static_cast<int>((local - dayStart) / 60);
+
+    if (night.startMinutes == night.endMinutes) {
+        return false;  // a window of no length is not a window
+    }
+    if (night.startMinutes < night.endMinutes) {
+        return minutes >= night.startMinutes && minutes < night.endMinutes;
+    }
+    // Wrapping midnight, which is the normal case for a night: the window is
+    // everything outside the two times rather than between them.
+    return minutes >= night.startMinutes || minutes < night.endMinutes;
+}
+
+void ApplicationHost::applyBrightness() {
+    // The night value overrides the setting without overwriting it, so the
+    // morning gets the panel back exactly as the user left it rather than at
+    // whatever it was dimmed to. Which is also why brightness is pushed from
+    // here rather than written straight to the display when the setting
+    // changes - there are now two things that decide it.
+    const std::uint8_t wanted = nightModeActive() ? settings_.display.night.brightness
+                                                  : settings_.display.brightness;
+    if (wanted == appliedBrightness_) {
+        return;
+    }
+    appliedBrightness_ = wanted;
+    platform_.display().setBrightness(wanted);
+}
+
+// --- app order ---------------------------------------------------------------
+
+void ApplicationHost::applyStoredAppOrder() {
+    const std::vector<config::AppPreference>& stored = settings_.apps.order;
+    if (stored.empty()) {
+        return;
+    }
+
+    // Walked in stored order, moving each app it names to the front of the
+    // remainder. Apps the store does not mention end up after the ones it does,
+    // keeping their relative order - which is what should happen to an app
+    // installed since the arrangement was made: it appears, rather than
+    // silently taking someone else's place.
+    int position = 0;
+    for (const config::AppPreference& preference : stored) {
+        app::App* existing = registry_.find(preference.id);
+        if (existing == nullptr) {
+            // An app that no longer exists. Normal rather than exceptional:
+            // firmware changes, integrations stop pushing, and a stored order
+            // from an older build must not stop a newer one booting.
+            continue;
+        }
+        registry_.move(preference.id, position);
+        registry_.setEnabled(preference.id, preference.enabled);
+        existing->durationSeconds = preference.durationSeconds;
+        ++position;
+    }
+
+    logger_.info(lastTickMillis_, "restored app order");
+}
+
+bool ApplicationHost::storedOrderMatchesRegistry() const {
+    const std::vector<config::AppPreference>& stored = settings_.apps.order;
+
+    std::size_t at = 0;
+    for (int i = 0; i < registry_.count(); ++i) {
+        const app::App* app = registry_.at(i);
+        if (app == nullptr || app->source == app::AppSource::Temporary) {
+            continue;  // never recorded, so never compared
+        }
+        if (at >= stored.size()) {
+            return false;
+        }
+        const config::AppPreference& preference = stored[at];
+        if (preference.id != app->id || preference.enabled != app->enabled ||
+            preference.durationSeconds != app->durationSeconds) {
+            return false;
+        }
+        ++at;
+    }
+    return at == stored.size();
+}
+
+void ApplicationHost::persistAppOrderIfChanged() {
+    // Watched on the registry's own revision rather than hooked into every
+    // path that can change it. The API, MQTT and anything added later all
+    // mutate the same registry, and one watcher cannot be forgotten by a
+    // caller the way five notifications could.
+    if (registry_.revision() != persistedAppRevision_) {
+        persistedAppRevision_ = registry_.revision();
+
+        // Safe mode deliberately loads no apps, so its registry is not a view
+        // of what the user arranged - writing it back would erase the
+        // arrangement precisely when the device is least able to explain
+        // itself.
+        if (bootMode_ != BootMode::Normal) {
+            return;
+        }
+
+        rememberAppOrder();
+        if (!configStore_.save(settings_)) {
+            logger_.error(lastTickMillis_, "could not persist app order");
+        }
+        return;
+    }
+
+    // The registry did not change, so if the stored order no longer describes
+    // it, the settings changed from somewhere else - a restored backup, or an
+    // API call that set the whole document. Those have to reach the live
+    // registry or a restore would appear to do nothing until the next reboot,
+    // which is the same defect the app duration had.
+    if (bootMode_ != BootMode::Normal || settings_.apps.order.empty()) {
+        return;
+    }
+    if (storedOrderMatchesRegistry()) {
+        return;
+    }
+    applyStoredAppOrder();
+    // Absorb the moves just made, so this does not read them back as a change
+    // the registry made and write the same order out again.
+    persistedAppRevision_ = registry_.revision();
+}
+
+void ApplicationHost::rememberAppOrder() {
+    settings_.apps.order.clear();
+    settings_.apps.order.reserve(static_cast<std::size_t>(registry_.count()));
+
+    for (int i = 0; i < registry_.count(); ++i) {
+        const app::App* app = registry_.at(i);
+        if (app == nullptr) {
+            continue;
+        }
+        // Temporary apps are deliberately left out. They exist for seconds and
+        // are gone before the next boot, so recording where they sat would be
+        // storing rubbish that outlives them.
+        if (app->source == app::AppSource::Temporary) {
+            continue;
+        }
+        config::AppPreference preference;
+        preference.id = app->id;
+        preference.enabled = app->enabled;
+        preference.durationSeconds = app->durationSeconds;
+        settings_.apps.order.push_back(std::move(preference));
+    }
+}
+
+// --- sounds the device makes on its own behalf -------------------------------
+
+void ApplicationHost::announceNotification() {
+    const notify::Notification* alert = notifications_.active();
+    if (alert == nullptr) {
+        // Forgotten deliberately: if the same notification is shown again
+        // later it is a new event to the person in the room, and should sound
+        // like one.
+        announcedSequence_ = 0;
+        return;
+    }
+    if (alert->sequence == announcedSequence_) {
+        return;  // already announced; this is the same one still on screen
+    }
+    announcedSequence_ = alert->sequence;
+
+    platform::IAudioOutput* speaker = platform_.audio();
+    if (speaker == nullptr) {
+        return;  // no speaker: silently, because absence is reported at boot
+    }
+
+    // A notification may name its own sound; otherwise the configured default
+    // applies. "none" is a real choice and the reason this is a string rather
+    // than a bool - a clock in a bedroom should be able to say nothing.
+    const std::string& sound =
+        alert->sound.empty() ? settings_.notifications.sound : alert->sound;
+    if (sound.empty() || sound == "none") {
+        return;
+    }
+    if (!speaker->playSound(sound)) {
+        // Named a sound this platform does not have. Worth a line in the log
+        // rather than silence: the caller believes it asked for something.
+        logger_.warn(lastTickMillis_, "unknown notification sound");
+    }
+}
+
+void ApplicationHost::tickTheClock() {
+    if (!settings_.clock.tick || splashActive_) {
+        return;
+    }
+
+    platform::IAudioOutput* speaker = platform_.audio();
+    if (speaker == nullptr) {
+        return;
+    }
+
+    // Only while the clock is actually on screen, and never over a
+    // notification. A device that ticks from inside a drawer, or under an
+    // alarm, is a device being annoying for no one's benefit.
+    const app::App* active = carousel_.active();
+    if (active == nullptr || active->builtin != app::Builtin::Clock ||
+        notifications_.active() != nullptr || !settings_.display.power) {
+        return;
+    }
+
+    const platform::ISystemClock& clock = platform_.clock();
+    if (!clock.wallClockValid()) {
+        return;  // nothing to tick in time with
+    }
+
+    const std::int64_t second = clock.unixSeconds();
+    if (second == lastTickedSecond_) {
+        return;
+    }
+    const bool first = lastTickedSecond_ == kNoSecond;
+    lastTickedSecond_ = second;
+    if (first) {
+        return;  // do not tick for the second we happened to arrive in
+    }
+
+    // Tick and tock alternate, so a second sounds like a second rather than
+    // like a repeated blip. Driven by the clock itself rather than a counter,
+    // so a skipped frame cannot swap them permanently.
+    speaker->playSound((second & 1) == 0 ? "tick" : "tock");
+}
+
+// --- the settings screen ------------------------------------------------------
+
+namespace {
+
+/// Write a non-negative integer into `out`, returning the length. Avoids
+/// snprintf in the render path, which blueprint §38 keeps allocation-free.
+int writeNumber(char* out, int capacity, int value) noexcept {
+    if (capacity < 2) {
+        return 0;
+    }
+    if (value <= 0) {
+        out[0] = '0';
+        out[1] = '\0';
+        return 1;
+    }
+    char reversed[12];
+    int digits = 0;
+    while (value > 0 && digits < static_cast<int>(sizeof(reversed))) {
+        reversed[digits++] = static_cast<char>('0' + value % 10);
+        value /= 10;
+    }
+    if (digits >= capacity) {
+        digits = capacity - 1;
+    }
+    for (int i = 0; i < digits; ++i) {
+        out[i] = reversed[digits - 1 - i];
+    }
+    out[digits] = '\0';
+    return digits;
+}
+
+/// A bar across the bottom two rows. On 52x16 a number alone is accurate and
+/// unreadable at arm's length; the bar is what makes "more" and "less" legible
+/// without reading anything.
+void drawBar(Canvas& canvas, int permille, Rgb filled, Rgb track) {
+    // One row, on the last row. Two rows would eat into the value line, and on
+    // a panel this size the bar is the coarse reading anyway - the number
+    // above it is the precise one.
+    constexpr int kTop = Framebuffer::kHeight - 1;
+    canvas.fillRect(Rect{0, kTop, Framebuffer::kWidth, 1}, track);
+    if (permille < 0) { permille = 0; }
+    if (permille > 1000) { permille = 1000; }
+    const int width = (permille * Framebuffer::kWidth) / 1000;
+    if (width > 0) {
+        canvas.fillRect(Rect{0, kTop, width, 1}, filled);
+    }
+}
+
+}  // namespace
+
+void ApplicationHost::setNotice(std::string title, std::string detail) {
+    noticeTitle_ = std::move(title);
+    noticeDetail_ = std::move(detail);
+    noticeStartedMillis_ = lastClockMillis_;
+    scheduler_.invalidate();
+}
+
+void ApplicationHost::clearNotice() noexcept {
+    noticeTitle_.clear();
+    noticeDetail_.clear();
+    noticeStartedMillis_ = 0;
+    scheduler_.invalidate();
+}
+
+void ApplicationHost::renderNotice(Canvas& canvas, std::uint64_t nowMillis) const {
+    const std::uint64_t elapsed =
+        nowMillis > noticeStartedMillis_ ? nowMillis - noticeStartedMillis_ : 0;
+
+    // No duration, so no draining rule: this is not a thing that finishes on
+    // a schedule the user can watch, and a bar that emptied to nothing would
+    // promise one.
+    apps::SplashStyle style;
+    style.titleColor = colors::kOrange;
+    apps::renderSplash(canvas, noticeTitle_, noticeDetail_, elapsed, 0, style);
+}
+
+void ApplicationHost::renderHoldCountdown(Canvas& canvas, const char* label,
+                                          std::uint64_t remainingMillis,
+                                          std::uint64_t holdMillis) const {
+    // Counted in whole seconds, rounded up, so the last visible number is 1
+    // rather than 0 - a countdown that shows zero and then keeps going reads
+    // as stuck.
+    const int seconds = static_cast<int>((remainingMillis + 999) / 1000);
+
+    text::TextStyle style;
+    style.font = &text::font5x7();
+    style.color = colors::kOrange;
+    style.hAlign = text::HAlign::Left;
+    style.vAlign = text::VAlign::Top;
+    text::draw(canvas, label, Rect{1, 0, Framebuffer::kWidth - 2, 7}, style);
+
+    char value[4] = {};
+    writeNumber(value, sizeof(value), seconds);
+
+    text::TextStyle number = style;
+    number.color = colors::kWhite;
+    text::draw(canvas, value, Rect{1, 8, Framebuffer::kWidth - 2, 7}, number);
+
+    // A bar that empties, so the gesture reads as progress rather than as an
+    // error message with a number in it.
+    const int permille =
+        holdMillis == 0 ? 0 : static_cast<int>((remainingMillis * 1000u) / holdMillis);
+    drawBar(canvas, permille, colors::kOrange, rgb(30, 30, 30));
+}
+
+void ApplicationHost::renderSettings(Canvas& canvas) const {
+    // Two lines, not one.
+    //
+    // The first attempt put the label and the value side by side and the panel
+    // showed "BRIGH": at 6 px a character, 52 columns hold eight characters,
+    // and "BRIGHT" plus "184" is nine. The fix is not a shorter word - naming a
+    // setting "BRT" to fit a layout is the layout winning an argument it should
+    // not be in - it is to stop asking one row to hold both.
+    //
+    // Label on the top line, value on the second, bar on the last row. Each
+    // line now has the full width, so every setting name fits at its real
+    // length and a three-digit value has room beside nothing.
+    const input::SettingSlot slot = navigator_.current();
+
+    text::TextStyle label;
+    label.font = &text::font5x7();
+    label.color = colors::kWhite;
+    label.hAlign = text::HAlign::Left;
+    label.vAlign = text::VAlign::Top;
+    text::draw(canvas, input::settingLabel(slot), Rect{1, 0, Framebuffer::kWidth - 2, 7}, label);
+
+    char value[10] = {};
+    int permille = -1;
+    Rgb accent = colors::kCyan;
+
+    switch (slot) {
+        case input::SettingSlot::Brightness: {
+            const int level = static_cast<int>(settings_.display.brightness);
+            writeNumber(value, sizeof(value), level);
+            permille = (level * 1000) / 255;
+            break;
+        }
+        case input::SettingSlot::Overlay: {
+            const char* name =
+                render::overlayName(render::overlayFromName(settings_.display.overlay));
+            int at = 0;
+            // Upper-cased into the fixed buffer: the font has one case, and the
+            // stored names are lower-case because config files are read by
+            // people too.
+            for (; name[at] != 0 && at < static_cast<int>(sizeof(value)) - 1; ++at) {
+                const char c = name[at];
+                value[at] = (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
+            }
+            break;
+        }
+        case input::SettingSlot::Volume: {
+            const int percent = static_cast<int>(settings_.audio.volumePercent);
+            const int digits = writeNumber(value, sizeof(value), percent);
+            if (digits > 0 && digits < static_cast<int>(sizeof(value)) - 1) {
+                value[digits] = '%';
+                value[digits + 1] = 0;
+            }
+            permille = percent * 10;
+            break;
+        }
+        case input::SettingSlot::Count:
+            break;
+    }
+
+    text::TextStyle reading = label;
+    reading.color = accent;
+    text::draw(canvas, value, Rect{1, 8, Framebuffer::kWidth - 2, 7}, reading);
+
+    if (permille >= 0) {
+        drawBar(canvas, permille, accent, rgb(30, 30, 30));
+    }
+}
+
+void ApplicationHost::renderAdjustment(Canvas& canvas) const {
+    // The same two lines the settings screen uses, over the app.
+    //
+    // The first version wrote a bare number into the bottom six rows with no
+    // label, which answered "something changed" and not "what". Reusing the
+    // settings layout means one visual language for adjustment on this device:
+    // whatever is being changed, it reads the same whether you got there by
+    // holding the knob or by tapping a button.
+    const bool volume = adjustmentIsVolume_;
+
+    const int level = volume ? static_cast<int>(settings_.audio.volumePercent)
+                             : static_cast<int>(settings_.display.brightness);
+    const int permille = volume ? level * 10 : (level * 1000) / 255;
+
+    // Cleared rather than blended. This is a momentary interruption, and half
+    // an app showing through the digits is harder to read than either alone.
+    canvas.fillRect(Framebuffer::bounds(), colors::kBlack);
+
+    text::TextStyle label;
+    label.font = &text::font5x7();
+    label.color = colors::kWhite;
+    label.hAlign = text::HAlign::Left;
+    label.vAlign = text::VAlign::Top;
+    text::draw(canvas, volume ? "VOLUME" : "BRIGHT",
+               Rect{1, 0, Framebuffer::kWidth - 2, 7}, label);
+
+    char value[10] = {};
+    const int digits = writeNumber(value, sizeof(value), level);
+    if (volume && digits > 0 && digits < static_cast<int>(sizeof(value)) - 1) {
+        value[digits] = '%';
+        value[digits + 1] = 0;
+    }
+
+    text::TextStyle reading = label;
+    reading.color = colors::kCyan;
+    text::draw(canvas, value, Rect{1, 8, Framebuffer::kWidth - 2, 7}, reading);
+
+    drawBar(canvas, permille, colors::kCyan, rgb(30, 30, 30));
 }
 
 // --- the loop ----------------------------------------------------------------
@@ -407,6 +1110,46 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
 
     pumpInput(nowMillis);
     persistIconsIfChanged();
+    persistAppOrderIfChanged();
+    applyCarouselSettings();
+    applyTimeSettings();
+    applyBrightness();
+
+    if (rescue_.tick(nowMillis)) {
+        performRescue();
+    }
+
+    if (setupHold_.tick(nowMillis)) {
+        // The in-progress press is discarded here, and that is the whole
+        // reason this gesture can share a button with SettingsToggle: the
+        // mapper decides long-versus-short on release, so with no press left
+        // to release, letting go of the knob does nothing at all.
+        mapper_.reset();
+        performSetupRequest();
+    }
+
+    // The countdown has to ask for its own frames.
+    //
+    // Redrawing normally stops while the panel is off - otherwise a dark panel
+    // would re-render black at the full frame rate - and the rescue screen is
+    // drawn precisely then. Invalidated once per displayed second rather than
+    // every tick: a countdown needs thirty frames a second about as much as a
+    // dark panel does.
+    const int rescueSecond = rescue_.counting()
+        ? static_cast<int>((rescue_.remainingMillis(nowMillis) + 999) / 1000)
+        : -1;
+    if (rescueSecond != lastRescueSecond_) {
+        lastRescueSecond_ = rescueSecond;
+        scheduler_.invalidate();
+    }
+
+    const int setupSecond = setupHold_.counting()
+        ? static_cast<int>((setupHold_.remainingMillis(nowMillis) + 999) / 1000)
+        : -1;
+    if (setupSecond != lastSetupSecond_) {
+        lastSetupSecond_ = setupSecond;
+        scheduler_.invalidate();
+    }
 
     if (splashActive_) {
         if (splashElapsed(nowMillis)) {
@@ -414,6 +1157,21 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
             logger_.info(nowMillis, "splash finished");
             scheduler_.invalidate();
         } else {
+            // Recomputed, not remembered.
+            //
+            // This was worked out once at startup - before the radio had
+            // associated and before DHCP had a lease - so it baked in
+            // "no Wi-Fi" and went on saying it while the device sat happily
+            // on the network serving this very page. Reported from hardware
+            // several times as "no wifi, but the web config loads", which is
+            // exactly what a stale string looks like from the outside.
+            //
+            // Association takes ten to twenty seconds on this hardware and
+            // the splash is on screen for about that long, so this is the one
+            // place the answer genuinely changes while it is being shown.
+            splashDetail_ = apps::splashDetail(kVersion, platform_.network());
+            splashAddress_ = apps::splashAddress(platform_.network());
+
             // The detail line scrolls, so every frame differs.
             scheduler_.invalidate();
         }
@@ -432,8 +1190,64 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         // Timekeeping continues while the panel is off — apps still rotate and
         // notifications still expire — so switching it back on shows the present
         // moment rather than a resumed backlog.
-        const bool carouselMoved = carousel_.tick(nowMillis);
+        // Sampled every tick regardless of which app is showing, so switching
+        // to the visualiser mid-sound shows what just happened rather than
+        // starting from an empty panel.
+        if (platform::IMicrophone* microphone = platform_.microphone()) {
+            const platform::SoundLevel sound = microphone->level();
+            if (sound.known) {
+                // One column per kVisualizerSampleMillis, not one per frame.
+                //
+                // Pushing every tick scrolled the trace at the frame rate: 52
+                // columns crossed the panel in under two seconds, which reads
+                // as frantic rather than as a room. It also stuttered, because
+                // the microphone reports at about 22 Hz and a faster loop just
+                // duplicated the last reading.
+                //
+                // The peak between pushes is kept rather than the latest
+                // reading, so slowing the trace down cannot swallow a handclap
+                // that happened between two columns.
+                if (sound.amplitude > visualizerPeak_) {
+                    visualizerPeak_ = sound.amplitude;
+                }
+                if (nowMillis - lastVisualizerPushMillis_ >= kVisualizerSampleMillis) {
+                    visualizer_.push(visualizerPeak_);
+                    visualizerPeak_ = 0;
+                    lastVisualizerPushMillis_ = nowMillis;
+                }
+            }
+        }
+
+        // Frozen while settings are open.
+        //
+        // Without this the carousel kept advancing underneath the menu, which
+        // did two visible things and one confusing one: every few seconds a
+        // transition started and slid the settings screen sideways like an app,
+        // and leaving settings landed on whatever app the timer had reached
+        // rather than the one the user left. Between them it read as though
+        // settings were a page in the rotation, which is precisely what it is
+        // not - it is a mode on top of the rotation, and a mode that keeps
+        // moving is not a mode.
+        // Time in a menu is not time on screen.
+        //
+        // Held still every tick rather than reset on the way out, so no exit
+        // path can forget - and held for one tick *after* leaving too, because
+        // input is processed earlier in this same tick. Without that, the tick
+        // that closes settings is also the first tick that counts dwell, and
+        // it counts every millisecond since the last one.
+        const bool inSettings = navigator_.inSettings();
+        bool carouselMoved = false;
+        if (inSettings || wasInSettings_) {
+            carousel_.restartDwell(nowMillis);
+        }
+        wasInSettings_ = inSettings;
+        if (!inSettings) {
+            carouselMoved = carousel_.tick(nowMillis);
+        }
         const bool notificationsMoved = notifications_.tick(nowMillis);
+
+        announceNotification();
+        tickTheClock();
 
         // Only the redrawing stops. Without this a dark panel would re-render
         // black at the full frame rate, which is the one thing an off switch is
@@ -443,12 +1257,36 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
                 scheduler_.invalidate();
             }
 
+            // A rotation that happened on its own always reads as forward. A
+            // knob turn sets the direction before calling next()/previous(),
+            // and beginTransition keeps whichever was set most recently.
+            if (carouselMoved && !splashActive_) {
+                beginTransition(nowMillis, transitionDirection_);
+            }
+
+            // A transition is motion by definition, so it has to keep asking
+            // for frames for as long as it runs - dirty tracking would
+            // otherwise freeze it on its first step.
+            if (transitionRunning(nowMillis)) {
+                scheduler_.invalidate();
+            }
+
+            // Weather moves, so dirty tracking must not freeze it. Checked at
+            // the frame interval rather than every tick, since that is the
+            // fastest it could usefully change anyway.
+            if (settings_.display.overlay != "none") {
+                scheduler_.invalidate();
+            }
+
             // Anything time-varying has to say so, or dirty tracking would leave
             // it frozen between content changes.
             if (notifications_.active() != nullptr) {
                 scheduler_.invalidate();
             } else if (const app::App* active = carousel_.active()) {
                 if (active->builtin == app::Builtin::TestPattern) {
+                    scheduler_.invalidate();
+                } else if (active->builtin == app::Builtin::Visualizer) {
+                    // Sound does not wait for a redraw to be due.
                     scheduler_.invalidate();
                 } else if (active->builtin == app::Builtin::Battery) {
                     // Once a second is ample for a value that moves a percent
@@ -487,10 +1325,69 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         mqtt_.tick(nowMillis);
     }
 
+    // Settings cannot outlive the user's attention: someone who walks away
+    // mid-adjustment would otherwise leave a clock showing "BRIGHT 168".
+    if (navigator_.tick(nowMillis)) {
+        logger_.info(nowMillis, "settings closed after idle");
+        scheduler_.invalidate();
+    }
+
     if (scheduler_.beginFrame(nowMillis)) {
         const std::uint64_t startedAt = platform_.clock().monotonicMillis();
 
         renderFrame(nowMillis);
+
+        // Over the app, under the transition. Additive, so it only lights
+        // pixels the app left dark - a raindrop passes behind the digits
+        // rather than through them (DESIGN.md section 7).
+        if (settings_.display.power && !splashActive_ && !navigator_.inSettings()) {
+            const render::Overlay overlay =
+                render::overlayFromName(settings_.display.overlay);
+            if (overlay != render::Overlay::None) {
+                render::drawOverlay(framebuffer_, overlay, nowMillis);
+            }
+        }
+
+        // The transient readout after − or + while browsing. Composited here
+        // rather than inside renderFrame because every branch of that function
+        // returns as soon as it has drawn, and a readout that only appeared
+        // over some apps would be worse than none.
+        if (adjustmentShownUntilMillis_ > nowMillis && !navigator_.inSettings() &&
+            settings_.display.power && !splashActive_) {
+            Canvas readout(framebuffer_);
+            renderAdjustment(readout);
+        }
+
+        // Composited after rendering, never during it. renderFrame only ever
+        // draws the app that is active now; the outgoing frame was captured
+        // when the change happened, so nothing in the renderer knows a
+        // transition exists.
+        // An overlay owns the whole panel, so it must not be slid.
+        //
+        // renderFrame returns early for these, but compositing happens out
+        // here and did not know that - so a setup notice raised while the
+        // carousel happened to be mid-rotation was blended with the outgoing
+        // app and slid off the screen like the next item in the list. Seen on
+        // hardware: the setup instructions animated away while somebody was
+        // reading them.
+        //
+        // Checked here rather than by cancelling the transition when a notice
+        // is raised, because the carousel keeps running underneath and would
+        // simply start another one on its next advance.
+        const bool overlayOwnsPanel =
+            showingNotice() || rescue_.counting() || setupHold_.counting();
+
+        if (transitionRunning(nowMillis) && !overlayOwnsPanel) {
+            transitionScratch_ = framebuffer_;
+            const std::uint64_t elapsed = nowMillis - transitionStartMillis_;
+            const int permille = static_cast<int>(
+                (elapsed * 1000u) / render::kTransitionMillis);
+            render::composite(framebuffer_, previousFrame_, transitionScratch_,
+                              transitionStyle_, transitionDirection_, permille);
+        } else {
+            transitionActive_ = false;
+        }
+
         platform_.display().present(framebuffer_);
 
         const std::uint64_t finishedAt = platform_.clock().monotonicMillis();
@@ -537,8 +1434,51 @@ apps::ClockStyle ApplicationHost::clockStyle() const noexcept {
     style.dateSeparator = apps::dateSeparatorFromName(settings_.clock.dateSeparator);
     style.dateYear = apps::dateYearFromName(settings_.clock.dateYear);
     style.blinkPeriodMillis = settings_.clock.blinkPeriodMillis;
-    style.utcOffsetSeconds = settings_.clock.utcOffsetSeconds;
+    style.utcOffsetSeconds = currentUtcOffsetSeconds();
     return style;
+}
+
+void ApplicationHost::applyTimeSettings() {
+    // Parsed once per change rather than once per frame. clockStyle() runs on
+    // every render, and re-parsing a rule string to get the same answer sixty
+    // times a second would be work for nothing - and it is why this is a tick
+    // job rather than something clockStyle() does for itself.
+    if (settings_.clock.timezone == timezoneSpec_) {
+        return;
+    }
+    timezoneSpec_ = settings_.clock.timezone;
+    timezoneValid_ = timezone_::Timezone::parse(timezoneSpec_, timezone_);
+
+    if (timezoneSpec_.empty()) {
+        return;
+    }
+    if (!timezoneValid_) {
+        // Worth saying out loud. A rule that does not parse falls back to the
+        // stored offset, and ignoring it silently would leave somebody certain
+        // they had set a timezone and puzzled twice a year.
+        logger_.warn(lastTickMillis_, "timezone rule not understood; using the fixed offset");
+        return;
+    }
+    logger_.info(lastTickMillis_,
+                 timezone_.observesDaylight() ? "timezone set, with daylight saving"
+                                              : "timezone set, fixed offset");
+}
+
+int ApplicationHost::currentUtcOffsetSeconds() const {
+    // The rule wins where there is one, and the stored offset is the fallback
+    // for the large part of the world that does not observe daylight saving -
+    // and for every device configured before timezones existed.
+    if (!timezoneValid_) {
+        return settings_.clock.utcOffsetSeconds;
+    }
+    const platform::ISystemClock& clock = platform_.clock();
+    if (!clock.wallClockValid()) {
+        // Without a date there is no way to know which side of a changeover we
+        // are on, so the standard offset is the honest answer rather than a
+        // coin toss.
+        return timezone_.standardOffsetSeconds();
+    }
+    return timezone_.offsetSeconds(clock.unixSeconds());
 }
 
 bool ApplicationHost::refreshActiveScene() {
@@ -588,6 +1528,51 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
     Canvas canvas(framebuffer_);
     canvas.clear();
 
+    // The rescue countdown outranks everything, including panel power.
+    //
+    // Somebody holding both buttons has either meant to and needs to see it
+    // working, or has not and needs a reason to stop. A device that stayed
+    // dark and then silently cleared its own password would be
+    // indistinguishable from one that crashed - and this gesture is reached
+    // for precisely when nothing else about the device is behaving.
+    if (rescue_.counting()) {
+        renderHoldCountdown(canvas, "RESET", rescue_.remainingMillis(nowMillis),
+                            input::Rescue::kHoldMillis);
+        return;
+    }
+
+    // Second, so a hand holding everything at once sees the more destructive
+    // of the two. Nobody should discover they were three seconds from
+    // clearing their password because the panel was showing the other thing.
+    if (setupHold_.counting()) {
+        renderHoldCountdown(canvas, "SETUP", setupHold_.remainingMillis(nowMillis),
+                            input::SetupHold::kHoldMillis);
+        return;
+    }
+
+    // A notice outranks settings, panel power and the splash, and is second
+    // only to the rescue countdown.
+    //
+    // It is set when the device has taken its own radio to host an access
+    // point, so the panel is the only way left to say what that access point
+    // is called and where to find it. Honouring "display off" here would mean
+    // a device that unreachably hosts a network nobody can name.
+    if (showingNotice()) {
+        renderNotice(canvas, nowMillis);
+        return;
+    }
+
+    // Settings come before the power check, deliberately.
+    //
+    // Panel power is one of the settings, so honouring "off" while the menu is
+    // open would black out the only screen showing the control that turns it
+    // back on - a trap with no way out except the web UI. The panel goes dark
+    // when settings are left, which is also when the user can see it happen.
+    if (navigator_.inSettings()) {
+        renderSettings(canvas);
+        return;
+    }
+
     // Display off. The panel is cleared and still presented, so it goes properly
     // dark rather than freezing on whatever was last drawn. Safe mode is checked
     // first on purpose: a stored `power: false` must never be able to hide the
@@ -597,9 +1582,8 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
     }
 
     if (splashActive_) {
-        apps::renderSplash(canvas, "NOTRIX", splashDetail_, nowMillis - firstTickMillis_,
-                           config_.splashMillis,
-                           config_.splash);
+        apps::renderSplash(canvas, "NOTRIX", kVersion, nowMillis - firstTickMillis_,
+                           config_.splashMillis, config_.splash, splashAddress_);
         return;
     }
 
@@ -619,6 +1603,28 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
         case app::Builtin::Clock:
             apps::renderClock(canvas, platform_.clock(), clockStyle());
             return;
+        case app::Builtin::Visualizer: {
+            // A present IMicrophone is not the same as a working one, and on
+            // the TC002 the difference is the whole bug: the adapter offers
+            // itself as a microphone as soon as the MCU serial port opens,
+            // then never receives an audio frame. The pointer check passed,
+            // no sample was ever pushed, and the app drew its baseline - a
+            // flat line that reads as a silent room rather than as a device
+            // that cannot hear.
+            //
+            // Asking whether anything has actually been heard covers both
+            // cases honestly. ADR 0013 is about exactly this: absence should
+            // be visible, not dressed up as a plausible value.
+            if (platform_.microphone() == nullptr || !visualizer_.hasSamples()) {
+                apps::renderNoMicrophone(canvas, colors::kWhite);
+                return;
+            }
+            apps::VisualizerStyle visualizerStyle;
+            visualizerStyle.kind =
+                apps::visualizerStyleFromName(settings_.visualizer.style);
+            visualizer_.render(canvas, visualizerStyle, nowMillis);
+            return;
+        }
         case app::Builtin::Battery: {
             platform::BatteryStatus status;
             if (platform::IPowerSource* power = platform_.power()) {
@@ -641,9 +1647,63 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
     }
 }
 
+void ApplicationHost::beginTransition(std::uint64_t nowMillis,
+                                      render::TransitionDirection direction) {
+    if (!settings_.apps.transitions) {
+        transitionActive_ = false;
+        return;
+    }
+
+    // The frame already on the panel becomes the outgoing one. Capturing it
+    // here is what lets the renderer stay ignorant of transitions entirely: it
+    // only ever draws the app that is active now.
+    previousFrame_ = framebuffer_;
+    transitionStartMillis_ = nowMillis;
+    transitionDirection_ = direction;
+    // Notifications arrive rather than rotate, so they always fade; the
+    // carousel uses whatever the user chose (DESIGN.md section 6).
+    //
+    // The notification case is deliberately not configurable. A slide would
+    // say the notification is simply the next item in the rotation, which is a
+    // statement about what a notification *is* rather than a preference - and
+    // getting it wrong makes an alarm look like an app.
+    transitionStyle_ = notifications_.active() != nullptr
+                           ? render::TransitionStyle::Fade
+                           : render::transitionStyleFromName(settings_.apps.transition);
+    transitionActive_ = true;
+}
+
+bool ApplicationHost::transitionRunning(std::uint64_t nowMillis) const noexcept {
+    if (!transitionActive_) {
+        return false;
+    }
+    return nowMillis - transitionStartMillis_ < render::kTransitionMillis;
+}
+
 // --- API ---------------------------------------------------------------------
 
 api::Response ApplicationHost::handle(const api::Request& request) {
+    // One gate, ahead of both the page and the API, because they are the same
+    // server and two schemes would be two things to get wrong (ADR 0018).
+    //
+    // Off by default: a device that demanded a password before it would show
+    // a clock would be a worse first five minutes than the risk it removes.
+    // It is offered during first run rather than left to be discovered.
+    //
+    // Everything is behind it, with no carve-out for /health or the static
+    // page. An exception is a thing to remember, and the one nobody
+    // remembers is the one that matters - a device whose panel can be
+    // rewritten through the endpoint somebody decided was harmless.
+    if (!settings_.web.username.empty() &&
+        !api::basicAuthorised(request.authorization, settings_.web.username,
+                              settings_.web.password)) {
+        api::Response denied = api::error(401, "unauthorized", "authentication required");
+        // Without this a browser shows a bare error page and the person has
+        // no way to supply what is missing.
+        denied.wwwAuthenticate = "Basic realm=\"NOTRIX\", charset=\"UTF-8\"";
+        return denied;
+    }
+
     // The configuration UI is tried first, but only for paths the API does not
     // own. Ordering it this way means a future asset called "api" could never
     // shadow an endpoint, and an unknown /api/v1 path still gets the API's own
@@ -657,12 +1717,22 @@ api::Response ApplicationHost::handle(const api::Request& request) {
 
     const api::Response response = apiServer_.handle(request, lastTickMillis_);
 
+    // Any successful change ends the first run.
+    //
+    // A state, not a wizard: there is no "finish setup" button, because a
+    // button somebody has to find is a step that can be missed. Hooking the
+    // save calls instead would have missed this entirely - the API persists
+    // through its own handle on the store.
+    if (request.method != api::Method::Get && response.status < 400) {
+        firstRun_ = false;
+    }
+
     // Settings are shared by pointer with the API, so a PATCH may have pointed
     // MQTT at a different broker. Re-reading is cheap and does nothing when
     // nothing relevant changed.
     if (request.method != api::Method::Get && response.status < 400 &&
         bootMode_ == BootMode::Normal) {
-        mqtt_.configure();
+        mqtt_.configure(lastTickMillis_);
         mqtt_.invalidateStatus();
     }
 

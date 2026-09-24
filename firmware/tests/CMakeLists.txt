@@ -24,6 +24,24 @@ add_executable(notrix_tests
     test_icons.cpp
     test_web.cpp
     test_mqtt.cpp
+    test_rotary_decoder.cpp
+    test_mcu_protocol.cpp
+    test_navigator.cpp
+    test_tone.cpp
+    test_timezone.cpp
+    test_wireless_stats.cpp
+    test_rescue.cpp
+    test_setup_hold.cpp
+    test_wpa_replies.cpp
+    test_dhcp.cpp
+    test_sntp.cpp
+    test_splash.cpp
+    test_elf_check.cpp
+    test_ipv4_udp.cpp
+    test_wpa_commands.cpp
+    test_basic_auth.cpp
+    test_md5.cpp
+    test_update_image.cpp
 )
 
 target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

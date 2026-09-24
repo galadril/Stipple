@@ -76,6 +76,17 @@ public:
     /// How long the active app has been showing.
     std::uint64_t dwellMillis(std::uint64_t nowMillis) const noexcept;
 
+    /// Treat the current app as having just become active, without changing
+    /// which one it is.
+    ///
+    /// For time the user spent somewhere else entirely - in settings, say.
+    /// Simply not calling tick() is not enough: the dwell is measured from a
+    /// timestamp, so a minute spent in a menu is a minute the app is deemed to
+    /// have been on screen, and leaving the menu advances the carousel
+    /// instantly. Holding this still means someone comes back to the app they
+    /// left, with its full turn ahead of it.
+    void restartDwell(std::uint64_t nowMillis) noexcept { activeSinceMillis_ = nowMillis; }
+
     /// Effective duration of the active app, defaults applied. Zero when
     /// nothing is active.
     int activeDurationSeconds() const noexcept;

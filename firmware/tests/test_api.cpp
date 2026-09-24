@@ -687,6 +687,66 @@ NOTRIX_TEST(Api, TheMqttPasswordCanBeSetAndCleared) {
     NOTRIX_CHECK(fixture.config.mqtt.password.empty());
 }
 
+NOTRIX_TEST(Api, TheAccessPasswordIsWriteOnly) {
+    // The same rule as the MQTT password, and for a sharper reason: backups
+    // are taken from this API, so anything returned here ends up in a file
+    // in somebody's downloads folder.
+    Fixture fixture;
+    fixture.config.web.username = "mark";
+    fixture.config.web.password = "hunter2-do-not-leak";
+
+    const std::string body = fixture.call("GET", "/api/v1/settings").body;
+
+    NOTRIX_CHECK(body.find("hunter2-do-not-leak") == std::string::npos);
+    NOTRIX_CHECK(body.find("\"username\":\"mark\"") != std::string::npos);
+    NOTRIX_CHECK(body.find("\"passwordSet\":true") != std::string::npos);
+}
+
+NOTRIX_TEST(Api, AccessCanBeTurnedOnAndOff) {
+    Fixture fixture;
+
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings",
+                     R"({"web":{"username":"mark","password":"hunter22"}})").status, 200);
+    NOTRIX_CHECK_EQ(fixture.config.web.username, std::string("mark"));
+    NOTRIX_CHECK_EQ(fixture.config.web.password, std::string("hunter22"));
+
+    // Both cleared together, which is the only way off.
+    fixture.call("PATCH", "/api/v1/settings", R"({"web":{"username":"","password":""}})");
+    NOTRIX_CHECK(fixture.config.web.username.empty());
+    NOTRIX_CHECK(fixture.config.web.password.empty());
+}
+
+NOTRIX_TEST(Api, RefusesHalfConfiguredAccess) {
+    // The failure mode of getting this wrong is a device nobody can log
+    // into, and unlike most settings the page that would fix it is behind
+    // the thing that broke. So it is refused here rather than half-applied.
+    Fixture fixture;
+
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"web":{"username":"mark"}})").status, 422);
+    NOTRIX_CHECK(fixture.config.web.username.empty());
+
+    // And clearing only the password, leaving a username behind, is the same
+    // mistake from the other direction.
+    fixture.config.web.username = "mark";
+    fixture.config.web.password = "hunter22";
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings", R"({"web":{"password":""}})").status, 422);
+    NOTRIX_CHECK_EQ(fixture.config.web.password, std::string("hunter22"));
+}
+
+NOTRIX_TEST(Api, RefusesAUsernameThatCouldNeverBeSent) {
+    // A Basic credential is "user:password" split on the first colon, so a
+    // username containing one could never come back. Accepting it would
+    // store a setting that locks the device permanently.
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(
+        fixture.call("PATCH", "/api/v1/settings",
+                     R"({"web":{"username":"ma:rk","password":"hunter22"}})").status, 422);
+    NOTRIX_CHECK(fixture.config.web.username.empty());
+}
+
 NOTRIX_TEST(Api, PatchAcceptsMqttSettings) {
     Fixture fixture;
     const Response response = fixture.call("PATCH", "/api/v1/settings",
@@ -956,4 +1016,324 @@ NOTRIX_TEST(Api, ReplacingASystemAppKeepsItABuiltin) {
     fixture.call("PATCH", "/api/v1/apps/clock", R"({"enabled":true})");
     NOTRIX_CHECK(fixture.apps.find("clock")->builtin == notrix::app::Builtin::Clock);
     NOTRIX_CHECK(fixture.apps.find("clock")->source == notrix::app::AppSource::System);
+}
+
+NOTRIX_TEST(Api, AnAppCanBeMovedByPatchingItsPosition) {
+    // Position is a property of the app like any other, so it moves on the
+    // same verb rather than needing an endpoint of its own.
+    Fixture fixture;
+    fixture.addApp("one");
+    fixture.addApp("two");
+    fixture.addApp("three");
+
+    const Response moved = fixture.call("PATCH", "/api/v1/apps/three", R"({"position":0})");
+    NOTRIX_CHECK_EQ(static_cast<int>(moved.status), 200);
+
+    NOTRIX_CHECK_EQ(fixture.apps.at(0)->id, std::string("three"));
+    NOTRIX_CHECK_EQ(fixture.apps.at(1)->id, std::string("one"));
+    NOTRIX_CHECK_EQ(fixture.apps.at(2)->id, std::string("two"));
+}
+
+NOTRIX_TEST(Api, MovingAnAppReportsItsNewPosition) {
+    // The reply used to say position 0 whatever happened, which is a lie a client
+    // would happily rebuild its list from.
+    Fixture fixture;
+    fixture.addApp("one");
+    fixture.addApp("two");
+    fixture.addApp("three");
+
+    const Response moved = fixture.call("PATCH", "/api/v1/apps/one", R"({"position":2})");
+    NOTRIX_CHECK_EQ(static_cast<int>(moved.status), 200);
+    NOTRIX_CHECK(moved.body.find("\"position\":2") != std::string::npos);
+}
+
+NOTRIX_TEST(Api, APositionOutsideTheInstalledAppsIsRefused) {
+    Fixture fixture;
+    fixture.addApp("one");
+    fixture.addApp("two");
+
+    NOTRIX_CHECK_EQ(
+        static_cast<int>(fixture.call("PATCH", "/api/v1/apps/one", R"({"position":9})").status), 422);
+    NOTRIX_CHECK_EQ(
+        static_cast<int>(fixture.call("PATCH", "/api/v1/apps/one", R"({"position":-1})").status), 422);
+
+    // And nothing moved on the way to being refused.
+    NOTRIX_CHECK_EQ(fixture.apps.at(0)->id, std::string("one"));
+}
+
+// --- reset -------------------------------------------------------------------
+
+NOTRIX_TEST(Api, ResetPutsSettingsBackToDefaults) {
+    Fixture fixture;
+    fixture.config.display.brightness = 17;
+    fixture.config.clock.theme = "calendar";
+    fixture.config.apps.defaultDurationSeconds = 44;
+
+    const Response reset = fixture.call("POST", "/api/v1/system/reset");
+    NOTRIX_CHECK_EQ(static_cast<int>(reset.status), 200);
+
+    const notrix::config::Config defaults;
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.config.display.brightness),
+                    static_cast<int>(defaults.display.brightness));
+    NOTRIX_CHECK_EQ(fixture.config.clock.theme, defaults.clock.theme);
+    NOTRIX_CHECK_EQ(fixture.config.apps.defaultDurationSeconds,
+                    defaults.apps.defaultDurationSeconds);
+}
+
+NOTRIX_TEST(Api, ResetKeepsTheDeviceName) {
+    // It is how somebody tells one of these from another on the network, it is
+    // not a setting that can be "wrong", and losing it means finding the device
+    // again before you can fix whatever you were resetting.
+    Fixture fixture;
+    fixture.config.deviceName = "kitchen";
+    fixture.config.display.brightness = 17;
+
+    fixture.call("POST", "/api/v1/system/reset");
+
+    NOTRIX_CHECK_EQ(fixture.config.deviceName, std::string("kitchen"));
+}
+
+NOTRIX_TEST(Api, ResetKeepsTheArrangementWithTheApps) {
+    // Clearing the stored order cleared only the stored copy: the running
+    // device stayed in the user's order until it next rebooted and then
+    // silently reverted. A reset that takes effect at an unpredictable point
+    // in the future is worse than one that does nothing.
+    Fixture fixture;
+    notrix::config::AppPreference arranged;
+    arranged.id = "battery";
+    fixture.config.apps.order.push_back(arranged);
+    fixture.config.display.brightness = 17;
+
+    fixture.call("POST", "/api/v1/system/reset");
+    NOTRIX_REQUIRE(fixture.config.apps.order.size() == 1);
+    NOTRIX_CHECK_EQ(fixture.config.apps.order[0].id, std::string("battery"));
+
+    // And it goes when the apps do, because then there is nothing to arrange.
+    fixture.call("POST", "/api/v1/system/reset", R"({"apps":true})");
+    NOTRIX_CHECK(fixture.config.apps.order.empty());
+}
+
+NOTRIX_TEST(Api, ResetKeepsAppsUnlessAskedOtherwise) {
+    // Somebody resetting settings to sort out a display problem should not
+    // silently lose the apps an integration spent a week pushing.
+    Fixture fixture;
+    fixture.addApp("pushed");
+
+    fixture.call("POST", "/api/v1/system/reset");
+    NOTRIX_CHECK(fixture.apps.find("pushed") != nullptr);
+
+    fixture.call("POST", "/api/v1/system/reset", R"({"apps":true})");
+    NOTRIX_CHECK(fixture.apps.find("pushed") == nullptr);
+}
+
+NOTRIX_TEST(Api, ResetIsPersisted) {
+    // The running device is on defaults either way; a caller that believes the
+    // reset survived a reboot when it did not will be surprised later.
+    Fixture fixture;
+    fixture.config.display.brightness = 17;
+    fixture.call("POST", "/api/v1/system/reset");
+
+    notrix::config::Config stored;
+    fixture.configStore.load(stored);
+    const notrix::config::Config defaults;
+    NOTRIX_CHECK_EQ(static_cast<int>(stored.display.brightness),
+                    static_cast<int>(defaults.display.brightness));
+}
+
+NOTRIX_TEST(Api, ResetRefusesTheWrongMethod) {
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.call("GET", "/api/v1/system/reset").status), 405);
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.call("DELETE", "/api/v1/system/reset").status), 405);
+}
+
+NOTRIX_TEST(Api, SettingsRoundTripThroughABackup) {
+    // What the web UI's backup and restore actually do: read the settings
+    // document, send the whole thing back, and get the same device state. If
+    // any field the API emits is one it will not accept, this fails - which is
+    // the only way to notice a write-only or read-only field before a user
+    // does.
+    Fixture fixture;
+    fixture.config.deviceName = "hallway";
+    fixture.config.display.brightness = 42;
+    fixture.config.display.overlay = "confetti";
+    fixture.config.clock.theme = "calendar";
+    fixture.config.clock.timezone = "CET-1CEST,M3.5.0,M10.5.0/3";
+    fixture.config.apps.defaultDurationSeconds = 17;
+    fixture.config.apps.transition = "dissolve";
+    fixture.config.visualizer.style = "meter";
+    fixture.config.notifications.sound = "alert";
+    fixture.config.clock.tick = true;
+
+    notrix::config::AppPreference arranged;
+    arranged.id = "battery";
+    arranged.enabled = false;
+    arranged.durationSeconds = 9;
+    fixture.config.apps.order.push_back(arranged);
+
+    const Response saved = fixture.call("GET", "/api/v1/settings");
+    NOTRIX_REQUIRE(saved.status == 200);
+    const std::string backup = saved.body;
+
+    // Wipe, then restore from the backup exactly as the page does.
+    fixture.call("POST", "/api/v1/system/reset");
+    const Response restored = fixture.call("PATCH", "/api/v1/settings", backup);
+    NOTRIX_CHECK_EQ(static_cast<int>(restored.status), 200);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.config.display.brightness), 42);
+    NOTRIX_CHECK_EQ(fixture.config.display.overlay, std::string("confetti"));
+    NOTRIX_CHECK_EQ(fixture.config.clock.theme, std::string("calendar"));
+    NOTRIX_CHECK_EQ(fixture.config.clock.timezone,
+                    std::string("CET-1CEST,M3.5.0,M10.5.0/3"));
+    NOTRIX_CHECK_EQ(fixture.config.apps.defaultDurationSeconds, 17);
+    NOTRIX_CHECK_EQ(fixture.config.apps.transition, std::string("dissolve"));
+    NOTRIX_CHECK_EQ(fixture.config.visualizer.style, std::string("meter"));
+    NOTRIX_CHECK_EQ(fixture.config.notifications.sound, std::string("alert"));
+    NOTRIX_CHECK(fixture.config.clock.tick);
+
+    // The arrangement too. It was persisted to flash and left out of this
+    // document, so a backup silently omitted it and a restore could not bring
+    // it back - and this test passed anyway until it started looking.
+    NOTRIX_REQUIRE(fixture.config.apps.order.size() == 1);
+    NOTRIX_CHECK_EQ(fixture.config.apps.order[0].id, std::string("battery"));
+    NOTRIX_CHECK_FALSE(fixture.config.apps.order[0].enabled);
+    NOTRIX_CHECK_EQ(fixture.config.apps.order[0].durationSeconds, 9);
+}
+
+NOTRIX_TEST(Api, AMalformedOrderIsRefusedRatherThanPartlyApplied) {
+    Fixture fixture;
+
+    NOTRIX_CHECK_EQ(static_cast<int>(
+        fixture.call("PATCH", "/api/v1/settings",
+                     R"({"apps":{"order":[{"enabled":true}]}})").status), 422);
+    NOTRIX_CHECK_EQ(static_cast<int>(
+        fixture.call("PATCH", "/api/v1/settings",
+                     R"({"apps":{"order":["clock"]}})").status), 422);
+    NOTRIX_CHECK_EQ(static_cast<int>(
+        fixture.call("PATCH", "/api/v1/settings",
+                     R"({"apps":{"order":[{"id":"a","durationSeconds":99999}]}})").status), 422);
+
+    // Nothing was written on the way to being refused.
+    NOTRIX_CHECK(fixture.config.apps.order.empty());
+}
+
+NOTRIX_TEST(Api, AButtonCanBeHeldAcrossRequests) {
+    // Without this the only thing reachable from outside is a complete press,
+    // which makes any two-button gesture untestable except by standing in
+    // front of the device - and the rescue gesture is exactly that, on the one
+    // path that has to work when nothing else does.
+    Fixture fixture;
+
+    NOTRIX_CHECK_EQ(static_cast<int>(
+        fixture.call("POST", "/api/v1/input", R"({"control":"minus","phase":"down"})").status),
+        204);
+    NOTRIX_REQUIRE(fixture.input.events.size() == 1);
+    NOTRIX_CHECK(fixture.input.events[0].phase == notrix::platform::ButtonPhase::Down);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(
+        fixture.call("POST", "/api/v1/input", R"({"control":"minus","phase":"up"})").status),
+        204);
+    NOTRIX_REQUIRE(fixture.input.events.size() == 2);
+    NOTRIX_CHECK(fixture.input.events[1].phase == notrix::platform::ButtonPhase::Up);
+}
+
+NOTRIX_TEST(Api, AnUnknownPhaseIsRefused) {
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(static_cast<int>(
+        fixture.call("POST", "/api/v1/input", R"({"control":"minus","phase":"sideways"})").status),
+        422);
+    NOTRIX_CHECK(fixture.input.events.empty());
+}
+
+NOTRIX_TEST(Api, WithoutAPhaseAPressIsStillCompleteBothWays) {
+    // The common case stays one request, because a web UI pressing a button
+    // should not have to remember to let go.
+    Fixture fixture;
+    fixture.call("POST", "/api/v1/input", R"({"control":"plus"})");
+    NOTRIX_REQUIRE(fixture.input.events.size() == 2);
+    NOTRIX_CHECK(fixture.input.events[0].phase == notrix::platform::ButtonPhase::Down);
+    NOTRIX_CHECK(fixture.input.events[1].phase == notrix::platform::ButtonPhase::Up);
+}
+
+// --- network -----------------------------------------------------------------
+
+NOTRIX_TEST(Api, NetworkReportsWhatTheDeviceIsOn) {
+    Fixture fixture;
+    notrix::platform::NetworkStatus status;
+    status.connected = true;
+    status.ipv4 = "192.168.1.50";
+    status.hostname = "notrix";
+    status.ssid = "Example Network";
+    status.signalKnown = true;
+    status.rssiDbm = -51;
+    fixture.platform.simulatedNetwork().setStatus(status);
+
+    const Response answer = fixture.call("GET", "/api/v1/network");
+    NOTRIX_CHECK_EQ(static_cast<int>(answer.status), 200);
+    NOTRIX_CHECK(answer.body.find("\"ssid\":\"Example Network\"") != std::string::npos);
+    NOTRIX_CHECK(answer.body.find("\"rssiDbm\":-51") != std::string::npos);
+}
+
+NOTRIX_TEST(Api, APlatformThatCannotScanSaysSoRatherThanReturningNothing) {
+    // An empty list and "this device cannot look" are different answers, and
+    // they are indistinguishable without saying which one this is (ADR 0013).
+    Fixture fixture;
+
+    const Response answer = fixture.call("GET", "/api/v1/network");
+    NOTRIX_CHECK(answer.body.find("\"canScan\":false") != std::string::npos);
+    NOTRIX_CHECK(answer.body.find("\"networks\":[]") != std::string::npos);
+
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.call("POST", "/api/v1/network/scan").status), 501);
+}
+
+NOTRIX_TEST(Api, ScanningIsAcceptedRatherThanWaitedFor) {
+    // A scan takes seconds and §16 does not allow waiting for one here, so the
+    // reply says it started and the caller asks again.
+    Fixture fixture;
+    fixture.platform.simulatedNetwork().setScannable(true);
+
+    const Response answer = fixture.call("POST", "/api/v1/network/scan");
+    NOTRIX_CHECK_EQ(static_cast<int>(answer.status), 202);
+    NOTRIX_CHECK(answer.body.find("scanning") != std::string::npos);
+}
+
+NOTRIX_TEST(Api, ScanResultsComeBackThroughTheNetworkResource) {
+    Fixture fixture;
+    fixture.platform.simulatedNetwork().setScannable(true);
+
+    notrix::platform::WirelessNetwork found;
+    found.ssid = "Example Network";
+    found.signalDbm = -42;
+    found.secured = true;
+    found.current = true;
+    fixture.platform.simulatedNetwork().setNetworks({found});
+
+    const Response answer = fixture.call("GET", "/api/v1/network");
+    NOTRIX_CHECK(answer.body.find("\"canScan\":true") != std::string::npos);
+    NOTRIX_CHECK(answer.body.find("\"signalDbm\":-42") != std::string::npos);
+    NOTRIX_CHECK(answer.body.find("\"secured\":true") != std::string::npos);
+    NOTRIX_CHECK(answer.body.find("\"current\":true") != std::string::npos);
+}
+
+NOTRIX_TEST(Api, NetworkRefusesTheWrongMethods) {
+    Fixture fixture;
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.call("POST", "/api/v1/network").status), 405);
+    NOTRIX_CHECK_EQ(static_cast<int>(fixture.call("GET", "/api/v1/network/scan").status), 405);
+}
+
+NOTRIX_TEST(Routes, FirmwareIsRoutedAndNothingElseUnderSystemIs) {
+    using notrix::api::matchRoute;
+    using notrix::api::Resource;
+
+    NOTRIX_CHECK(matchRoute("/api/v1/system/firmware").resource == Resource::SystemFirmware);
+    NOTRIX_CHECK(matchRoute("/api/v1/system/reboot").resource == Resource::SystemReboot);
+    NOTRIX_CHECK(matchRoute("/api/v1/system/reset").resource == Resource::SystemReset);
+
+    // The staging route is gone on purpose, not renamed by accident. It wrote
+    // update.img to the USB volume, and the vendor's recovery daemon installs
+    // whatever sits there unattended - it reverted a working NOTRIX on real
+    // hardware. A 404 is the correct answer forever.
+    NOTRIX_CHECK(matchRoute("/api/v1/system/restore-image").resource == Resource::Unknown);
+
+    NOTRIX_CHECK(matchRoute("/api/v1/system").resource == Resource::Unknown);
+    NOTRIX_CHECK(matchRoute("/api/v1/system/firmware/extra").resource == Resource::Unknown);
 }

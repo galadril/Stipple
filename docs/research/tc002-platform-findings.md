@@ -503,8 +503,16 @@ ff 55 <cmd> <len> <payload[len]> <trailer[2]>          at 1500000 baud
 ->  ff 55 11 00 01 65                                  ask the version
 <-  ff 55 11 07 56 31 2e 30 2e 31 37 02 e7             "V1.0.17" in ASCII
 <-  ff 55 03 03 5a 0c 4e 02 0e                         telemetry, pushed unprompted
-<-  ff 55 02 01 01 01 58                               a flag, always 01 so far
+<-  ff 55 02 01 01 01 58                               charge state: 01 = on the cable
 ```
+
+**The trailing two bytes are a checksum**: a big-endian 16-bit sum of every
+byte before them, headers included. It holds on every frame captured —
+`ff+55+11+00 = 0x0165` and the query ends `01 65`; `ff+55+02+01+01 = 0x0158`
+and `01 58`; `ff+55+03+03+5a+0c+43 = 0x0203` and `02 03`. It is verified rather
+than skipped, because a 1.5 Mbaud link with no flow control can drop a byte and
+the cost of not checking is a battery percentage assembled from whatever
+followed a corrupted header.
 
 The version handshake is what makes the rest trustworthy: the MCU answered
 `V1.0.17`, which matches the version the stock firmware reports, so the port
@@ -518,10 +526,95 @@ settings and the framing are both right rather than merely plausible.
 - Nothing else on this device can report charge, and the MCU is documented as
   the place it comes from.
 
-Byte 1 has been constant at `0x0c` (12). Byte 2 drifts between roughly 70 and 78
-within *seconds* — far too fast for temperature, and this hardware has no
-temperature sensor anyway. **Both are deliberately left undecoded.** Naming them
-would be inventing meaning, and a battery app is worth having without them.
+Bytes 1 and 2 are **cell voltage in millivolts, big-endian**. They had been
+written off here as an undecoded fast-moving value, on the grounds that nothing
+drifts that quickly; a cell under a varying load does. `0c 43` is 3139 mV and
+`0c 4e` is 3150 mV — one cell wobbling by a few millivolts, not a second sensor.
+
+### Command `0x02` is the charge state
+
+Dismissed in an earlier revision of this document as "a flag, always 01". It is
+always 01 when every capture is taken over USB, which every capture was.
+
+A 75-second capture taken with the cable deliberately pulled settles it. The
+payload held `01`, went to `00` within a second of the cable coming out, stayed
+there for twelve seconds, and returned to `01` on reconnect:
+
+| Time | `0x02` | Voltage | Percent |
+|---|---|---|---|
+| 0–43.3 s | `01` | 3158–3163 mV | 90 |
+| 43.3 s | `00` — unplugged | falls to 3111–3122 mV | sags to 88 |
+| 55.8 s | `01` — replugged | 3158–3163 mV | back to 90 |
+
+This also explains a battery app that looked broken. The MCU's percentage is
+voltage-derived, so it sags under load and recovers on the cable — a user
+pulling the cable sees the number drop several points and putting it back sees
+it climb, with nothing on screen explaining why. The charge flag is the
+explanation, and the battery app now draws it.
+
+### The microphone has to be asked for
+
+Command `0x01` carries the level: a big-endian 16-bit amplitude, roughly 22 Hz,
+a few hundred in a quiet room. **It is sent only after the microphone is
+switched on**, and the switch is command `0x04`:
+
+```
+->  ff 55 04 01 01 01 5a       microphone on
+->  ff 55 04 01 00 01 59       microphone off
+<-  ff 55 01 02 01 a6 01 fe    level: 0x01a6 = 422
+```
+
+Both values of the switch were captured going out of the vendor application as
+its visualiser appeared and was navigated away from. The bytes NOTRIX sends are
+that capture verbatim, and `Tc002Mcu` sends the off frame when it closes the
+port — the enable outlives the process, and leaving it on would mean a device
+that had once run NOTRIX kept streaming audio to whatever ran next.
+
+**The switch is sticky.** The MCU keeps streaming until something turns it off
+or the device loses power. That is the entire history of this feature: the
+vendor application enabled it, NOTRIX inherited a microphone it had never asked
+for, the visualiser worked for a while, and a reboot took it away with nothing
+in the code having changed.
+
+#### How this was nearly recorded as a hardware limitation
+
+Worth keeping, because the reasoning looked sound at every step and the
+conclusion was wrong.
+
+Three captures were taken looking for audio: a 19-second `LD_PRELOAD` trace of
+the vendor application, a 75-second listen with someone deliberately making
+noise at the device, and the vendor application left alone on its clock face for
+35 seconds. All three contained command `0x02` and command `0x03` and nothing
+else, and in none of them did the vendor application write anything to the link
+but the version query.
+
+The conclusion drawn was that `0x01` had never been observed, that the
+`kMicLevel` constant was belief rather than evidence, and that the device should
+report it could not hear. That was written into this document and into the code.
+
+It was contradicted by two things already in the repository. The commit that
+fixed the visualiser's auto-gain describes *"a finger snap raised the window and
+every column already on screen shrank at the same instant"* — an observation
+nobody can make without a live microphone. And the person who owns the device
+said plainly that it had worked.
+
+Every capture was true. Each was taken with something on screen that did not
+want audio, so what they measured was the absence of a reason to stream, not the
+absence of a microphone. A fourth capture, taken with the vendor visualiser
+actually displayed, had 451 audio frames in twenty seconds and the enable
+command in plain sight.
+
+The lesson is narrow and worth stating: **a capture proves what was happening
+while it ran.** Three of them agreeing proves only that the same thing was not
+happening three times. When a capture disagrees with someone who watched the
+device work, the capture is not the witness to trust.
+
+A practical footnote, because it nearly cost a fourth wrong conclusion: the
+`LD_PRELOAD` shim caps itself at 600 records to protect a 36 MB device from
+filling tmpfs. Narrowed to the MCU link with `NOTRIX_SPY_ONLY=ttyS`, that cap is
+reached in nine minutes and the log simply stops — which looked exactly like a
+device that had nothing more to say. `NOTRIX_SPY_MAX` raises it.
+
 
 Implemented as `platform::tc002::Tc002Mcu`, which reads only. The MCU also
 drives the panel's power rails, and sending commands whose meaning is a guess is
@@ -1016,3 +1109,572 @@ documented way back.
 9. Crash-loop visibility is now a Phase 7 requirement, not a nicety: the
    platform falls back to the vendor launcher after three failed start-ups, and
    that state must be reported rather than left looking like a failed install.
+
+## The Wi-Fi control interface
+
+`init.rc` starts the supplicant as:
+
+```
+wpa_supplicant -iwlan0 -Dnl80211 -c/data/misc/wifi/wpa_supplicant.conf                -C/dev/socket/ -e/data/misc/wifi/entropy.bin
+```
+
+so its **control socket is /dev/socket/wlan0**, a UNIX datagram socket taking
+plain text commands. There is no `wpa_cli` binary on the device, but none is
+needed: the socket is the whole interface, and a client binds a socket of its
+own — the daemon replies to the address it was sent from.
+
+`STATUS` returns `wpa_state`, `ssid` and `ip_address` among others.
+`SCAN_RESULTS` returns tab-separated rows of bssid, frequency, signal level,
+flags and SSID, after a header line naming those columns.
+
+**This matters for provisioning.** The alternative was editing
+`/data/misc/wifi/wpa_supplicant.conf` by hand — a persistent file, on the only
+path back to the device. The daemon owns that file, knows how to write it, and
+`ADD_NETWORK` / `SET_NETWORK` / `SAVE_CONFIG` let it do so. ADR 0018 takes that
+route for exactly that reason.
+
+`/data/misc/wifi/hostapd.conf` also exists, already configured with a WPA2 PSK
+— the vendor's own fallback access point. A hotspot mode has a working
+configuration to start from rather than one to invent.
+
+`/data/misc/wifi/` is persistent. `/tmp` is not, which is where a client socket
+belongs.
+
+## There is no DHCP client on this device
+
+Found by testing the hotspot, which is the only way it was going to be found.
+
+The complete contents of `/bin`:
+
+```
+adbd busybox cat chmod chown cp date df dnsmasq echo fsync getevent getprop
+hostapd kill ln logcat logd ls mkdir mknod mksh mount mv ping ps pwd reboot
+rm rmdir setprop sh ssd_init.sh sync test_fb touch umount vold wpa_supplicant
+zkdaemon zkdisplay zkgui
+```
+
+No `udhcpc`, no `dhcpcd`, no `dhclient`. The busybox build has no applets at
+all — `busybox --list` answers "applet not found" — so `/sbin/ifconfig` and the
+handful of other symlinks are the whole of it. `init.rc` creates
+`/data/misc/dhcp` and nothing ever writes there.
+
+**The vendor application obtains the lease itself.** `wpa_supplicant` is an
+init service and only ever associates; the address appears when `zkgui` runs
+and nothing else on the device is capable of asking for one.
+
+Two consequences, and the second is the serious one.
+
+**A hotspot cannot simply hand the radio back.** Stopping `hostapd` and
+restarting `wpa_supplicant` re-associates and leaves the interface with no
+address, which is what happened on the first live test: the access point
+disappeared, the station came back, and the device was unreachable until it was
+power-cycled. Restoring the network needs something to ask for an address.
+
+**NOTRIX does not hold its own lease.** It has been running on addresses
+obtained by the vendor application before it started — every session so far
+began with `setprop ctl.stop zkswe` on a device that was already online. The
+address stays configured because nothing removes it, but nothing renews it
+either, so a NOTRIX device left alone will lose its network when the lease
+expires. Nobody has seen it because no unit has run for a full lease period
+without being restarted.
+
+So a DHCP client is not a hotspot detail. It is a thing NOTRIX needs in order
+to be the application on this device at all, and it has to be written: there is
+nothing here to call.
+
+### Confirmed while writing one
+
+NOTRIX now obtains and renews its own lease, and the live run settled three
+things that were guesses beforehand.
+
+**`AF_PACKET` works on this kernel.** A `SOCK_DGRAM` packet socket binds and
+receives; `/proc/net/packet` shows it with proto `0800` on `wlan0`, alongside
+`wpa_supplicant`'s own `888e` EAPOL socket. So a client here can bootstrap
+from no address at all, which is what first boot needs.
+
+**The lease this device is issued is 86400 seconds.** That is the number
+behind the whole problem: a NOTRIX device left alone loses its network after a
+day.
+
+**The router honours option 50.** Asking to keep the address already on the
+interface returned the same address, so taking the lease over from the vendor
+application is invisible to everything else on the network.
+
+`/sbin/ifconfig` is a busybox symlink and there is no `/bin/ifconfig`, but
+none of it is needed: `SIOCSIFADDR`, `SIOCSIFNETMASK` and `SIOCADDRT` all
+work directly, which is better than parsing a tool's output anyway.
+
+## The flash layout, and why nothing here can write it yet
+
+```
+mtd0  0x00050000  BOOT0        mtd4  0x000b0000  config   (squashfs, ro)
+mtd1  0x001f0000  KERNEL       mtd5  0x00040000  MISC
+mtd2  0x00450000  rootfs (squashfs, ro)   mtd6  0x00800000  data (jffs2, rw)
+mtd3  0x00800000  res    (squashfs, ro)   mtd7  0x00880000  UDISK (vfat)
+```
+
+**`/data` is the only writable persistent filesystem** — 8 MiB of jffs2 on
+mtd6, mounted rw. `/`, `/res` and `/config` are all read-only squashfs.
+
+**Nothing in init runs anything from `/data`.** `/etc/init.rc` lives on the
+read-only rootfs, and every service it declares points at `/bin` or `/res`.
+So a program in `/data` cannot be started at boot, which is why NOTRIX is
+still a thing you run rather than a thing the device runs — and why
+persistence needs a write to mtd2 or mtd3.
+
+One line of init.rc is worth keeping in mind for later:
+
+```
+export LD_LIBRARY_PATH /tmp:/res/lib:/lib
+```
+
+`/tmp` comes *first*, so a library dropped there shadows the vendor's own.
+That is what makes the volatile trial mode work at all, and it is tmpfs, so
+it is also why that mode cannot be made to persist.
+
+### The device can be flashed; it has no tool that does
+
+`/dev/mtd/mtd0` through `mtd7` exist as character devices, mode `crw-------`
+and owned by root, which NOTRIX runs as. The read-only aliases `mtdNro` are
+there too, which is what a restore-image capture should read from.
+
+So the missing piece is a program, not a capability: `MEMGETINFO`, then
+`MEMERASE` per eraseblock, then write, then read back and compare. On the
+order of a hundred and fifty lines.
+
+That resolves half of what [ADR 0008](../adr/0008-installer-helper.md) is
+waiting on. It does **not** resolve the other half — the ADR requires a
+restore path that has been *demonstrated*, not one that ought to work, and
+demonstrating it means writing the tool and then using it to put a captured
+image back on a device that has been deliberately broken. The gates stand.
+
+## The device already knows how to flash itself
+
+Found while working out how NOTRIX could persist, and it made writing a
+flasher unnecessary. All of this is first-hand: read off a real unit and
+proven by rebuilding a factory image byte for byte.
+
+**It is NOR flash.** `/sys/class/mtd/mtd3/type` says `nor`, `writesize` is 1
+and `oobsize` is 0. No OOB, no ECC, and **no bad blocks** — erase then write,
+byte-addressable. Every partition reports the same.
+
+**There is a vendor update path, and it is good.** `/mnt/storage/update.img`
+sits on the device's own USB volume — the vfat partition that appears as mass
+storage when it is plugged into a computer. The loader checks a header CRC32
+and a payload MD5 before writing, and writes only the `res` partition
+directly; other partitions go through a u-boot handoff.
+
+**Recovery is a physical button.** Holding reset during power-up reflashes
+from `/mnt/storage`, needing no network, no computer and no shell.
+
+### The update.img container
+
+```
+0x000  magic  "ZKSWEV1.0-180127"    (the first 9 bytes are what is checked)
+0x010  prefix length 0x30, entry count 1
+0x014  partition index               3 = res
+0x018  payload offset                0x23c (572) - the header size
+0x01c  payload length                padded to 4 KiB
+0x020  the real first 16 bytes of the filesystem image, relocated here
+0x035  device code 0xaa550606        Zkswe_SSD21X_SPINOR, and unaligned
+0x238  CRC32 over header[0:0x238]
+payload[0:16]                        MD5 of the image with its first 16 bytes restored
+```
+
+The two sixteen-byte swaps are the only unusual part: the filesystem's
+opening bytes move into the header, and the MD5 takes their place at the
+start of the payload.
+
+Confirmed by extracting the factory image and repacking it — the result is
+byte-identical. `tooling/imgtool/` does both.
+
+Large parts of the header from 0x60 onwards are not understood. There is a
+table of some kind with a regular four-byte cadence. Nothing here invents it:
+the tooling copies a known-good header and edits the five fields that must
+change.
+
+### The shipped recovery image is not the firmware that is running
+
+On the unit this was written against:
+
+```
+installed res   squashfs, bytes_used 2 787 758
+shipped udisk   payload              2 781 184     they differ
+```
+
+**Holding the reset button on this device installs an older image than the
+one it has.** The third-party TC002 documentation reports the same on their
+unit, so it is not a one-off.
+
+That is the evidence behind [ADR 0008](../adr/0008-installer-helper.md)'s
+insistence that a restore image be captured from the unit in front of you.
+`tooling/imgtool/capture.py` does it, reading through the kernel's read-only
+alias `/dev/mtd/mtd3ro` and verifying the result against the capture.
+
+### USB is a recovery path after all
+
+`/sys/bus/platform/devices/soc:usbotg/otg_role` reads `usb_host` and can be
+set to `usb_device`, which brings up the ADB gadget over the cable — root
+shell with no network involved.
+
+CLAUDE.md says USB-C on this device is mass storage and not a flashing path.
+That is true of its **default role** and not of the port, and the distinction
+matters: it means there is a way into a device whose Wi-Fi is broken, which
+is the failure this project keeps running into.
+
+## How the vendor application is actually loaded
+
+Blueprint §7.1 says `/bin/zkgui` "loads the application from
+`/res/lib/libzkgui.so` at runtime". The conclusion is right and the mechanism
+is not, and the difference matters to anyone trying to replace it.
+
+**`zkgui` does not link `libzkgui.so`.** Its dynamic section has twenty-five
+`NEEDED` entries and that is not among them. It is a nine-kilobyte launcher
+over three singletons:
+
+```
+EasyUIContext::getInstance / initEasyUI / runEasyUI / deinitEasyUI
+NetManager::getInstance / start
+HardwareManager::getInstance
+```
+
+from `libeasyui.so`, `libzknet.so` and `libzkhardware.so`.
+
+**The application is `dlopen`ed.** Confirmed by starting the stock app and
+reading `/proc/<pid>/maps`: `/res/lib/libzkgui.so` is mapped by a process
+whose `NEEDED` list does not mention it.
+
+`libeasyui.so` imports `dlopen` and `dlsym` and contains no `libzkgui`
+string anywhere, so the path is constructed at runtime rather than stored -
+most plausibly from the program name, which would make `/bin/zkgui` load
+`/res/lib/libzkgui.so` by convention. That is a guess and is flagged as one.
+
+Still unknown, and it is the thing that decides whether NOTRIX can persist as
+a drop-in replacement: **which symbol is looked up after the library is
+opened.** Until that is known, building NOTRIX as `libzkgui.so` is not
+something anyone can attempt.
+
+## The stock firmware will flash an image for you, over HTTP, unauthenticated
+
+Probed live on the device. This is the easiest flashing path that exists and
+it needs no tool from us at all.
+
+`/bin/zkgui` runs a `ConfigWebServer` on port 80 with an OTA handler,
+`ConfigWebServer::otaUpdateRequest`. It takes a **URL to download**, not an
+uploaded file:
+
+```
+POST /update
+{}                              -> {"code":400,"message":"Missing parameter: mcu/app.downloadUrl"}
+{"app":{"version":"9.9.9"}}     -> {"code":400,"message":"Missing parameter: app.downloadUrl"}
+```
+
+Supplying `version` makes it commit to the `app` branch and name the field
+precisely, which gives the shape:
+
+```json
+{"app": {"version": "0.1.0", "downloadUrl": "http://host/notrix.img"}}
+```
+
+with `mcu` as the sibling for MCU firmware.
+
+**No authentication.** No token, no signature, no nonce - it answered a bare
+POST from an unrelated machine on the LAN. The device downloads the image
+itself and then applies the same validation the loader always does: magic,
+device code, header CRC32, payload MD5. Nothing checks *who* built it.
+
+That is the whole flashing story, and it is the vendor's own validated path:
+serve an image from any HTTP server on the network, hand the device its URL,
+and it installs it.
+
+It is also worth saying out loud that this is an unauthenticated remote
+firmware write, reachable by anything on the same network as a stock TC002.
+NOTRIX does not expose anything like it - `/api/v1/system/restore-image`
+stages a file to the USB volume and cannot flash - and the difference is
+deliberate.
+
+Two related endpoints seen in the same handler table: `/checkUpdate` and
+`/firmware/checkUpdate`, which talk to Ulanzi's cloud and do use a token
+(the log strings mention a 401 and a refresh). Those are for *discovering* an
+update. Applying one needs none of it.
+
+### An aside on provenance
+
+The vendor binary carries symbols namespaced `awtrix` - `awtrix::Updater`,
+`awtrix::ConfigWebServer`, and a path `../src/awtrix/ota/Updater.cpp`. Noted
+because it bears on licensing and on where the official Ulanzi sources sit,
+not because anything here derives from it. NOTRIX shares no code with it and
+does not reference it in anything it ships.
+
+## Where NOTRIX could hook in, measured rather than guessed
+
+Two candidate hooks, both tested on hardware. One is ruled out, one is left
+standing, and the reason the standing one cannot be tested yet is the whole
+remaining problem.
+
+### The framework loads its application by absolute path
+
+`EasyUIContext::initLib()` is where it happens:
+
+```
+ConfigManager::getInstance()
+ConfigManager::getStartupLibPath()      <- the path comes from configuration
+dlopen(path, RTLD_LAZY)
+dlsym(handle, <name 1>)                 <- three function pointers,
+dlsym(handle, <name 2>)                    stored and used later
+dlsym(handle, <name 3>)
+```
+
+**The three symbol names are obfuscated.** They live in `.data`, not
+`.rodata`, as short high-entropy byte runs - `67 66 3d 61 53 59 2d 49 49 66
+69 4c` and two others - decoded at runtime by something that runs before
+they are used. A single-byte XOR does not recover them.
+
+**And the path is absolute.** Tested directly: a stub `libzkgui.so` placed in
+`/tmp`, which is *first* on `LD_LIBRARY_PATH`, was never loaded -
+`/proc/<pid>/maps` still showed `/res/lib/libzkgui.so`. So the application
+library cannot be shadowed the way a `NEEDED` library can, and replacing it
+means writing the `res` partition.
+
+**None of which necessarily matters**, because `dlopen` runs a library's
+static constructors before the caller can `dlsym` anything. A replacement
+whose constructor takes over the process never has to satisfy the three
+obfuscated entry points at all. That is the route worth trying, and trying
+it needs a `res` image.
+
+### Shadowing libeasyui.so works, and then does not
+
+The other idea: `/bin/zkgui` imports exactly four symbols from
+`libeasyui.so`, and `/res/lib` precedes `/lib` on the library path.
+
+```
+EasyUIContext::getInstance / initEasyUI / runEasyUI / deinitEasyUI
+```
+
+An 8 KB shim exporting those four, dropped in `/tmp`, **was** picked up - the
+shadowing mechanism works. It then failed one library further along:
+
+```
+/bin/zkgui: symbol lookup error: /lib/libzkupgrade.so:
+            undefined symbol: _ZN4Json5Value12removeMemberEPKc
+```
+
+`libeasyui.so` exports 2564 symbols, and the other vendor libraries lean on
+more than the launcher does. Intersecting every `NEEDED` library's undefined
+symbols against its exports gives the real contract: **74 symbols**, not
+four. Tractable in size, and the composition is the problem rather than the
+count - `Json::Value`, `Thread`, `Mutex`, `Condition`, `MessageQueue`,
+`StoragePreferences`. Those are C++ classes whose *memory layout* other
+libraries were compiled against, so a replacement has to be ABI-compatible
+and not merely API-compatible. That is a bad thing to depend on and a worse
+thing to get subtly wrong.
+
+So this route is recorded and set aside.
+
+### What that leaves
+
+Replace `/res/lib/libzkgui.so` with a library that takes over in its
+constructor. No vendor ABI, no obfuscated symbols, no 74-symbol contract.
+
+It cannot be tested from `/tmp` - that is what the stub test established -
+so the first attempt has to be a `res` image written to the device. Which
+makes demonstrating the restore path the precondition for finding out
+whether the approach works at all, rather than a formality before shipping.
+
+### And the hook works
+
+`/res/etc/EasyUI.cfg` is plain JSON on the read-only squashfs, and
+`ConfigManager::getStartupLibPath()` reads one field of it:
+
+```json
+"startupLibPath": "/res/lib/libzkgui.so"
+```
+
+Changing that field is the entire integration surface.
+
+Proven without writing any flash. `mount -o bind` works over the read-only
+squashfs, so a modified copy of the config was bound over the original and
+pointed at `/tmp`:
+
+```
+$ mount -o bind /tmp/EasyUI.cfg /res/etc/EasyUI.cfg
+$ setprop ctl.start zkswe
+$ cat /tmp/notrix-zkgui-stub.log
+[11586] static constructor ran - dlopen reached us
+```
+
+`/proc/<pid>/maps` showed `/tmp/libnotrix.so` mapped and
+`/res/lib/libzkgui.so` absent. **A 7.6 KB library replaced the 7.5 MB vendor
+application outright**, and `/bin/zkgui` ran on top of it.
+
+The three obfuscated `dlsym` names never mattered: `dlopen` runs static
+constructors before the caller can look anything up, so a library that takes
+over in its constructor never reaches them.
+
+Unmounting restored the original, and a power cycle would have done the same.
+Any future change to the startup path should be tried this way before it is
+written to flash. See
+[ADR 0021](../adr/0021-notrix-as-the-startup-library.md).
+
+## The application owns the Wi-Fi, all of it (2026-09-24)
+
+Measured after a flashed NOTRIX booted with no network *and* no setup
+hotspot. Both symptoms have one cause, and it is not the one the earlier
+"there is no DHCP client on this device" section implies.
+
+**There is no `wlan0` until somebody loads the driver, and nobody does but the
+application.**
+
+```
+/lib/modules/4.9.84/aic8800_bsp.ko     74712 bytes
+/lib/modules/4.9.84/aic8800_fdrv.ko   310464 bytes
+```
+
+That directory holds the two modules and **nothing else** - no `modules.dep`,
+no `modules.alias`. Without an index the kernel cannot autoload them, so
+`request_module` and `modprobe` are both out. Nor does anything in userspace
+start them: `/etc/init.rc` has no `insmod` at all, `/bin/ssd_init.sh` loads
+only the display and audio modules (`mhal`, `mi_*`, `fbdev`), and
+`/bin/zkdaemon` does not mention them.
+
+`/lib/libzknet.so` does. It is the vendor's network HAL, and the stock
+application drives it:
+
+```
+'start to insmod %s'        'insmod args: %s'      'insmod %s failed!'
+'aic8800_bsp#aic8800_fdrv'  'aic_load_fw#aic8800_fdrv'
+'ifname=wlan0 if2name=p2p0'
+'ctl.start'  'ctl.stop'  'init.svc.wpa_supplicant'
+'/data/misc/wifi/wpa_supplicant.conf'
+```
+
+`libzkgui.so` itself only `insmod`s `aic_btusb.ko`, the Bluetooth driver; the
+Wi-Fi pair comes through this HAL. The `#`-separated strings are the load
+order - `bsp` first, then `fdrv`, which depends on it.
+
+`wpa_supplicant` is a service, and a deliberately inert one:
+
+```
+service wpa_supplicant /bin/wpa_supplicant -iwlan0 -Dnl80211 \
+    -c/data/misc/wifi/wpa_supplicant.conf -C/dev/socket/ \
+    -e/data/misc/wifi/entropy.bin
+    class main
+    disabled
+    oneshot
+```
+
+`disabled` means it never starts on its own. `ctl.start wpa_supplicant` is the
+only thing that starts it, and the HAL above is what sends it.
+
+### Confirmed by tearing it down and putting it back
+
+Not inferred. On a live device, with the vendor application stopped:
+
+```
+busybox rmmod aic8800_fdrv        rc=0
+busybox rmmod aic8800_bsp         rc=0
+ls /sys/class/net/                lo                <- no wlan0, no p2p0
+busybox insmod .../aic8800_bsp.ko  rc=0
+busybox insmod .../aic8800_fdrv.ko rc=0
+ls /sys/class/net/                lo  p2p0  wlan0
+/sbin/ifconfig wlan0 up           rc=0
+```
+
+The interface is **created by the module load**. Remove the driver and there
+is no `wlan0` to configure, to associate, or to hand to `hostapd` - which is
+why a NOTRIX that replaced the application had neither a network nor a setup
+hotspot. The hotspot was not failing to broadcast; it could not start, because
+its first step is `ifconfig wlan0 ...` on an interface that did not exist.
+
+### What NOTRIX has to do, and where
+
+`Tc002Hotspot::ensureRadio()` loads the pair if `/sys/class/net/wlan0` is
+absent, building the path from `uname()` rather than hard-coding `4.9.84`.
+`ensureStation()` then brings the interface up and sends `ctl.start
+wpa_supplicant`. Both are idempotent and both are cheap when the work is
+already done, because during development the stock application has usually
+done it already - which is exactly how this went unnoticed for so long.
+
+### Why it was missed
+
+The startup hook was proven by bind-mounting a modified `EasyUI.cfg` over the
+read-only one. A bind mount does not survive a reboot, so that test ran on a
+system where the stock application had already loaded the driver, brought up
+the interface and started the supplicant. **The test inherited the very thing
+it should have been checking for**, and the lease it observed was real but
+told us nothing about a cold boot.
+
+The general lesson is worth more than the specific bug: a test that reuses a
+running system's state cannot tell you what happens without it.
+
+## zkdaemon will delete NOTRIX if NOTRIX does not announce itself (2026-09-24)
+
+The most consequential thing on this device, and the explanation for a revert
+that had been blamed on a stale upgrade flag.
+
+`/bin/zkdaemon` is 13 KB, runs as a `oneshot` service in `class main`, and is
+not a daemon in the usual sense. It is the recovery mechanism. Its strings,
+in full for the part that matters:
+
+```
+'/sys/class/gpio/gpio%d/value'      'gpio%d is not exist, need to export.'
+'[D][zkdaemon] Start key monitor loop'
+'[D][zkdaemon] Key pressed confirmed'
+'[D][zkdaemon] Key long press %dms detected, trigger recovery'
+'setprop ctl.stop zkswe'            'rm -rf /data/*'
+'[D][zkdaemon] Key released early (%dms), ignore'
+
+'sys.zkapp.state'    'running'      'ZK_APPCHECK_DELAY'
+'[D][zkdaemon] app state: %s'
+'[D][zkdaemon] Auto recovery triggered'
+
+'persist.zkupgrade.dir'  '/mnt/storage'  '%s/update.img'
+'/bin/zkupgradebin'      'sys.zkupgrade.flag'   'ctl.restart'
+```
+
+Two paths into the same recovery. One is the reset button, read straight off
+GPIO. **The other needs no button at all**: it reads the property
+`sys.zkapp.state`, waits `ZK_APPCHECK_DELAY`, and if the application has not
+declared itself `running`, triggers *auto recovery* - `rm -rf /data/*` and a
+reinstall from `/mnt/storage/update.img`.
+
+`libzkgui.so` carries the string `sys.zkapp.state`; `libzknet.so` does not.
+**The stock application sets it, and nothing else does.**
+
+### What that meant for the first flashed build
+
+NOTRIX replaced the application and never set the property, so:
+
+1. NOTRIX flashed, booted, and ran - the shim and the panel both worked.
+2. `zkdaemon` waited, saw no `running`, and called it a failed application.
+3. `rm -rf /data/*` deleted **`/data/notrix/libnotrix.so`** and
+   **`/data/misc/wifi/wpa_supplicant.conf`** in the same sweep.
+4. It reinstalled `/mnt/storage/update.img` - which at the time held the
+   *stock* image, staged there as a safety net.
+5. The device came back on stock **with no Wi-Fi credentials**.
+
+Every observed symptom falls out of that: the unexplained progress bar, the
+revert, and the detail that had refused to reconcile - why *stock* also came
+up without Wi-Fi, when `/data` had obviously survived well enough to keep
+`libnotrix.so` from an earlier test. It had not survived. It had been emptied
+and partly rewritten.
+
+It also reframes the earlier lockout. That was attributed to holding the reset
+button wiping `/data`; the button certainly does that, but auto recovery
+reaches the same `rm -rf /data/*` with nobody touching anything.
+
+### What NOTRIX has to do
+
+`Tc002Platform::announceRunning()` sends `setprop sys.zkapp.state running`,
+and `notrixMain` calls it **before opening the panel, the MCU or the
+network** - none of which are worth losing NOTRIX over if they are slow or
+fail.
+
+### The consequence for staging an image
+
+An image at `/mnt/storage/update.img` is not passive. It is what *both*
+recovery paths install, one of which can fire on its own. Staging a stock
+image there as a safety net is therefore a way of arming an automatic revert,
+which is exactly what it did. The guidance in `docs/recovery.md` - remove the
+stick, keep the volume empty - is now backed by the mechanism rather than by
+one bad night.

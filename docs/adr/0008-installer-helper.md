@@ -284,3 +284,203 @@ is the thing that is broken, there is nothing for either route to fall back to.
 That is an argument for requirement 3 above rather than a reason to despair, but
 it should be said plainly: the recovery gestures choose which launcher runs.
 They do not repair files.
+
+## Update, 2026-09-22: one gate met, one still standing
+
+**A verified restore image now exists**, captured from a real unit and
+checked against the partition it came from, and `tooling/imgtool/capture.py`
+makes one for any device. The first precondition is satisfied.
+
+**The second is not.** This ADR asks for a restore path that has been
+*demonstrated*, and nobody has yet held the reset button on a device that
+needed it. Until somebody has, nothing gets flashed.
+
+What changed is how the flashing would happen. It will not be a tool of ours
+writing MTD directly — the device has its own update path, it validates a
+header CRC32 and a payload MD5, it writes only the partition that can be
+broken safely, and its recovery is a physical button. See
+[ADR 0020](0020-persistence-through-the-vendor-update-path.md).
+
+One finding sharpens this ADR's own argument. The `update.img` that ships on
+a unit's USB volume is **not necessarily the firmware that unit is running** -
+measured on the device here, and reported by others on theirs. So the reset
+button is not automatically a restore; it can be a downgrade. Capturing from
+the device is not belt-and-braces, it is the only thing that makes the
+physical recovery correct.
+
+## Update, 2026-09-22 evening: the gate was right and I argued past it
+
+A device was flashed and is now unreachable. The flash itself worked - the
+`res` partition took the image, and NOTRIX started as the device's
+application, which is the thing the whole day was aiming at. What followed is
+the part worth recording.
+
+**What actually happened, in order:**
+
+1. `update.img` was staged on `/mnt/storage` so the reset button would be a
+   correct recovery. Good idea.
+2. The image was flashed. It applied, and NOTRIX ran.
+3. **Nothing cleared the staged image**, so the loader found it again on the
+   next boot and reflashed. And again. A boot loop.
+4. The reset button was held to break the loop. Reset wipes `/data` - which
+   is where `libnotrix.so` lived, because
+   [ADR 0021](0021-notrix-as-the-startup-library.md) deliberately put it
+   there.
+5. With no library, no application loads. And **nothing on this device
+   obtains an IP address except the application** - the finding recorded in
+   the research notes that same morning.
+
+No application means no DHCP, no network, no ADB. It also means no USB
+gadget, because the application is what sets `otg_role` to `usb_device`;
+three cable types were tried and the device never enumerates. Every software
+route depends on the thing that is missing.
+
+**Each of those five steps was known in advance.** The staging, the reset
+behaviour, and the DHCP gap were all written down before any of this was
+done. They were not composed.
+
+### What this changes
+
+**The "demonstrated restore" gate stands, and the argument for skipping it
+was wrong.** The reasoning at the time was that demonstrating a restore means
+deliberately flashing something broken, which is riskier than flashing
+something good - so a null flash would do instead. That reasoning is not
+unsound, and it is also not what the gate is for. The gate is not about the
+image being bad. It is about *having exercised the way back before needing
+it*, and the way back here turned out to depend on a file that the recovery
+procedure itself deletes.
+
+**A restore path has to be demonstrated from the state that will actually
+need it** - a device with no application - not from a healthy one.
+
+### Rules that follow, and they are not optional
+
+**Staging is one-shot.** An image placed where a loader will find it must be
+removed as soon as it has been applied, by the same tooling that put it
+there. A recovery image and a pending update are not the same thing and must
+not live at the same path.
+
+**Never wipe `/data` while it is the only copy of anything.** ADR 0021 puts
+NOTRIX in `/data` precisely so it can be updated without flashing. That makes
+`/data` load-bearing, and it makes factory reset destructive in a way it was
+not before. Either keep a copy in `res`, or accept that reset is not a
+recovery.
+
+**A device that cannot obtain an address cannot be recovered over the
+network.** Until NOTRIX's DHCP client runs from somewhere that survives a
+missing application - or the config falls back to the vendor library when the
+NOTRIX one is absent - flashing this device is not safe.
+
+That last one has a cheap fix worth building before anything is flashed
+again: **if `startupLibPath` points at a file that does not exist, the device
+should fall back to `/res/lib/libzkgui.so`.** The framework already logs the
+`dlerror` and carries on; it simply carries on with nothing. A `res` image
+that pointed at a small shim which loads NOTRIX if present and the vendor
+application otherwise would have made all of this a non-event.
+
+## Update: the second gate is met
+
+A restore has now been **demonstrated**, not designed. The device that this
+ADR's post-mortem describes was brought back to stock from the exact state
+that needed it — no application, no network, no USB gadget — using a USB
+stick and the vendor's own loader. Confirmed afterwards over ADB:
+`startupLibPath` back to `/res/lib/libzkgui.so`, `/bin/zkgui` running,
+`/data` wiped.
+
+The procedure is in [`docs/recovery.md`](../recovery.md). The part worth
+repeating here is the one nothing in the binaries revealed: the loader
+ignores external media unless a **`zkautoupgrade`** file sits beside the
+image. One byte, ASCII `0`. An attempt with four plausible image filenames
+and no sentinel did nothing whatsoever.
+
+**So both gates are now satisfied** — a verified restore image captured from
+the device, and a restore path somebody has actually walked. Flashing is no
+longer blocked by this ADR.
+
+It should still not happen without the fallback shim in
+[ADR 0021](0021-notrix-as-the-startup-library.md). The gates were about
+being able to recover; the shim is about not needing to. Both matter, and
+this ADR is the wrong place to relax the second one having just spent a day
+proving the first.
+
+## Correction: the loop was a flag, not a file
+
+The post-mortem above says the loader "found it again on the next boot and
+reflashed", i.e. that leaving `update.img` on `/mnt/storage` is itself the
+loop. That is **wrong**, and the recovered device disproved it.
+
+After recovery, `/mnt/storage/update.img` was still the NOTRIX image - the
+same file, in the same place - and the device ran for sixteen minutes
+without touching it. Identified by MD5, not assumed.
+
+What differs is `/data`. The recovery wipes it, and the OTA trigger had
+evidently left a **pending-upgrade flag** there. So the loop was:
+
+```
+flag set in /data  ->  boot  ->  flash  ->  flag still set  ->  boot  ->  ...
+```
+
+and the factory wipe ended it by removing the flag, not by removing the
+image. The same mechanism explains `zkautoupgrade` on external media: the
+loader wants to be *told* there is an update pending, it does not simply
+scan for files.
+
+### What this changes
+
+**"Staging is one-shot" is still right, for a different reason.** An image
+left at `/mnt/storage/update.img` is not a loop - but it *is* what the reset
+button installs. Leaving the NOTRIX image there meant the recovery button was
+armed with the thing that broke the device. That is worse than a loop,
+because it is silent until somebody reaches for it.
+
+So the rule stands and the wording sharpens: **whatever sits at
+`/mnt/storage/update.img` is the device's recovery image.** It should be
+stock, or it should not be there. A pending update belongs somewhere the
+reset button does not read.
+
+## Second correction, 2026-09-24: it was neither a flag nor a file. It was a daemon.
+
+Both explanations above were guesses at a mechanism nobody had read. The
+mechanism has now been read, and it is `/bin/zkdaemon`. Full strings and
+reasoning are in `docs/research/tc002-platform-findings.md`; the operative
+part:
+
+```
+'sys.zkapp.state'  'running'  'ZK_APPCHECK_DELAY'
+'[D][zkdaemon] app state: %s'
+'[D][zkdaemon] Auto recovery triggered'
+'setprop ctl.stop zkswe'   'rm -rf /data/*'
+'/mnt/storage'  '%s/update.img'  '/bin/zkupgradebin'
+```
+
+`zkdaemon` polls the property `sys.zkapp.state`. If the application has not
+set it to `running` within `ZK_APPCHECK_DELAY`, it wipes `/data` and
+reinstalls whatever is staged. **No flag, no button, no file needs to be
+involved.** The stock application sets that property - `libzkgui.so` carries
+the string - and NOTRIX, which replaces the application, never did.
+
+So the sequence was: NOTRIX booted fine, failed to announce itself, and was
+deleted along with the Wi-Fi credentials in `/data/misc/wifi`, and stock was
+reinstalled from the safety-net image. The progress bar was auto recovery.
+
+**This is the third explanation for the same event.** The first two were
+constructed from what was visible from outside - a file that was present, a
+flag that must have been set - and each was consistent with the evidence to
+hand and wrong. The difference this time is not that the story is neater: it
+is that the mechanism was read out of the binary that implements it, and it
+predicts the one detail neither earlier story could account for, namely why
+*stock* came back with no Wi-Fi.
+
+Worth keeping as a caution. Two plausible mechanisms were written down as
+findings before anyone had looked at the thing doing the work.
+
+### What this changes
+
+**`Tc002Platform::announceRunning()` is now a precondition for flashing
+anything**, and `notrixMain` calls it before opening the panel, the MCU or
+the network.
+
+**The rule about `/mnt/storage/update.img` gets stronger, not weaker.** The
+previous correction called it "what the reset button installs". It is also
+what an *unattended* recovery installs, triggered by a daemon on a timer. A
+staged image is an armed revert, not a passive one.

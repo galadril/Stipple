@@ -5,20 +5,56 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#include <linux/wireless.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
 #include <cstdio>
+#include <algorithm>
+#include <functional>
+#include <vector>
 #include <cstring>
+#include <string>
 #include <utility>
+
+#include "notrix/platform/tc002/WirelessStats.h"
+#include "notrix/platform/tc002/WpaCommands.h"
+#include "notrix/platform/tc002/WpaReplies.h"
 
 namespace notrix {
 namespace platform {
 namespace tc002 {
 namespace {
+
+/// Run a command to completion, saying nothing.
+///
+/// Deliberately not `system()`: this process owns the panel, and a shell
+/// inheriting its stdout would put vendor chatter into the log the web UI
+/// shows.
+void runQuietly(const char* const argv[]) {
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+        return;
+    }
+    if (pid == 0) {
+        const int null = ::open("/dev/null", O_RDWR);
+        if (null >= 0) {
+            ::dup2(null, STDOUT_FILENO);
+            ::dup2(null, STDERR_FILENO);
+            if (null > STDERR_FILENO) {
+                ::close(null);
+            }
+        }
+        ::execv(argv[0], const_cast<char* const*>(argv));
+        ::_exit(127);
+    }
+    ::waitpid(pid, nullptr, 0);
+}
 
 /// Same source as Tc002Input's timestamps, and it has to stay that way:
 /// InputMapper subtracts one from the other to get press duration, and two
@@ -211,8 +247,91 @@ bool Tc002Storage::remove(std::string_view key) {
 
 // --- network ----------------------------------------------------------------
 
+namespace {
+
+/// Read a small file whole. Returns empty on any failure, which every caller
+/// here treats as "this platform cannot say" rather than as an error.
+std::string readSmallFile(const char* path) {
+    const int fd = ::open(path, O_RDONLY);
+    if (fd < 0) {
+        return std::string();
+    }
+    std::string out;
+    char chunk[512];
+    for (;;) {
+        const ssize_t got = ::read(fd, chunk, sizeof(chunk));
+        if (got <= 0) {
+            break;
+        }
+        out.append(chunk, static_cast<std::size_t>(got));
+        // Bounded, per §38. /proc/net/wireless is a few hundred bytes; a file
+        // that keeps producing is not the file this was looking for.
+        if (out.size() > 8192) {
+            break;
+        }
+    }
+    ::close(fd);
+    return out;
+}
+
+/// The SSID, via the wireless-extensions ioctl.
+///
+/// There is no wpa_cli on this device and no iwgetid, so the ioctl is the only
+/// route. /proc/net/wireless reports the signal but never the name.
+std::string readSsid(const char* interface) {
+    const int sock = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        return std::string();
+    }
+
+    struct iwreq request;
+    std::memset(&request, 0, sizeof(request));
+    std::strncpy(request.ifr_name, interface, IFNAMSIZ - 1);
+
+    char essid[IW_ESSID_MAX_SIZE + 1] = {};
+    request.u.essid.pointer = essid;
+    request.u.essid.length = IW_ESSID_MAX_SIZE;
+    request.u.essid.flags = 0;
+
+    std::string out;
+    if (::ioctl(sock, SIOCGIWESSID, &request) == 0) {
+        essid[IW_ESSID_MAX_SIZE] = '\0';
+        out = essid;
+    }
+    ::close(sock);
+    return out;
+}
+
+/// The interface this device joins networks on. Named once rather than spelled
+/// at three call sites.
+constexpr const char* kWirelessInterface = "wlan0";
+
+}  // namespace
+
 NetworkStatus Tc002Network::status() const {
     NetworkStatus result;
+
+    // Signal strength, which was reported as a flat zero until somebody looked
+    // at the tile showing it.
+    const wireless::Stats signal =
+        wireless::parse(readSmallFile("/proc/net/wireless"), kWirelessInterface);
+    result.signalKnown = signal.known;
+    result.rssiDbm = signal.levelDbm;
+    result.ssid = readSsid(kWirelessInterface);
+
+    // The lease, when something is holding one. Absent rather than zero when
+    // nothing is: a device running on an address it inherited is reachable
+    // right up until that address is taken back, and saying "0 seconds left"
+    // would describe the opposite situation.
+    if (dhcp_ != nullptr && dhcp_->running()) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        const std::uint64_t millis = static_cast<std::uint64_t>(now.tv_sec) * 1000u +
+                                     static_cast<std::uint64_t>(now.tv_nsec) / 1000000u;
+        result.leaseKnown = true;
+        result.leaseSeconds = dhcp_->remainingSeconds(millis);
+        result.leaseState = net::dhcp::DhcpClient::stateName(dhcp_->state());
+    }
 
     char hostname[128] = {};
     if (::gethostname(hostname, sizeof(hostname) - 1) == 0) {
@@ -248,6 +367,304 @@ NetworkStatus Tc002Network::status() const {
     return result;
 }
 
+
+bool Tc002Network::connected() const {
+    if (control_.isOpen()) {
+        return true;
+    }
+    // Retried rather than given up on. The supplicant is stopped while the
+    // device runs its own access point, and comes back when it does not - so
+    // a socket that was absent a minute ago may be there now.
+    return control_.open();
+}
+
+bool Tc002Network::canScan() const { return connected(); }
+
+bool Tc002Network::beginScan() {
+    if (!connected()) {
+        return false;
+    }
+    // "FAIL-BUSY" means a scan is already running, which is a yes from the
+    // caller's point of view: results will arrive. Only a flat failure is one.
+    const std::string reply = control_.ask("SCAN");
+    return !reply.empty() && reply.rfind("FAIL\n", 0) != 0 &&
+           reply.rfind("FAIL ", 0) != 0;
+}
+
+std::vector<WirelessNetwork> Tc002Network::networks() const {
+    std::vector<WirelessNetwork> out;
+    if (!connected()) {
+        // The supplicant is not answering, which on this device usually means
+        // the radio is busy being an access point - and that is exactly the
+        // moment somebody is trying to pick a network. So the last scan is
+        // served instead of an empty list, marked as remembered rather than
+        // passed off as what is in range now (ADR 0013).
+        live_ = false;
+        return remembered_;
+    }
+
+    const std::string current = wpa::parseStatus(control_.ask("STATUS")).ssid;
+
+    for (const wpa::Network& found : wpa::parseScanResults(control_.ask("SCAN_RESULTS"))) {
+        WirelessNetwork network;
+        network.ssid = found.ssid;
+        network.signalDbm = found.signalDbm;
+        network.secured = found.secured;
+        network.current = !current.empty() && found.ssid == current;
+        out.push_back(std::move(network));
+    }
+
+    // An empty answer is not an empty street.
+    //
+    // The guard at the top catches a socket that cannot be opened, and misses
+    // the case that actually happens: the socket was opened while the station
+    // was up, the hotspot then stopped wpa_supplicant, and the handle is
+    // still perfectly valid-looking with nothing behind it. A live run fell
+    // straight through that and served an empty list at the one moment a
+    // person needed to pick a network.
+    //
+    // So the decision is made on what came back, not on the state of a file
+    // descriptor. A scan that found something replaces the memory; a scan
+    // that found nothing falls back to it and says the list is old.
+    if (out.empty()) {
+        live_ = false;
+        return remembered_;
+    }
+
+    remembered_ = out;
+    live_ = true;
+    return out;
+}
+
+// --- joining -----------------------------------------------------------------
+
+bool Tc002Network::canJoin() const {
+    // Not connected(). The supplicant is deliberately stopped while the
+    // hotspot is up, and that is precisely when a person is standing in front
+    // of the configuration page wanting to join something. Reporting "this
+    // device cannot join networks" there would be false.
+    return true;
+}
+
+INetworkManager::JoinProgress Tc002Network::joinProgress() const {
+    JoinProgress progress;
+    progress.ssid = joinSsid_;
+    progress.detail = joinDetail_;
+    switch (stage_) {
+        case Stage::Idle:
+            progress.stage = JoinProgress::Stage::Idle;
+            break;
+        case Stage::Done:
+            progress.stage = JoinProgress::Stage::Succeeded;
+            break;
+        case Stage::Failed:
+            progress.stage = JoinProgress::Stage::Failed;
+            break;
+        default:
+            progress.stage = JoinProgress::Stage::Working;
+            break;
+    }
+    return progress;
+}
+
+void Tc002Network::fail(const std::string& why) {
+    forgetAddedNetwork();
+    stage_ = Stage::Failed;
+    joinDetail_ = why;
+    joinPassword_.clear();
+}
+
+void Tc002Network::forgetAddedNetwork() {
+    if (addedNetworkId_ < 0) {
+        return;
+    }
+    // Removed, and deliberately *not* saved.
+    //
+    // ADR 0018: the device appends and never replaces, and only a join that
+    // produced an address is written down. Leaving the stored file untouched
+    // is what makes a wrong password fall back to the network that was
+    // already working rather than stranding a device nobody can reach.
+    if (connected()) {
+        control_.ask("REMOVE_NETWORK " + std::to_string(addedNetworkId_));
+        control_.ask("RECONNECT");
+    }
+    addedNetworkId_ = -1;
+}
+
+bool Tc002Network::beginJoin(const std::string& ssid, const std::string& password) {
+    if (stage_ != Stage::Idle && stage_ != Stage::Done && stage_ != Stage::Failed) {
+        joinDetail_ = "already joining a network";
+        return false;
+    }
+
+    std::string problem = wpa::ssidProblem(ssid);
+    if (problem.empty() && !password.empty()) {
+        problem = wpa::passphraseProblem(password);
+    }
+    if (!problem.empty()) {
+        // Refused before anything moves, so the radio is untouched and the
+        // person gets a sentence they can act on.
+        stage_ = Stage::Failed;
+        joinSsid_ = ssid;
+        joinDetail_ = problem;
+        return false;
+    }
+
+    joinSsid_ = ssid;
+    joinPassword_ = password;
+    joinDetail_ = "starting";
+    addedNetworkId_ = -1;
+    askedForAddress_ = false;
+    stage_ = Stage::Settling;
+    stageDeadlineMillis_ = 0;
+    return true;
+}
+
+bool Tc002Network::configureNetwork() {
+    // Replace this SSID rather than adding another copy of it.
+    //
+    // Without this, every trip through setup appended a block and
+    // SAVE_CONFIG wrote them all. A device provisioned a few times ended up
+    // with three blocks for one network, two marked `disabled=1` - seen on
+    // hardware. That grows without bound, which the project rules forbid, and
+    // it is one bad save away from a device that boots with every copy of its
+    // network disabled and no way back except the knob.
+    //
+    // Removed highest-first: wpa_supplicant renumbers the ids above one that
+    // goes away, so descending order keeps the rest of the list valid.
+    std::vector<int> stale = wpa::networkIdsForSsid(control_.ask("LIST_NETWORKS"), joinSsid_);
+    std::sort(stale.begin(), stale.end(), std::greater<int>());
+    for (const int old : stale) {
+        control_.ask("REMOVE_NETWORK " + std::to_string(old));
+    }
+
+    const int id = wpa::parseNetworkId(control_.ask("ADD_NETWORK"));
+    if (id < 0) {
+        return false;
+    }
+    addedNetworkId_ = id;
+
+    if (!wpa::succeeded(control_.ask(wpa::setNetworkHex(id, "ssid", joinSsid_)))) {
+        return false;
+    }
+
+    if (joinPassword_.empty()) {
+        if (!wpa::succeeded(control_.ask(wpa::setNetworkRaw(id, "key_mgmt", "NONE")))) {
+            return false;
+        }
+    } else if (!wpa::succeeded(control_.ask(wpa::setPassphrase(id, joinPassword_)))) {
+        return false;
+    }
+
+    // Higher than anything stored, so the network just chosen wins without
+    // the one that was working having to be removed first.
+    control_.ask(wpa::setNetworkRaw(id, "priority", std::to_string(wpa::kJoinPriority)));
+
+    if (!wpa::succeeded(control_.ask("ENABLE_NETWORK " + std::to_string(id)))) {
+        return false;
+    }
+    control_.ask("SELECT_NETWORK " + std::to_string(id));
+    return true;
+}
+
+void Tc002Network::poll(std::uint64_t nowMillis) {
+    switch (stage_) {
+        case Stage::Idle:
+        case Stage::Done:
+        case Stage::Failed:
+            return;
+
+        case Stage::Settling: {
+            if (stageDeadlineMillis_ == 0) {
+                // A moment before anything moves. The request that started
+                // this very likely arrived over the access point it is about
+                // to shut down, and the reply has to get out first.
+                stageDeadlineMillis_ = nowMillis + 1500u;
+                joinDetail_ = "taking the radio back";
+                return;
+            }
+            if (nowMillis < stageDeadlineMillis_) {
+                return;
+            }
+            if (hotspot_ != nullptr && hotspot_->running()) {
+                // stop() restarts the supplicant, and the lease with it.
+                hotspot_->stop();
+            }
+            control_.close();
+            stage_ = Stage::Restoring;
+            stageDeadlineMillis_ = nowMillis + 15000u;
+            joinDetail_ = "waiting for Wi-Fi to come back";
+            return;
+        }
+
+        case Stage::Restoring: {
+            if (connected()) {
+                stage_ = Stage::Configuring;
+                joinDetail_ = "saving the network";
+                return;
+            }
+            if (nowMillis >= stageDeadlineMillis_) {
+                fail("the Wi-Fi service did not come back");
+            }
+            return;
+        }
+
+        case Stage::Configuring: {
+            if (!configureNetwork()) {
+                fail("this device would not accept the network");
+                return;
+            }
+            stage_ = Stage::Associating;
+            stageDeadlineMillis_ = nowMillis + 30000u;
+            joinDetail_ = "connecting";
+            return;
+        }
+
+        case Stage::Associating: {
+            if (wpa::parseStatus(control_.ask("STATUS")).associated) {
+                stage_ = Stage::Addressing;
+                stageDeadlineMillis_ = nowMillis + 30000u;
+                joinDetail_ = "asking for an address";
+                return;
+            }
+            if (nowMillis >= stageDeadlineMillis_) {
+                // The overwhelmingly common cause, and worth naming rather
+                // than reporting a timeout nobody can act on.
+                fail("could not connect - check the password");
+            }
+            return;
+        }
+
+        case Stage::Addressing: {
+            // An association is not a connection. ADR 0018 keeps only a join
+            // that produced an address, because a device associated to a
+            // network it cannot be reached on is the failure that looks like
+            // success.
+            if (!askedForAddress_) {
+                askedForAddress_ = true;
+                if (dhcp_ != nullptr) {
+                    // const_cast rather than carrying a second non-const
+                    // pointer: this object holds the read-only view for
+                    // status(), and this is the one moment it has to act.
+                    const_cast<Tc002Dhcp*>(dhcp_)->restart();
+                }
+            }
+            if (dhcp_ != nullptr && dhcp_->bound()) {
+                control_.ask("SAVE_CONFIG");
+                addedNetworkId_ = -1;  // kept on purpose; nothing left to undo
+                stage_ = Stage::Done;
+                joinDetail_ = "connected";
+                joinPassword_.clear();
+                return;
+            }
+            if (nowMillis >= stageDeadlineMillis_) {
+                fail("connected, but the network gave out no address");
+            }
+            return;
+        }
+    }
+}
+
 // --- platform ---------------------------------------------------------------
 
 bool Tc002Platform::open() {
@@ -267,6 +684,12 @@ bool Tc002Platform::open() {
     // Optional: a clock with no battery reading is still a clock, so a failure
     // here reports absence rather than refusing to start.
     mcu_.open();
+
+    // Best effort, like the MCU. A device whose vendor audio library will
+    // not load is still a clock; it just reports no speaker, and every
+    // control that would have needed one disappears with it rather than
+    // going quiet (ADR 0013).
+    audio_.open();
     return true;
 }
 
@@ -274,6 +697,11 @@ void Tc002Platform::close() noexcept {
     mcu_.close();
     input_.close();
     display_.close();
+}
+
+void Tc002Platform::announceRunning() const {
+    const char* const argv[] = {"/bin/setprop", "sys.zkapp.state", "running", nullptr};
+    runQuietly(argv);
 }
 
 }  // namespace tc002

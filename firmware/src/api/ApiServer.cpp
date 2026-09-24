@@ -1,15 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/api/ApiServer.h"
 
+#include "notrix/update/ElfCheck.h"
+
+#include "notrix/update/UpdateImage.h"
+
 #include <vector>
 
 #include "notrix/api/JsonWriter.h"
 #include "notrix/app/AppRegistry.h"
 #include "notrix/core/Base64.h"
+#include "notrix/render/FrameScheduler.h"
+#include "notrix/render/Transition.h"
+#include "notrix/time/Timezone.h"
+#include "notrix/render/Overlay.h"
 #include "notrix/graphics/Framebuffer.h"
 #include "notrix/asset/IconStore.h"
 #include "notrix/app/Carousel.h"
 #include "notrix/apps/ClockApp.h"
+#include "notrix/apps/VisualizerApp.h"
 #include "notrix/config/Config.h"
 #include "notrix/core/Log.h"
 #include "notrix/core/Version.h"
@@ -80,6 +89,14 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .beginObject()
         .member("brightness", static_cast<int>(settings.display.brightness))
         .member("power", settings.display.power)
+        .member("overlay", settings.display.overlay)
+        .key("night")
+        .beginObject()
+        .member("enabled", settings.display.night.enabled)
+        .member("startMinutes", settings.display.night.startMinutes)
+        .member("endMinutes", settings.display.night.endMinutes)
+        .member("brightness", static_cast<int>(settings.display.night.brightness))
+        .endObject()
         .endObject()
         .key("audio")
         .beginObject()
@@ -101,16 +118,46 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .member("keepAliveSeconds", settings.mqtt.keepAliveSeconds)
         .member("discovery", settings.mqtt.discovery)
         .endObject()
+        .key("web")
+        .beginObject()
+        // An empty username means no authentication at all, which is the
+        // default. Reported so a page can say so plainly rather than leaving
+        // somebody to infer it from two blank fields.
+        .member("username", settings.web.username)
+        // Never returned, exactly like the MQTT password - which also keeps
+        // it out of backups, since those are taken from this API. A settings
+        // file in somebody's downloads folder should not be a credential.
+        .member("passwordSet", !settings.web.password.empty())
+        .endObject()
         .key("apps")
         .beginObject()
         .member("defaultDurationSeconds", settings.apps.defaultDurationSeconds)
         .member("transitions", settings.apps.transitions)
-        .endObject()
+        .member("transition", settings.apps.transition);
+
+    // The arrangement, which is a setting like any other.
+    //
+    // It was stored to flash and left out of this document, so a backup
+    // silently omitted the app order and a restore could not bring it back -
+    // a field that persists but cannot be read is a field nobody can save.
+    writer.key("order").beginArray();
+    for (const config::AppPreference& preference : settings.apps.order) {
+        writer.beginObject()
+            .member("id", preference.id)
+            .member("enabled", preference.enabled)
+            .member("durationSeconds", preference.durationSeconds)
+            .endObject();
+    }
+    writer.endArray();
+
+    writer.endObject()
         .key("clock")
         .beginObject()
         .member("twentyFourHour", settings.clock.twentyFourHour)
         .member("utcOffsetSeconds", settings.clock.utcOffsetSeconds)
         .member("theme", settings.clock.theme)
+        .member("timezone", settings.clock.timezone)
+        .member("ntpServer", settings.clock.ntpServer)
         .member("leadingZero", settings.clock.leadingZero)
         .member("showAmPm", settings.clock.showAmPm);
 
@@ -126,6 +173,15 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .member("dateSeparator", settings.clock.dateSeparator)
         .member("dateYear", settings.clock.dateYear)
         .member("blinkPeriodMillis", static_cast<int>(settings.clock.blinkPeriodMillis))
+        .member("tick", settings.clock.tick)
+        .endObject()
+        .key("notifications")
+        .beginObject()
+        .member("sound", settings.notifications.sound)
+        .endObject()
+        .key("visualizer")
+        .beginObject()
+        .member("style", settings.visualizer.style)
         .endObject()
         .endObject();
 }
@@ -142,7 +198,16 @@ bool ApiServer::authorised(const Request& request) const {
 Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
     // Size is checked before anything looks at the body, so an oversized
     // payload costs a length comparison rather than a parse.
-    if (request.body.size() > options_.maxBodyBytes) {
+    //
+    // A firmware image is the one thing that legitimately dwarfs every other
+    // request, so it gets its own ceiling rather than raising the general
+    // one - which would let any request allocate megabytes on a device with
+    // 36 MB of RAM.
+    const bool isImageUpload =
+        matchRoute(request.path).resource == Resource::SystemFirmware;
+    const std::size_t bodyCeiling =
+        isImageUpload ? options_.maxImageBytes : options_.maxBodyBytes;
+    if (request.body.size() > bodyCeiling) {
         return payloadTooLarge();
     }
 
@@ -190,6 +255,11 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
         case Resource::AssetItem: return handleAssetItem(request, route.id);
         case Resource::Settings: return handleSettings(request);
         case Resource::SystemReboot: return handleReboot(request);
+        case Resource::SystemReset: return handleReset(request, nowMillis);
+        case Resource::Network: return handleNetwork(request);
+        case Resource::NetworkScan: return handleNetworkScan(request);
+        case Resource::NetworkJoin: return handleNetworkJoin(request);
+        case Resource::SystemFirmware: return handleFirmware(request);
         case Resource::DisplayFrame: return handleDisplayFrame(request);
         case Resource::Input: return handleInput(request, nowMillis);
         case Resource::Unknown: break;
@@ -284,6 +354,29 @@ Response ApiServer::handleInput(const Request& request, std::uint64_t nowMillis)
         holdMillis = static_cast<std::uint64_t>(value);
     }
 
+    // "phase" sends one half of a press, so a caller can hold a button down
+    // across several requests.
+    //
+    // Without it the only thing reachable from outside is a complete press,
+    // which makes any gesture involving two buttons at once untestable except
+    // by standing in front of the device - and the rescue gesture is exactly
+    // that, on the one path that has to work when nothing else does.
+    if (const json::Value phase = root["phase"]; phase.isString()) {
+        const std::string half = phase.toString();
+        platform::InputEvent event;
+        event.source = source;
+        event.timestampMillis = nowMillis;
+        if (half == "down") {
+            event.phase = platform::ButtonPhase::Down;
+        } else if (half == "up") {
+            event.phase = platform::ButtonPhase::Up;
+        } else {
+            return unprocessable("'phase' must be 'down' or 'up'");
+        }
+        context_.input->inject(event);
+        return noContent();
+    }
+
     platform::InputEvent down;
     down.source = source;
     down.phase = platform::ButtonPhase::Down;
@@ -314,6 +407,11 @@ Response ApiServer::handleDevice(const Request& request) {
     writer.member("version", kVersion);
     writer.member("apiVersion", kApiVersion);
 
+    // A device nobody has set up yet. The page opens on the network step
+    // rather than on a live view of a clock showing the wrong time - not a
+    // modal and not a wizard, the same page in a different order (ADR 0018).
+    writer.member("firstRun", context_.firstRun != nullptr && *context_.firstRun);
+
     writer.key("display").beginObject();
     writer.member("width", Framebuffer::kWidth);
     writer.member("height", Framebuffer::kHeight);
@@ -330,10 +428,33 @@ Response ApiServer::handleDevice(const Request& request) {
         const platform::NetworkStatus status = context_.platform->network()->status();
         writer.beginObject()
             .member("connected", status.connected)
-            .member("rssiDbm", status.rssiDbm)
             .member("ipv4", status.ipv4)
-            .member("hostname", status.hostname)
-            .endObject();
+            .member("hostname", status.hostname);
+        // Emitted only where it means something. A platform that cannot
+        // measure a signal reported a flat zero before, which reads as "no
+        // signal" rather than "no measurement" - the same class of lie as a
+        // battery at 0% because nothing answered.
+        if (status.signalKnown) {
+            writer.member("rssiDbm", status.rssiDbm);
+        }
+        if (!status.ssid.empty()) {
+            writer.member("ssid", status.ssid);
+        }
+
+        // The lease, where something is managing one. Its absence is the
+        // interesting case and is reported as absence: a device running on an
+        // address nothing is renewing looks identical to a healthy one right
+        // up until the address is taken back.
+        writer.member("leaseManaged", status.leaseKnown);
+        if (status.leaseKnown) {
+            writer.member("leaseState", status.leaseState);
+            if (status.leaseSeconds == 0xFFFFFFFFu) {
+                writer.member("leaseSeconds", -1);  // granted forever
+            } else {
+                writer.member("leaseSeconds", static_cast<std::int64_t>(status.leaseSeconds));
+            }
+        }
+        writer.endObject();
     } else {
         // Null rather than a fabricated "disconnected": this platform has no
         // network interface at all, which is different from having one that is
@@ -350,7 +471,8 @@ Response ApiServer::handleDevice(const Request& request) {
         writer.member("audio", context_.platform->audio() != nullptr)
             .member("network", context_.platform->network() != nullptr)
             .member("reboot", context_.platform->rebooter() != nullptr)
-            .member("battery", context_.platform->power() != nullptr);
+            .member("battery", context_.platform->power() != nullptr)
+            .member("microphone", context_.platform->microphone() != nullptr);
     }
     writer.endObject();
 
@@ -362,6 +484,29 @@ Response ApiServer::handleDevice(const Request& request) {
         writer.key("battery").beginObject().member("known", status.known);
         if (status.known) {
             writer.member("percent", status.percent);
+            // The number that says whether to believe the percentage. A cell
+            // reading 3.15 V is telling you something the percentage alone
+            // cannot.
+            writer.member("millivolts", status.millivolts);
+        }
+        // Reported independently of `known`: a platform can know it is on
+        // external power without having a charge reading yet, and the flag is
+        // what explains a percentage that moves when the cable does.
+        if (status.chargingKnown) {
+            writer.member("charging", status.charging);
+        }
+        writer.endObject();
+    }
+
+    // Same split as the battery, and for a sharper reason. A microphone that is
+    // present but has never delivered a sample is exactly what a TC002 looks
+    // like until it is switched on, and reporting only the capability turned
+    // that into a visualiser drawing a flat line and calling it silence.
+    if (context_.platform != nullptr && context_.platform->microphone() != nullptr) {
+        const platform::SoundLevel sound = context_.platform->microphone()->level();
+        writer.key("microphone").beginObject().member("known", sound.known);
+        if (sound.known) {
+            writer.member("amplitude", sound.amplitude);
         }
         writer.endObject();
     }
@@ -439,6 +584,30 @@ Response ApiServer::handleDiagnostics(const Request& request, std::uint64_t nowM
         writer.key("input").beginObject()
             .member("droppedEvents",
                     static_cast<std::int64_t>(context_.platform->input().droppedEventCount()))
+            .endObject();
+    }
+
+    if (context_.scheduler != nullptr) {
+        const render::FrameStats& stats = context_.scheduler->stats();
+        writer.key("render").beginObject()
+            .member("rendered", static_cast<std::int64_t>(stats.rendered))
+            // A healthy static clock face skips far more often than it
+            // renders. If this stays at zero, dirty tracking is not working -
+            // which is worth being able to see from a browser rather than
+            // only from a debugger.
+            .member("skipped", static_cast<std::int64_t>(stats.skipped))
+            .member("overruns", static_cast<std::int64_t>(stats.overruns))
+            .member("lastRenderMillis", static_cast<std::int64_t>(stats.lastRenderMillis))
+            .member("worstRenderMillis", static_cast<std::int64_t>(stats.worstRenderMillis))
+            .member("intervalMillis", context_.scheduler->intervalMillis())
+            .endObject();
+    }
+
+    if (context_.carousel != nullptr) {
+        const app::App* active = context_.carousel->active();
+        writer.key("carousel").beginObject()
+            .member("active", active != nullptr ? active->id : std::string())
+            .member("paused", context_.carousel->paused())
             .endObject();
     }
 
@@ -633,6 +802,22 @@ Response ApiServer::handleAppItem(const Request& request,
             return unprocessable("'scene' cannot be patched; use PUT");
         }
 
+        // Position is a property of the app like any other, so it moves on the
+        // same verb. Applied after the put below, because a replace keeps the
+        // app where it was and moving it first would move the wrong thing.
+        //
+        // Named "position" because that is what reading an app calls it. A
+        // field a client can read and cannot write back under the same name is
+        // a trap, and this one very nearly shipped as "index".
+        int moveTo = -1;
+        if (const json::Value position = fields["position"]; position.isNumber()) {
+            const std::int64_t wanted = position.toInt(-1);
+            if (wanted < 0 || wanted >= context_.apps->count()) {
+                return unprocessable("'position' is outside the installed apps");
+            }
+            moveTo = static_cast<int>(wanted);
+        }
+
         switch (context_.apps->put(std::move(updated))) {
             case app::AppRegistry::PutResult::Added:
             case app::AppRegistry::PutResult::Replaced:
@@ -645,12 +830,16 @@ Response ApiServer::handleAppItem(const Request& request,
                 return payloadTooLarge("'scene' exceeds the per-app limit");
         }
 
+        if (moveTo >= 0) {
+            context_.apps->move(id, moveTo);
+        }
+
         if (context_.carousel != nullptr) {
             context_.carousel->tick(nowMillis);
         }
 
         JsonWriter writer;
-        writeApp(writer, *context_.apps->find(id), 0);
+        writeApp(writer, *context_.apps->find(id), context_.apps->indexOf(id));
         return ok(writer.take());
     }
 
@@ -1049,6 +1238,49 @@ Response ApiServer::handleSettings(const Request& request) {
         if (const json::Value power = display["power"]; power.isBoolean()) {
             updated.display.power = power.toBool(true);
         }
+        if (const json::Value overlay = display["overlay"]; overlay.isString()) {
+            // Round-tripped, like clock.theme. Falling back silently would
+            // leave a client believing it had selected weather it had not.
+            const std::string name = overlay.toString();
+            if (render::overlayName(render::overlayFromName(name)) != name) {
+                return unprocessable("'display.overlay' is not a known overlay");
+            }
+            updated.display.overlay = name;
+        }
+        if (const json::Value night = display["night"]; night.isObject()) {
+            if (const json::Value enabled = night["enabled"]; enabled.isBoolean()) {
+                updated.display.night.enabled = enabled.toBool(false);
+            }
+            // A time of day cannot be outside a day. Refused rather than
+            // clamped: a caller that sent 1500 meant something, and quietly
+            // turning it into 23:59 would be answering a question it did not
+            // ask.
+            const auto readMinutes = [&night](const char* key, int& into) {
+                const json::Value value = night[key];
+                if (!value.isNumber()) {
+                    return true;
+                }
+                const std::int64_t minutes = value.toInt(-1);
+                if (minutes < 0 || minutes > 1439) {
+                    return false;
+                }
+                into = static_cast<int>(minutes);
+                return true;
+            };
+            if (!readMinutes("startMinutes", updated.display.night.startMinutes)) {
+                return unprocessable("'display.night.startMinutes' must be 0-1439");
+            }
+            if (!readMinutes("endMinutes", updated.display.night.endMinutes)) {
+                return unprocessable("'display.night.endMinutes' must be 0-1439");
+            }
+            if (const json::Value level = night["brightness"]; level.isNumber()) {
+                const std::int64_t value = level.toInt(-1);
+                if (value < 0 || value > 255) {
+                    return unprocessable("'display.night.brightness' must be 0-255");
+                }
+                updated.display.night.brightness = static_cast<std::uint8_t>(value);
+            }
+        }
     }
 
     if (const json::Value audio = root["audio"]; audio.isObject()) {
@@ -1116,6 +1348,47 @@ Response ApiServer::handleSettings(const Request& request) {
         }
     }
 
+    if (const json::Value web = root["web"]; web.isObject()) {
+        const json::Value userValue = web["username"];
+        const json::Value passValue = web["password"];
+
+        if (userValue.isString()) {
+            const std::string user = userValue.toString();
+            if (user.size() > 64) {
+                return unprocessable("'web.username' is at most 64 characters");
+            }
+            // A colon cannot appear in a Basic username: the credential is
+            // "user:password" and the first colon is the separator, so a
+            // username containing one could never be sent back. Refused with
+            // a reason rather than accepted and then permanently unusable -
+            // which on an authentication setting means locked out.
+            if (user.find(':') != std::string::npos) {
+                return unprocessable("'web.username' cannot contain a colon");
+            }
+            updated.web.username = user;
+        }
+
+        // Write-only: accepted, never returned. An empty string clears it,
+        // which is the only way to remove a stored credential through the
+        // API.
+        if (passValue.isString()) {
+            const std::string password = passValue.toString();
+            if (password.size() > 128) {
+                return unprocessable("'web.password' is at most 128 characters");
+            }
+            updated.web.password = password;
+        }
+
+        // Turning it on needs both. Half-configured is refused here rather
+        // than half-applied, because the failure mode of getting this wrong
+        // is a device nobody can log into - and unlike most settings, the
+        // page that would fix it is behind the thing that broke.
+        if (!updated.web.username.empty() && updated.web.password.empty()) {
+            return unprocessable(
+                "'web.password' is required when 'web.username' is set");
+        }
+    }
+
     if (const json::Value apps = root["apps"]; apps.isObject()) {
         if (const json::Value duration = apps["defaultDurationSeconds"]; duration.isNumber()) {
             const std::int64_t value = duration.toInt(-1);
@@ -1127,11 +1400,105 @@ Response ApiServer::handleSettings(const Request& request) {
         if (const json::Value transitions = apps["transitions"]; transitions.isBoolean()) {
             updated.apps.transitions = transitions.toBool(true);
         }
+        if (const json::Value order = apps["order"]; order.isArray()) {
+            // Replaced wholesale rather than merged. An order is a sequence,
+            // and merging two sequences has no meaning that a caller could
+            // predict.
+            std::vector<config::AppPreference> wanted;
+            const int count = order.size();
+            if (count > config::kMaxRememberedApps) {
+                return unprocessable("'apps.order' lists more apps than this device can hold");
+            }
+            for (int i = 0; i < count; ++i) {
+                const json::Value entry = order[i];
+                if (!entry.isObject()) {
+                    return unprocessable("'apps.order' entries must be objects");
+                }
+                config::AppPreference preference;
+                preference.id = entry["id"].toString(std::string());
+                if (preference.id.empty()) {
+                    return unprocessable("'apps.order' entries need an 'id'");
+                }
+                preference.enabled = entry["enabled"].toBool(true);
+                const std::int64_t seconds = entry["durationSeconds"].toInt(0);
+                if (seconds < 0 || seconds > 3600) {
+                    return unprocessable("'apps.order' durationSeconds is outside 0-3600");
+                }
+                preference.durationSeconds = static_cast<int>(seconds);
+                wanted.push_back(std::move(preference));
+            }
+            updated.apps.order = std::move(wanted);
+        }
+        if (const json::Value style = apps["transition"]; style.isString()) {
+            // Only names that round-trip, like the clock face and the
+            // visualiser style. Falling back silently would leave a client
+            // believing it had chosen an animation it had not.
+            const std::string name = style.toString();
+            if (render::transitionStyleName(render::transitionStyleFromName(name)) != name) {
+                return unprocessable("'apps.transition' is not a known transition");
+            }
+            updated.apps.transition = name;
+        }
+    }
+
+    if (const json::Value notifications = root["notifications"]; notifications.isObject()) {
+        if (const json::Value sound = notifications["sound"]; sound.isString()) {
+            updated.notifications.sound = sound.toString();
+        }
+    }
+
+    if (const json::Value visualizer = root["visualizer"]; visualizer.isObject()) {
+        if (const json::Value style = visualizer["style"]; style.isString()) {
+            // Only accept names that round-trip, for the same reason the clock
+            // face does: falling back silently would leave a client believing
+            // it had selected something it had not.
+            const std::string name = style.toString();
+            if (apps::visualizerStyleName(apps::visualizerStyleFromName(name)) != name) {
+                return unprocessable("'visualizer.style' is not a known style");
+            }
+            updated.visualizer.style = name;
+        }
     }
 
     if (const json::Value clock = root["clock"]; clock.isObject()) {
         if (const json::Value twentyFour = clock["twentyFourHour"]; twentyFour.isBoolean()) {
             updated.clock.twentyFourHour = twentyFour.toBool(true);
+        }
+        if (const json::Value zone = clock["timezone"]; zone.isString()) {
+            // Validated here rather than discovered at render time. An empty
+            // string is the documented way to say "use the fixed offset", so
+            // it is accepted; anything else has to be a rule this device can
+            // actually follow, or the clock would be quietly wrong for half
+            // the year with nothing to show for it.
+            const std::string spec = zone.toString();
+            notrix::timezone_::Timezone parsed;
+            if (!spec.empty() && !notrix::timezone_::Timezone::parse(spec, parsed)) {
+                return unprocessable("'clock.timezone' is not a POSIX timezone rule");
+            }
+            updated.clock.timezone = spec;
+        }
+        if (const json::Value server = clock["ntpServer"]; server.isString()) {
+            // Bounded and sanity-checked, not trusted. This string is handed
+            // to a resolver, and an unbounded one from the network is how a
+            // config field becomes a memory problem.
+            const std::string spec = server.toString();
+            if (spec.size() > 253) {
+                return unprocessable("'clock.ntpServer' is too long to be a hostname");
+            }
+            for (const char c : spec) {
+                const bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                                     (c >= '0' && c <= '9') || c == '.' || c == '-' || c == ':';
+                if (!allowed) {
+                    return unprocessable("'clock.ntpServer' must be a hostname or address");
+                }
+            }
+            // Empty is meaningful: it turns synchronisation off, for a
+            // network that blocks NTP or a user who would rather it did not
+            // talk to anyone.
+            updated.clock.ntpServer = spec;
+        }
+        if (const json::Value tick = clock["tick"]; tick.isBoolean()) {
+            updated.clock.tick = tick.toBool(false);
         }
         if (const json::Value theme = clock["theme"]; theme.isString()) {
             // Only accept names that round-trip. Falling back silently would
@@ -1240,6 +1607,315 @@ Response ApiServer::handleSettings(const Request& request) {
 
     JsonWriter writer;
     writeSettings(writer, *context_.config);
+    return ok(writer.take());
+}
+
+Response ApiServer::handleNetwork(const Request& request) {
+    if (request.method != Method::Get) {
+        return methodNotAllowed();
+    }
+    if (context_.platform == nullptr || context_.platform->network() == nullptr) {
+        return error(501, "not_supported", "this platform has no network interface");
+    }
+
+    platform::INetworkManager& network = *context_.platform->network();
+    const platform::NetworkStatus status = network.status();
+
+    JsonWriter writer;
+    writer.beginObject()
+        .member("connected", status.connected)
+        .member("ipv4", status.ipv4)
+        .member("hostname", status.hostname);
+    if (!status.ssid.empty()) {
+        writer.member("ssid", status.ssid);
+    }
+    if (status.signalKnown) {
+        writer.member("rssiDbm", status.rssiDbm);
+    }
+
+    // The lease, where something is managing one. Its absence is the
+    // interesting case and is reported as absence: a device running on an
+    // address nothing is renewing looks identical to a healthy one right
+    // up until the address is taken back.
+    writer.member("leaseManaged", status.leaseKnown);
+    if (status.leaseKnown) {
+        writer.member("leaseState", status.leaseState);
+        if (status.leaseSeconds == 0xFFFFFFFFu) {
+        writer.member("leaseSeconds", -1);  // granted forever
+        } else {
+        writer.member("leaseSeconds", static_cast<std::int64_t>(status.leaseSeconds));
+        }
+    }
+
+    // Reported so a page can tell "this device cannot look" from "nothing is
+    // in range" - which are different answers and look identical in an empty
+    // list (ADR 0013).
+    writer.member("canScan", network.canScan());
+    writer.member("canJoin", network.canJoin());
+
+    // False means the list below is remembered from before the radio became
+    // an access point, not what is in range now. One radio cannot do both,
+    // and the moment somebody needs to pick a network is exactly when the
+    // device is hosting one.
+    writer.member("networksAreLive", network.networksAreLive());
+
+    const platform::INetworkManager::JoinProgress join = network.joinProgress();
+    if (join.stage != platform::INetworkManager::JoinProgress::Stage::Idle) {
+        const char* stage = "working";
+        if (join.stage == platform::INetworkManager::JoinProgress::Stage::Succeeded) {
+            stage = "succeeded";
+        } else if (join.stage == platform::INetworkManager::JoinProgress::Stage::Failed) {
+            stage = "failed";
+        }
+        writer.key("join").beginObject()
+            .member("stage", stage)
+            .member("ssid", join.ssid)
+            .member("detail", join.detail)
+            .endObject();
+    }
+
+    writer.key("networks").beginArray();
+    for (const platform::WirelessNetwork& found : network.networks()) {
+        writer.beginObject()
+            .member("ssid", found.ssid)
+            .member("signalDbm", found.signalDbm)
+            .member("secured", found.secured)
+            .member("current", found.current)
+            .endObject();
+    }
+    writer.endArray();
+
+    writer.endObject();
+    return ok(writer.take());
+}
+
+Response ApiServer::handleNetworkScan(const Request& request) {
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+    if (context_.platform == nullptr || context_.platform->network() == nullptr) {
+        return error(501, "not_supported", "this platform has no network interface");
+    }
+
+    platform::INetworkManager& network = *context_.platform->network();
+    if (!network.canScan()) {
+        return error(501, "not_supported", "this platform cannot scan");
+    }
+    if (!network.beginScan()) {
+        return error(503, "unavailable", "the radio would not start a scan");
+    }
+
+    // 202: a scan takes seconds, and blueprint §16 does not allow waiting for
+    // it here. The caller asks again for the results.
+    JsonWriter writer;
+    writer.beginObject().member("status", "scanning").endObject();
+    Response response = ok(writer.take());
+    response.status = 202;
+    return response;
+}
+
+Response ApiServer::handleNetworkJoin(const Request& request) {
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+    if (context_.platform == nullptr || context_.platform->network() == nullptr) {
+        return error(501, "not_supported", "this platform has no network interface");
+    }
+
+    platform::INetworkManager& network = *context_.platform->network();
+    if (!network.canJoin()) {
+        return error(501, "not_supported", "this platform cannot join networks");
+    }
+
+    Body body(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+    if (!body.valid()) {
+        return badRequest(std::string("invalid JSON: ") + body.errorText());
+    }
+
+    const json::Value root = body.root();
+    if (!root.isObject()) {
+        return badRequest("body must be a JSON object");
+    }
+
+    const json::Value ssidValue = root["ssid"];
+    if (!ssidValue.isString()) {
+        return badRequest("'ssid' is required");
+    }
+    const std::string ssid = ssidValue.toString();
+
+    // Absent means an open network, which is a real thing and not the same as
+    // a forgotten field. The reply says which was assumed, so a mistyped key
+    // does not look like a successful join to an open network.
+    const json::Value passwordValue = root["password"];
+    if (!passwordValue.isNull() && !passwordValue.isString()) {
+        return badRequest("'password' must be a string");
+    }
+    const std::string password = passwordValue.isString() ? passwordValue.toString()
+                                                          : std::string();
+
+    if (!network.beginJoin(ssid, password)) {
+        // The reason lives in the progress, because it is written for the
+        // person who typed the password rather than for a log.
+        return error(400, "invalid_request", network.joinProgress().detail);
+    }
+
+    // 202, and the password is not echoed back - not even redacted. A
+    // settings page that repeats a Wi-Fi password is one screenshot away
+    // from giving it away, and backups are taken from this API (§22).
+    JsonWriter writer;
+    writer.beginObject()
+        .member("status", "joining")
+        .member("ssid", ssid)
+        .member("secured", !password.empty())
+        .endObject();
+    Response response = ok(writer.take());
+    response.status = 202;
+    return response;
+}
+
+Response ApiServer::handleFirmware(const Request& request) {
+    if (context_.platform == nullptr) {
+        return serverError("no platform");
+    }
+    platform::IUpgradeManager* upgrade = context_.platform->upgrade();
+    if (upgrade == nullptr) {
+        return error(501, "not_supported", "this platform cannot install firmware");
+    }
+
+    if (request.method == Method::Get) {
+        JsonWriter writer;
+        writer.beginObject()
+            .member("path", upgrade->applicationPath())
+            .member("installedBytes", static_cast<std::int64_t>(upgrade->installedBytes()))
+            .member("canRollBack", upgrade->hasPrevious())
+            .member("maxBytes", static_cast<std::int64_t>(options_.maxImageBytes))
+            .member("version", std::string(kVersion))
+            .endObject();
+        return ok(writer.take());
+    }
+
+    if (request.method == Method::Delete) {
+        std::string problem;
+        if (!upgrade->rollback(problem)) {
+            return unprocessable(problem);
+        }
+        JsonWriter writer;
+        writer.beginObject()
+            .member("status", "rolled-back")
+            .member("rebootRequired", true)
+            .member("note", "The previous version is back. Reboot to run it.")
+            .endObject();
+        return ok(writer.take());
+    }
+
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+
+    // Checked before a byte is written, because the asymmetry is brutal: the
+    // cost of rejecting a good file is somebody uploading it again, and the
+    // cost of accepting a bad one is a device that stops being able to tell
+    // you about it. A build for the wrong architecture is the easy mistake -
+    // it happened during bring-up, verified perfectly, and failed at dlopen
+    // where only ADB could see it.
+    const update::elf::ElfVerdict verdict = update::elf::inspect(request.body);
+    if (verdict != update::elf::ElfVerdict::Ok) {
+        return unprocessable(std::string("that file is ") +
+                             update::elf::describe(verdict));
+    }
+
+    std::string problem;
+    if (!upgrade->install(request.body, problem)) {
+        return error(503, "unavailable",
+                     problem.empty() ? "could not install the firmware" : problem);
+    }
+
+    JsonWriter writer;
+    writer.beginObject()
+        .member("status", "installed")
+        .member("path", upgrade->applicationPath())
+        .member("bytes", static_cast<std::int64_t>(request.body.size()))
+        .member("canRollBack", upgrade->hasPrevious())
+        .member("rebootRequired", true)
+        // Said plainly, because "installed" could otherwise be read as
+        // "running", and the difference is a reboot.
+        .member("note",
+                "Written, not yet running. Reboot to start it. If it will not "
+                "load, the device falls back to the version flashed with it "
+                "rather than to nothing.")
+        .endObject();
+    return ok(writer.take());
+}
+
+Response ApiServer::handleReset(const Request& request, std::uint64_t nowMillis) {
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+    if (context_.config == nullptr || context_.configStore == nullptr) {
+        return serverError("configuration unavailable");
+    }
+
+    // "apps": true also clears installed apps and stored icons. Off by default,
+    // and deliberately a separate flag rather than a second endpoint: somebody
+    // resetting settings to sort out a display problem should not silently lose
+    // the apps an integration spent a week pushing.
+    bool includeApps = false;
+    if (!request.body.empty()) {
+        Body body(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+        if (!body.valid()) {
+            return badRequest(std::string("invalid JSON: ") + body.errorText());
+        }
+        const json::Value fields = body.root();
+        if (!fields.isObject()) {
+            return badRequest("body must be a JSON object");
+        }
+        includeApps = fields["apps"].toBool(false);
+    }
+
+    // The device name survives. It is how somebody tells one of these from
+    // another on the network, it is not a setting that can be "wrong", and
+    // losing it means finding the device again before you can fix whatever you
+    // were resetting.
+    const std::string name = context_.config->deviceName;
+
+    // So does the app arrangement, unless the apps go too. It belongs with the
+    // apps rather than with the settings - and clearing it here cleared only
+    // the stored copy, leaving the running device in the user's order until it
+    // next rebooted and silently reverted. A reset that takes effect at an
+    // unpredictable point in the future is worse than one that does nothing.
+    std::vector<config::AppPreference> order;
+    if (!includeApps) {
+        order = context_.config->apps.order;
+    }
+
+    *context_.config = config::Config{};
+    context_.config->deviceName = name;
+    context_.config->apps.order = std::move(order);
+
+    if (includeApps && context_.apps != nullptr) {
+        // System apps survive clear(), which is what guarantees the panel still
+        // shows something afterwards.
+        context_.apps->clear();
+        if (context_.icons != nullptr) {
+            context_.icons->clear();
+        }
+        if (context_.carousel != nullptr) {
+            context_.carousel->tick(nowMillis);
+        }
+    }
+
+    if (!context_.configStore->save(*context_.config)) {
+        // Reported rather than swallowed: the running device is now on
+        // defaults either way, and a caller that believes the reset persisted
+        // when it did not will be surprised by the next boot.
+        return serverError("settings reset but could not be saved");
+    }
+
+    JsonWriter writer;
+    writer.beginObject()
+        .member("status", "reset")
+        .member("apps", includeApps)
+        .endObject();
     return ok(writer.take());
 }
 

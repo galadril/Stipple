@@ -11,18 +11,22 @@
 #   .\dev.ps1 emulator       build the browser emulator (needs EMSDK)
 #   .\dev.ps1 verify         drive the built WASM module headlessly (needs node)
 #   .\dev.ps1 device         cross-build for the TC002 and run it under ARM emulation
+#   .\dev.ps1 deploy <ip>    build NOTRIX and run it on the device
 #   .\dev.ps1 panel <ip>     build the channel-order test and run it on the panel
 #   .\dev.ps1 serve          build the emulator and serve it on localhost
 #   .\dev.ps1 clean          remove build output
 #   .\dev.ps1 doctor         report toolchain status
 #
-# The device-side verbs from the blueprint (deploy / logs / restore) arrive in
-# Phase 7, once there is a TC002 to talk to.
+# 'deploy' is ADR 0008's tier 2: volatile, /tmp, stock app restored by a power
+# cycle. It uses the *bullseye* toolchain because notrix_device is dynamically
+# linked for the speaker, and a Debian 12 binary demands a glibc this device
+# does not have. 'device' still uses bookworm, because the smoke test it builds
+# is static and does not care.
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'panel', 'serve', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'image', 'panel', 'serve', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -201,6 +205,173 @@ qemu-arm-static notrix_device_smoke
         & $engine.Source run --rm -v "${repoRoot}:/src" $image bash -c $script
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Write-Host "`nDevice build runs on ARM." -ForegroundColor Green
+    }
+
+    'deploy' {
+        # Tier 2 from ADR 0008: build NOTRIX, push it to /tmp, run it. Volatile
+        # by construction - /tmp is tmpfs, so a power cycle restores the stock
+        # application whatever happens here.
+        #
+        # **Bullseye, not bookworm, and that is the whole point of this verb.**
+        #
+        # notrix_device is dynamically linked, because the speaker is only
+        # reachable through /lib/libmi_ao.so and a static binary cannot dlopen.
+        # A Debian 12 toolchain emits executables needing GLIBC_2.34 for
+        # __libc_start_main; this device carries 2.30, so such a binary does not
+        # start and says so by naming a symbol rather than the cause. Building
+        # it by hand in the wrong image is a mistake that costs half an hour,
+        # and it is exactly the mistake this verb exists to stop anyone making
+        # twice.
+        #
+        # Presets are not used here: CMakePresets.json requires CMake 3.21 and
+        # bullseye ships 3.18, which is also why cmake_minimum_required is 3.18.
+        # The flags below are the device-arm preset, spelled out.
+        $target = if ($Rest) { $Rest[0] } else { $null }
+
+        $adb = Get-Command adb -ErrorAction SilentlyContinue
+        if (-not $adb) { throw "adb not found on PATH. See docs/bring-up.md for how to get it." }
+
+        $engine = (Get-Command podman -ErrorAction SilentlyContinue) ??
+                  (Get-Command docker -ErrorAction SilentlyContinue)
+        if (-not $engine) {
+            throw "podman or docker is needed to run the pinned cross-toolchain. See tooling/cross/."
+        }
+
+        $image = 'notrix-cross:bullseye'
+        & $engine.Source build -t $image -f tooling/cross/Containerfile.bullseye tooling/cross
+        if ($LASTEXITCODE -ne 0) { throw "could not build the bullseye cross-toolchain image" }
+
+        $script = @'
+set -e
+cmake -S /src -B /src/build/device-arm -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=/src/cmake/toolchains/arm-linux-gnueabihf.cmake \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DNOTRIX_BUILD_TESTS=OFF \
+  -DNOTRIX_DEVICE_BUILD=ON \
+  -DNOTRIX_WARNINGS_AS_ERRORS=ON
+cmake --build /src/build/device-arm --target notrix_device
+
+echo
+echo "--- artifact ---"
+file /src/build/device-arm/firmware/notrix_device
+
+# The check that would have caught the wrong image. The device carries glibc
+# 2.30 and GLIBCXX 3.4.28; anything above either will not start.
+echo "--- highest versioned symbols required ---"
+arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/notrix_device \
+  | grep -oE 'GLIBC_[0-9.]+|GLIBCXX_[0-9.]+' | sort -u -V | tail -4
+'@
+        $script = $script -replace "`r", ""
+
+        & $engine.Source run --rm -v "${repoRoot}:/src" $image bash -c $script
+        if ($LASTEXITCODE -ne 0) { throw "cross-build failed" }
+
+        $binary = Join-Path $repoRoot 'build\device-arm\firmware\notrix_device'
+        if (-not (Test-Path $binary)) { throw "expected $binary after the build" }
+
+        if ($target) {
+            & $adb.Source connect $target | Out-Null
+        }
+
+        # Anything already running owns the panel and port 80, so it has to go
+        # first - otherwise the new process reports "port in use" and renders
+        # nothing, which looks like a build problem and is not.
+        $running = & $adb.Source shell ps 2>&1 | Select-String 'notrix_device'
+        foreach ($line in $running) {
+            $id = $line.Line.Trim().Split(' ')[0]
+            & $adb.Source shell "kill -9 $id" | Out-Null
+        }
+
+        & $adb.Source push $binary /tmp/notrix_device
+        if ($LASTEXITCODE -ne 0) { throw "adb push failed - is the device connected?" }
+        & $adb.Source shell chmod 700 /tmp/notrix_device
+
+        # The vendor application drives the same panel and neither arbitrates.
+        & $adb.Source shell "setprop ctl.stop zkswe" | Out-Null
+        Start-Sleep -Seconds 2
+
+        Write-Host "`nNOTRIX is running. Ctrl-C here stops it." -ForegroundColor Green
+        Write-Host "  Restore the stock clock with: adb shell setprop ctl.start zkswe" -ForegroundColor Gray
+        Write-Host ""
+
+        & $adb.Source shell /tmp/notrix_device
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+
+    'capture' {
+        # ADR 0008's hard precondition, and the one verb that has to work
+        # before any of the others are allowed to exist.
+        #
+        # It reads the live res partition through the kernel's read-only
+        # alias and wraps it in a container the device's own loader will
+        # accept. Nothing is written to the device.
+        #
+        # Worth knowing why this is not optional: every TC002 ships with an
+        # update.img on its own USB volume, and holding reset installs it -
+        # but on the unit this was written against that image is *older* than
+        # the res partition actually running. The reset button is a downgrade
+        # unless somebody has put the right image there first.
+        $target = if ($Rest) { $Rest[0] } else { $null }
+
+        $adb = Get-Command adb -ErrorAction SilentlyContinue
+        if (-not $adb) { throw "adb not found on PATH. See docs/bring-up.md." }
+
+        if ($target) { & $adb.Source connect $target | Out-Null }
+
+        $python = Get-Command python.exe -ErrorAction SilentlyContinue
+        if (-not $python) { throw "python.exe not found on PATH." }
+
+        $script = Join-Path $repoRoot 'tooling\imgtool\capture.py'
+        $arguments = @($script, '--out', (Join-Path $repoRoot 'restore'))
+        if ($target) { $arguments += @('--target', $target) }
+
+        & $python.Source @arguments
+        if ($LASTEXITCODE -ne 0) { throw "capture failed" }
+
+        Write-Host "`nKeep restore/. It is specific to this device, it is Ulanzi's" -ForegroundColor Yellow
+        Write-Host "firmware, and it is gitignored for both reasons." -ForegroundColor Yellow
+    }
+
+    'image' {
+        # Build a res partition image from a capture, changing one line.
+        #
+        # The image carries no NOTRIX code. ADR 0021 puts NOTRIX in /data and
+        # points the framework's startupLibPath at it, so this is flashed once
+        # and every release after that is a file copy over the network.
+        #
+        # It runs in the container and not on the host because the res
+        # filesystem stores uid/gid 1000 and modes like 0770, and extracting
+        # it onto a Windows bind mount flattens both to root/0777 - which
+        # would silently change the ownership of every file on the partition.
+        $capture = Join-Path $repoRoot 'restorees-raw.bin'
+        if (-not (Test-Path $capture)) {
+            throw "no capture at restorees-raw.bin - run '.\dev.ps1 capture <target>' first"
+        }
+
+        $engine = (Get-Command podman -ErrorAction SilentlyContinue) ??
+                  (Get-Command docker -ErrorAction SilentlyContinue)
+        if (-not $engine) { throw "podman or docker is needed for the pinned toolchain." }
+
+        $image = 'notrix-cross:bullseye'
+        & $engine.Source build -t $image -f tooling/cross/Containerfile.bullseye tooling/cross | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "could not build the cross-toolchain image" }
+
+        $script = 'bash /src/tooling/imgtool/buildres.sh /src/restore/res-raw.bin /src/restore/notrix-res.squashfs'
+        & $engine.Source run --rm -v "${repoRoot}:/src" $image bash -c $script
+        if ($LASTEXITCODE -ne 0) { throw "could not build the res image" }
+
+        $python = Get-Command python.exe -ErrorAction SilentlyContinue
+        if (-not $python) { throw "python.exe not found on PATH." }
+        & $python.Source (Join-Path $repoRoot 'tooling\imgtool\imgtool.py') pack `
+            (Join-Path $repoRoot 'restore
+otrix-res.squashfs') `
+            (Join-Path $repoRoot 'restore
+otrix-update.img') `
+            --template (Join-Path $repoRoot 'restore\shipped-update.img')
+        if ($LASTEXITCODE -ne 0) { throw "could not wrap the image" }
+
+        Write-Host "`nNothing has been flashed. ADR 0008 gates that on a" -ForegroundColor Yellow
+        Write-Host "demonstrated restore, which has not happened." -ForegroundColor Yellow
     }
 
     'panel' {

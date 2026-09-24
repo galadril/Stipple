@@ -53,35 +53,49 @@ NOTRIX_TEST(InputMapper, NavigationLivesOnTheKnob) {
     mapper.reset();
     NOTRIX_CHECK_EQ(actionCode(rotate(mapper, false, 0).action), actionCode(Action::AppPrevious));
 
+    // Press acts on the selected thing; hold is the way into settings and back
+    // out (ADR 0017). Dismissing a notification moved to the middle button,
+    // which is the one control that always means "back".
     NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::RotaryPress, 0, 50).action),
                     actionCode(Action::AppAction));
     NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::RotaryPress, 1000, 900).action),
-                    actionCode(Action::NotificationDismiss));
+                    actionCode(Action::SettingsToggle));
 }
 
-NOTRIX_TEST(InputMapper, TapAdjustsVolumeAndHoldAdjustsBrightness) {
+NOTRIX_TEST(InputMapper, MinusAndPlusAdjustWhateverIsSelected) {
+    // These used to tap volume, on hardware that reports no audio output - so
+    // the two most obviously pressable buttons on the device did nothing at
+    // all. They now adjust, and what they adjust depends on the mode: the
+    // panel while browsing, the chosen setting inside settings (ADR 0017).
     InputMapper mapper;
 
     NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMinus, 0, 50).action),
-                    actionCode(Action::VolumeDown));
+                    actionCode(Action::AdjustDown));
     NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyPlus, 1000, 50).action),
-                    actionCode(Action::VolumeUp));
+                    actionCode(Action::AdjustUp));
 
+    // Holding reaches brightness instead. The one place a long press means
+    // something other than its short press, and it earns the exception: both
+    // are "turn this up", the direction is the same, and a slip of the thumb
+    // changes the other quantity by one step rather than doing something
+    // unrelated.
     NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMinus, 2000, 900).action),
                     actionCode(Action::BrightnessDown));
     NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyPlus, 3000, 900).action),
                     actionCode(Action::BrightnessUp));
 }
 
-NOTRIX_TEST(InputMapper, TheThirdButtonDoesSomethingIfItExists) {
-    // Modelled because an unused enum value is invisible, whereas a real button
-    // bound to nothing reads as broken firmware. See ADR 0016's amendment.
+NOTRIX_TEST(InputMapper, TheMiddleButtonIsAlwaysBack) {
+    // It used to duplicate the knob's AppNext, which wasted the one control
+    // free to mean something else. Back, whether tapped or held: a gesture
+    // whose meaning depends on how long you held it is a gesture people get
+    // wrong.
     InputMapper mapper;
 
     NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMiddle, 0, 50).action),
-                    actionCode(Action::AppNext));
+                    actionCode(Action::Back));
     NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMiddle, 1000, 900).action),
-                    actionCode(Action::NotificationDismiss));
+                    actionCode(Action::Back));
 }
 
 NOTRIX_TEST(InputMapper, EachControlTracksItsOwnPressIndependently) {
@@ -108,9 +122,9 @@ NOTRIX_TEST(InputMapper, MinusAndPlusNeverDisagreeAboutDirection) {
     // A layout where − raised something would be a genuine usability bug, and an
     // easy one to introduce while remapping.
     const InputMapperConfig config;
-    NOTRIX_CHECK_EQ(actionCode(config.keyMinus.shortPress), actionCode(Action::VolumeDown));
+    NOTRIX_CHECK_EQ(actionCode(config.keyMinus.shortPress), actionCode(Action::AdjustDown));
     NOTRIX_CHECK_EQ(actionCode(config.keyMinus.longPress), actionCode(Action::BrightnessDown));
-    NOTRIX_CHECK_EQ(actionCode(config.keyPlus.shortPress), actionCode(Action::VolumeUp));
+    NOTRIX_CHECK_EQ(actionCode(config.keyPlus.shortPress), actionCode(Action::AdjustUp));
     NOTRIX_CHECK_EQ(actionCode(config.keyPlus.longPress), actionCode(Action::BrightnessUp));
 }
 
@@ -144,7 +158,7 @@ NOTRIX_TEST(InputMapper, ShortPressEmitsTheShortAction) {
     InputMapper mapper;
     const ActionEvent result = press(mapper, RawInput::KeyPlus, 1000, 50);
 
-    NOTRIX_CHECK_EQ(actionCode(result.action), actionCode(Action::VolumeUp));
+    NOTRIX_CHECK_EQ(actionCode(result.action), actionCode(Action::AdjustUp));
     NOTRIX_CHECK_FALSE(result.longPress);
     NOTRIX_CHECK_EQ(result.repeat, 1);
 }
@@ -153,7 +167,7 @@ NOTRIX_TEST(InputMapper, LongPressEmitsTheLongAction) {
     InputMapper mapper;
     const ActionEvent result = press(mapper, RawInput::RotaryPress, 1000, 900);
 
-    NOTRIX_CHECK_EQ(actionCode(result.action), actionCode(Action::NotificationDismiss));
+    NOTRIX_CHECK_EQ(actionCode(result.action), actionCode(Action::SettingsToggle));
     NOTRIX_CHECK(result.longPress);
 }
 

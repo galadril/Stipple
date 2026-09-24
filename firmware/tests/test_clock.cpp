@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/apps/BatteryApp.h"
+#include "notrix/apps/VisualizerApp.h"
 #include "notrix/apps/ClockApp.h"
 
 #include <string>
@@ -445,6 +446,33 @@ NOTRIX_TEST(Battery, ChargeChangesWhatIsDrawn) {
     NOTRIX_CHECK(render(3) != render(0));
 }
 
+NOTRIX_TEST(Battery, ChargingLooksDifferentFromDischargingAtTheSamePercent) {
+    // Measured on a TC002: the same cell reads ~3160 mV on the cable and
+    // ~3115 mV off it, which moves the MCU's voltage-derived percentage by
+    // several points. Without a charge indicator that looks like the gauge
+    // inventing numbers; with one it reads as a battery under load, which is
+    // what it is.
+    auto render = [](bool chargingKnown, bool charging) {
+        notrix::platform::BatteryStatus status;
+        status.known = true;
+        status.percent = 80;
+        status.chargingKnown = chargingKnown;
+        status.charging = charging;
+        Framebuffer frame;
+        Canvas canvas(frame);
+        notrix::apps::renderBattery(canvas, status, notrix::apps::BatteryStyle{});
+        return frame;
+    };
+
+    NOTRIX_CHECK(render(true, true) != render(true, false));
+
+    // A platform that cannot tell must look like one that is not charging,
+    // never like one that is: an invented bolt is the same class of lie as an
+    // invented percentage.
+    NOTRIX_CHECK(render(false, false) == render(true, false));
+    NOTRIX_CHECK(render(false, true) == render(true, false));
+}
+
 NOTRIX_TEST(Battery, OutOfRangeChargeIsClampedNotWrapped) {
     auto render = [](int percent) {
         notrix::platform::BatteryStatus status;
@@ -458,4 +486,409 @@ NOTRIX_TEST(Battery, OutOfRangeChargeIsClampedNotWrapped) {
 
     NOTRIX_CHECK(render(250) == render(100));
     NOTRIX_CHECK(render(-20) == render(0));
+}
+
+
+// --- visualizer --------------------------------------------------------------
+
+namespace {
+
+/// Renders the *trace* style specifically.
+///
+/// The default is the meter, which the tests below it cover separately. These
+/// assert things about a scrolling history - columns, ageing, the centre
+/// baseline - and none of them mean anything to a meter, so asking for the
+/// style explicitly keeps each test about one thing.
+notrix::Framebuffer renderViz(const notrix::apps::Visualizer& viz) {
+    notrix::apps::VisualizerStyle trace;
+    trace.kind = notrix::apps::VisualizerStyleKind::Trace;
+
+    notrix::Framebuffer frame;
+    notrix::Canvas canvas(frame);
+    viz.render(canvas, trace);
+    return frame;
+}
+
+int litColumns(const notrix::Framebuffer& frame, notrix::Rgb baseline) {
+    int columns = 0;
+    for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+        for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+            const notrix::Rgb pixel = frame.at(x, y);
+            if (pixel != colors::kBlack && pixel != baseline) {
+                ++columns;
+                break;
+            }
+        }
+    }
+    return columns;
+}
+
+}  // namespace
+
+NOTRIX_TEST(Visualizer, SilenceStillShowsABaseline) {
+    // A blank panel reads as broken rather than as quiet, so the centre line is
+    // always drawn - even before a single sample has arrived.
+    notrix::apps::Visualizer viz;
+    const notrix::Framebuffer frame = renderViz(viz);
+
+    const notrix::Framebuffer blank;
+    NOTRIX_CHECK(frame != blank);
+}
+
+NOTRIX_TEST(Visualizer, LouderSoundsFillMoreOfThePanel) {
+    // Varying, not steady. A constant reading is the definition of a noise
+    // floor, and the visualiser now treats it as one - see
+    // ASteadyToneBecomesTheNoiseFloorAndStopsAnimating below.
+    notrix::apps::Visualizer quiet;
+    notrix::apps::Visualizer loud;
+    for (int i = 0; i < 60; ++i) {
+        quiet.push(300 + (i % 5) * 120);
+        loud.push(12000 + (i % 5) * 4000);
+    }
+
+    auto height = [](const notrix::Framebuffer& frame) {
+        int lit = 0;
+        for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+            for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+                if (frame.at(x, y) != colors::kBlack) { ++lit; break; }
+            }
+        }
+        return lit;
+    };
+
+    // Auto-gain means a steady tone settles to a similar height whatever its
+    // absolute level - which is the point - so this asserts both render
+    // something rather than asserting one is taller.
+    NOTRIX_CHECK(height(renderViz(quiet)) > 2);
+    NOTRIX_CHECK(height(renderViz(loud)) > 2);
+}
+
+NOTRIX_TEST(Visualizer, AutoGainOpensUpForAQuietRoom) {
+    // The whole reason gain lives in the app: a room that never exceeds 800
+    // must still fill the panel, or the visualiser is a flat line in every
+    // house that is not a nightclub.
+    //
+    // Measured above the noise floor, so the room swings between 200 and 700
+    // rather than sitting at 700. A reading that never changes carries no
+    // information about the room no matter how large the number is.
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 200; ++i) {
+        viz.push(200 + (i % 6) * 100);
+    }
+
+    NOTRIX_CHECK(viz.ceiling() <= 800);
+
+    const notrix::Framebuffer frame = renderViz(viz);
+    int tallest = 0;
+    for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+            if (frame.at(x, y) != colors::kBlack) { ++tallest; break; }
+        }
+    }
+    NOTRIX_CHECK(tallest > notrix::Framebuffer::kHeight / 2);
+}
+
+NOTRIX_TEST(Visualizer, ASuddenSoundIsDrawnAtOnceAndDoesNotFlattenTheRest) {
+    // Both halves of the fix, in one test.
+    //
+    // The spike must be drawn full height on the frame it arrives - "it should
+    // show when it hears something" - which works because a column is scaled
+    // against the window as it stood *before* that sample moved it.
+    //
+    // And the columns already on screen must not change. Storing raw
+    // amplitudes and rescaling the history at render time is what made a
+    // finger snap look like the trace resetting.
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 40; ++i) { viz.push(600); }
+
+    const Framebuffer before = renderViz(viz);
+    viz.push(32000);
+    const Framebuffer after = renderViz(viz);
+
+    // The newest column is on the right and reaches the top.
+    NOTRIX_CHECK(after.at(Framebuffer::kWidth - 1, 0) != colors::kBlack);
+
+    // Everything older is untouched: identical but for the one new column,
+    // which has shifted the history left by exactly one.
+    for (int x = 0; x < Framebuffer::kWidth - 1; ++x) {
+        for (int y = 0; y < Framebuffer::kHeight; ++y) {
+            NOTRIX_CHECK_EQ(after.at(x, y), before.at(x + 1, y));
+        }
+    }
+
+    // The window rises toward the peak without landing on it, so the next few
+    // seconds of ordinary sound are still legible.
+    NOTRIX_CHECK(viz.ceiling() > 600);
+    NOTRIX_CHECK(viz.ceiling() < 32000);
+}
+
+NOTRIX_TEST(Visualizer, HistoryScrollsAndIsBounded) {
+    // 52 columns of history, newest at the right, and nothing unbounded.
+    notrix::apps::Visualizer viz;
+    NOTRIX_CHECK_FALSE(viz.hasSamples());
+
+    for (int i = 0; i < 500; ++i) {
+        viz.push(1000 + (i % 7) * 900);
+    }
+    NOTRIX_CHECK(viz.hasSamples());
+
+    // Bounded: 500 samples in, at most 52 columns out, and the baseline spans
+    // the panel however few of them carry a reading.
+    //
+    // Deliberately not "every column is lit". A sample sitting on the noise
+    // floor is silence by definition and draws nothing above the baseline, so
+    // any repeating input has dark columns wherever it revisits its quietest
+    // value - which is correct, and was not true before the floor existed.
+    const notrix::Framebuffer frame = renderViz(viz);
+    const int lit = litColumns(frame, notrix::rgb(20, 28, 40));
+    NOTRIX_CHECK(lit > 0);
+    NOTRIX_CHECK(lit <= notrix::Framebuffer::kWidth);
+
+    for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+        NOTRIX_CHECK(frame.at(x, notrix::Framebuffer::kHeight / 2 - 1) != colors::kBlack);
+    }
+}
+
+NOTRIX_TEST(Visualizer, ASteadyToneBecomesTheNoiseFloorAndStopsAnimating) {
+    // The bug a person watching the device reported: "it starts with animation
+    // while there is no sound, and after a handclap it resets to the correct
+    // levels."
+    //
+    // This microphone reports a few hundred in a silent room - a DC offset and
+    // self-noise, not sound. Scaled against the gain window, that empty room
+    // animated constantly, and the first clap threw the window up where it
+    // belonged, which looked like a reset and was actually the only moment the
+    // display had been right.
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 100; ++i) {
+        viz.push(420);
+    }
+
+    // Silence draws the baseline and nothing else.
+    const notrix::Framebuffer quiet = renderViz(viz);
+    int lit = 0;
+    for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+            if (quiet.at(x, y) != colors::kBlack) { ++lit; }
+        }
+    }
+    NOTRIX_CHECK_EQ(lit, notrix::Framebuffer::kWidth * 2);  // the baseline only
+
+    // And a real sound still reads, immediately, against that floor.
+    viz.push(9000);
+    const notrix::Framebuffer clap = renderViz(viz);
+    NOTRIX_CHECK(clap.at(notrix::Framebuffer::kWidth - 1, 0) != colors::kBlack);
+}
+
+NOTRIX_TEST(Visualizer, TheNoiseFloorFollowsARoomThatGetsQuieter) {
+    // It must fall instantly: a floor that lagged would leave the panel dead
+    // after a loud passage ended.
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 50; ++i) { viz.push(5000); }
+    for (int i = 0; i < 50; ++i) { viz.push(300); }
+
+    // 800 now sits well above the new floor and must register.
+    viz.push(800);
+    const notrix::Framebuffer frame = renderViz(viz);
+    bool litAboveBaseline = false;
+    for (int y = 0; y < notrix::Framebuffer::kHeight / 2 - 1; ++y) {
+        if (frame.at(notrix::Framebuffer::kWidth - 1, y) != colors::kBlack) {
+            litAboveBaseline = true;
+        }
+    }
+    NOTRIX_CHECK(litAboveBaseline);
+}
+
+NOTRIX_TEST(Visualizer, OutOfRangeSamplesAreClampedNotWrapped) {
+    notrix::apps::Visualizer viz;
+    viz.push(-5000);
+    viz.push(999999);
+    // Neither should have produced a nonsense window.
+    NOTRIX_CHECK(viz.ceiling() >= 400);
+    NOTRIX_CHECK(viz.ceiling() <= 32767);
+}
+
+NOTRIX_TEST(Visualizer, NoMicrophoneSaysSoRatherThanDrawingSilence) {
+    notrix::Framebuffer frame;
+    notrix::Canvas canvas(frame);
+    notrix::apps::renderNoMicrophone(canvas, colors::kWhite);
+
+    const notrix::Framebuffer blank;
+    NOTRIX_CHECK(frame != blank);
+}
+
+NOTRIX_TEST(Visualizer, TheMeterRisesFromTheBottomAndDoesNotScroll) {
+    // Asked for by the person living with the device: a clock on a shelf
+    // should be still when the room is still, and the scrolling trace is in
+    // motion whenever there is any sound at all.
+    notrix::apps::VisualizerStyle meter;
+    meter.kind = notrix::apps::VisualizerStyleKind::Meter;
+
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 40; ++i) { viz.push(400); }  // settle the floor
+    viz.push(20000);
+
+    notrix::Framebuffer frame;
+    notrix::Canvas canvas(frame);
+    viz.render(canvas, meter);
+
+    // Lit at the bottom, and every column of a lit row is lit: the width
+    // carries no information, so the block is solid rather than split into
+    // bands this hardware cannot measure.
+    const int bottom = notrix::Framebuffer::kHeight - 1;
+    for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+        NOTRIX_CHECK(frame.at(x, bottom) != colors::kBlack);
+        NOTRIX_CHECK_EQ(frame.at(x, bottom), frame.at(0, bottom));
+    }
+
+    // A loud sound reaches the top.
+    NOTRIX_CHECK(frame.at(0, 0) != colors::kBlack);
+}
+
+NOTRIX_TEST(Visualizer, TheMeterIsStillWhenTheRoomIs) {
+    // The complaint the meter answers: a steady reading must not animate.
+    notrix::apps::VisualizerStyle meter;
+    meter.kind = notrix::apps::VisualizerStyleKind::Meter;
+
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 60; ++i) { viz.push(420); }
+
+    notrix::Framebuffer first;
+    notrix::Canvas firstCanvas(first);
+    viz.render(firstCanvas, meter);
+
+    for (int i = 0; i < 20; ++i) { viz.push(420); }
+
+    notrix::Framebuffer second;
+    notrix::Canvas secondCanvas(second);
+    viz.render(secondCanvas, meter);
+
+    NOTRIX_CHECK(first == second);
+}
+
+NOTRIX_TEST(Visualizer, TheMeterHoldsAPeakAndLetsItFall) {
+    notrix::apps::VisualizerStyle meter;
+    meter.kind = notrix::apps::VisualizerStyleKind::Meter;
+
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 40; ++i) { viz.push(400); }
+    viz.push(30000);
+    const int afterPeak = viz.peakPermille();
+    NOTRIX_CHECK(afterPeak > 0);
+
+    // Quiet again: the marker falls rather than pinning at the loudest thing
+    // that ever happened, and rather than vanishing on the next frame.
+    viz.push(400);
+    NOTRIX_CHECK(viz.peakPermille() < afterPeak);
+    NOTRIX_CHECK(viz.peakPermille() > viz.currentPermille());
+}
+
+NOTRIX_TEST(Visualizer, AnUnknownStyleNameFallsBackRatherThanFailing) {
+    using notrix::apps::visualizerStyleFromName;
+    using notrix::apps::visualizerStyleName;
+    using notrix::apps::VisualizerStyleKind;
+
+    NOTRIX_CHECK(visualizerStyleFromName("trace") == VisualizerStyleKind::Trace);
+    NOTRIX_CHECK(visualizerStyleFromName("meter") == VisualizerStyleKind::Meter);
+    NOTRIX_CHECK(visualizerStyleFromName("wave") == VisualizerStyleKind::Wave);
+    // A config written by a newer build must still load, landing on whatever
+    // the current default is rather than failing.
+    NOTRIX_CHECK(visualizerStyleFromName("spectrum") == VisualizerStyleKind::Wave);
+
+    NOTRIX_CHECK_EQ(std::string(visualizerStyleName(VisualizerStyleKind::Trace)), std::string("trace"));
+    NOTRIX_CHECK_EQ(std::string(visualizerStyleName(VisualizerStyleKind::Meter)), std::string("meter"));
+    NOTRIX_CHECK_EQ(std::string(visualizerStyleName(VisualizerStyleKind::Wave)), std::string("wave"));
+}
+
+NOTRIX_TEST(Visualizer, TheWaveTravelsOverTime) {
+    notrix::apps::VisualizerStyle wave;  // the default
+
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 40; ++i) { viz.push(400); }
+    viz.push(8000);
+
+    notrix::Framebuffer first;
+    notrix::Canvas firstCanvas(first);
+    viz.render(firstCanvas, wave, 0);
+
+    notrix::Framebuffer later;
+    notrix::Canvas laterCanvas(later);
+    viz.render(laterCanvas, wave, 650);
+
+    NOTRIX_CHECK(first != later);
+}
+
+NOTRIX_TEST(Visualizer, TheWaveRipplesInSilenceButGoesFlatWithNoMicrophone) {
+    // The two states must not look the same. A device that cannot hear draws
+    // NO MIC; a quiet room draws a shallow wave, because an app that looks
+    // switched off whenever nobody is talking reads as broken.
+    notrix::apps::VisualizerStyle wave;
+
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 60; ++i) { viz.push(420); }
+
+    notrix::Framebuffer frame;
+    notrix::Canvas canvas(frame);
+    viz.render(canvas, wave, 0);
+
+    int lit = 0;
+    for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+            if (frame.at(x, y) != colors::kBlack) { ++lit; }
+        }
+    }
+    NOTRIX_CHECK(lit > 0);
+
+    // And it still moves when the room is quiet, so the panel looks awake.
+    notrix::Framebuffer later;
+    notrix::Canvas laterCanvas(later);
+    viz.render(laterCanvas, wave, 900);
+    NOTRIX_CHECK(frame != later);
+}
+
+NOTRIX_TEST(Visualizer, ALouderRoomMakesATallerWave) {
+    notrix::apps::VisualizerStyle wave;
+
+    // Against silence rather than against a second loud value: auto-gain
+    // deliberately brings any sustained level up to full height, so two loud
+    // rooms look alike and that is the feature, not a bug.
+    auto reach = [&](int loudness) {
+        notrix::apps::Visualizer viz;
+        for (int i = 0; i < 40; ++i) { viz.push(400); }
+        for (int i = 0; i < 4; ++i) { viz.push(400 + loudness); }
+
+        notrix::Framebuffer frame;
+        notrix::Canvas canvas(frame);
+        viz.render(canvas, wave, 0);
+
+        int top = notrix::Framebuffer::kHeight;
+        for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
+            for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+                if (frame.at(x, y) != colors::kBlack && y < top) { top = y; }
+            }
+        }
+        return top;
+    };
+
+    // A taller wave reaches a smaller row number.
+    NOTRIX_CHECK(reach(20000) < reach(0));
+}
+
+NOTRIX_TEST(Visualizer, TheWaveStaysOnThePanel) {
+    // Integer trig and a mirror below the centre: the crest and the trough
+    // both have to land inside 16 rows at every amplitude and every phase.
+    notrix::apps::VisualizerStyle wave;
+
+    notrix::apps::Visualizer viz;
+    for (int i = 0; i < 40; ++i) { viz.push(0); }
+
+    for (int loudness = 0; loudness <= 32000; loudness += 4000) {
+        viz.push(loudness);
+        for (std::uint64_t t = 0; t < 3000; t += 137) {
+            notrix::Framebuffer frame;
+            notrix::Canvas canvas(frame);
+            viz.render(canvas, wave, t);  // Canvas clips, so this asserts no crash
+            NOTRIX_CHECK(frame.at(0, 0) == frame.at(0, 0));
+        }
+    }
 }

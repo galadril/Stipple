@@ -29,13 +29,45 @@ FROM docker.io/library/debian@sha256:70509c95d1857a3704c0a5d92ee2e0adac95f612a93
 # had security updates since this image was built — so the pinned package index
 # names versions the archive no longer carries, and the build dies on a 404 for
 # something it never needed. Nothing here builds a Debian package, and the only
-# artifact this image produces is a single compiled source file.
+# something it never needed. Nothing here builds a Debian package.
+#
+# cmake and ninja are here because this image stopped being the one that
+# compiles a single file. notrix_device has to be dynamically linked to
+# reach the speaker - /lib/libmi_ao.so is the only route to it, and a
+# static binary cannot dlopen - so the firmware itself is built here now.
+# The bookworm image still builds shared libraries and anything static.
+# Bullseye is oldstable, and its security updates have moved off
+# deb.debian.org into the archive. The pinned index still names them, so an
+# install that needs any of them - cmake needs libcurl, libexpat and
+# libnghttp2 - dies on a 404 for a file that exists, just somewhere else.
+#
+# archive.debian.org serves the frozen bullseye pool, where every version the
+# pinned index names still exists. That fixes it without unpinning the base
+# image, which is the thing worth keeping fixed. Security updates are not
+# served from the archive, and are not wanted here: a reproducible toolchain
+# is the point, and nothing in this image is exposed to a network.
+RUN echo 'deb http://archive.debian.org/debian bullseye main' > /etc/apt/sources.list \
+    && echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99archive
+
+# squashfs-tools builds the res partition image.
+#
+# A host tool, not a firmware dependency - it runs on x86 here and produces
+# a filesystem the device mounts. The res partition is squashfs 4.0 with xz
+# compression and 128 KiB blocks, and those parameters have to be matched
+# rather than guessed: the kernel that mounts it was built with a fixed set
+# of decompressors, and an image it cannot read is a device that boots with
+# no application at all.
 RUN apt-get update && apt-get install --no-install-recommends --yes \
         g++-arm-linux-gnueabihf \
+        cmake \
+        ninja-build \
         file \
+        squashfs-tools \
     && rm -rf /var/lib/apt/lists/*
 
 RUN arm-linux-gnueabihf-gcc --version | head -1 && \
-    arm-linux-gnueabihf-gcc -print-file-name=libc.so.6
+    arm-linux-gnueabihf-gcc -print-file-name=libc.so.6 && \
+    cmake --version | head -1 && \
+    mksquashfs -version | head -1
 
 WORKDIR /src

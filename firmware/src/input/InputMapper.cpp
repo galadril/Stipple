@@ -18,6 +18,10 @@ const char* actionName(Action action) noexcept {
         case Action::BrightnessDown: return "brightnessDown";
         case Action::VolumeUp: return "volumeUp";
         case Action::VolumeDown: return "volumeDown";
+        case Action::AdjustUp: return "adjustUp";
+        case Action::AdjustDown: return "adjustDown";
+        case Action::Back: return "back";
+        case Action::SettingsToggle: return "settingsToggle";
         case Action::None: break;
     }
     return "none";

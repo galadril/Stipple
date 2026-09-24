@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/mqtt/MqttService.h"
 
+#include <string>
+
+#include <vector>
+
 #include "notrix/api/ApiServer.h"
 #include "notrix/api/JsonWriter.h"
 #include "notrix/config/Config.h"
@@ -29,7 +33,7 @@ std::string fingerprint(const config::MqttSettings& mqtt) {
 
 void MqttService::log(log::Level level, std::string_view message) {
     if (context_.logger != nullptr) {
-        context_.logger->write(level, lastStatusMillis_, message);
+        context_.logger->write(level, nowMillis_, message);
     }
 }
 
@@ -42,7 +46,10 @@ platform::MqttState MqttService::state() const noexcept {
 
 // --- lifecycle ---------------------------------------------------------------
 
-void MqttService::configure() {
+void MqttService::configure(std::uint64_t nowMillis) {
+    if (nowMillis != 0) {
+        nowMillis_ = nowMillis;
+    }
     if (context_.settings == nullptr) {
         return;
     }
@@ -114,6 +121,12 @@ void MqttService::onConnected() {
     publish(availability);
 
     context_.client->subscribe(bridge_.topics().commandFilter, 0);
+    // Entities before state, so Home Assistant has somewhere to put the
+    // first status message rather than discarding it.
+    discoveryPublished_ = false;
+    if (context_.settings != nullptr) {
+        publishDiscovery(context_.settings->mqtt.discovery);
+    }
     statusDue_ = true;
 
     log(log::Level::Info, "MQTT connected");
@@ -139,6 +152,13 @@ void MqttService::shutdown() {
 }
 
 void MqttService::tick(std::uint64_t nowMillis) {
+    nowMillis_ = nowMillis;
+
+    // The setting can change at any moment from HTTP or from MQTT itself,
+    // so this follows it rather than being decided once at connect.
+    if (context_.settings != nullptr) {
+        publishDiscovery(context_.settings->mqtt.discovery);
+    }
     if (!enabled_ || context_.client == nullptr) {
         return;
     }
@@ -180,6 +200,31 @@ bool MqttService::publish(const MqttMessage& message) {
     return true;
 }
 
+void MqttService::publishDiscovery(bool enabled) {
+    if (context_.client == nullptr || context_.settings == nullptr) {
+        return;
+    }
+    if (context_.client->state() != MqttState::Connected) {
+        return;  // retained or not, it has to reach the broker
+    }
+    if (enabled == discoveryPublished_) {
+        return;  // the broker already holds this
+    }
+
+    const std::string id = deviceIdFromName(context_.settings->deviceName);
+    const std::vector<MqttMessage> messages =
+        bridge_.discoveryMessages(*context_.settings, id, !enabled);
+
+    for (const MqttMessage& message : messages) {
+        publish(message);
+    }
+
+    discoveryPublished_ = enabled;
+    log(log::Level::Info,
+        enabled ? "Home Assistant discovery published"
+                : "Home Assistant discovery withdrawn");
+}
+
 void MqttService::publishStatus(std::uint64_t nowMillis) {
     lastStatusMillis_ = nowMillis;
     statusDue_ = false;
@@ -189,7 +234,8 @@ void MqttService::publishStatus(std::uint64_t nowMillis) {
     message.retained = true;
     message.payload =
         Bridge::statusPayload(*context_.settings, deviceState_.activeAppId, nowMillis,
-                              deviceState_.healthy, deviceState_.rssiDbm, deviceState_.hasRssi);
+                              deviceState_.healthy, deviceState_.rssiDbm, deviceState_.hasRssi,
+                              deviceState_.batteryPercent, deviceState_.hasBattery);
     publish(message);
 }
 
@@ -208,6 +254,12 @@ void MqttService::publishButton(std::string_view action, int repeat, bool longPr
 // --- inbound -----------------------------------------------------------------
 
 void MqttService::onStateChanged(MqttState state) {
+    // A dropped session takes the broker's view of our retained entities
+    // with it as far as we are concerned, so the next connect republishes
+    // rather than trusting a flag from before the outage.
+    if (state != MqttState::Connected) {
+        discoveryPublished_ = false;
+    }
     if (state == MqttState::Connected) {
         onConnected();
         return;

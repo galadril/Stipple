@@ -21,6 +21,9 @@ struct BatteryStyle {
     Rgb low = rgb(255, 80, 0);
     int lowPercent = 20;
 
+    /// The charging bolt. White by default so it reads against both fills.
+    Rgb charging = colors::kWhite;
+
     /// Show the number beside the cell.
     bool showPercent = true;
 };

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "notrix/platform/Clock.h"
 #include "notrix/platform/Display.h"
@@ -33,17 +34,181 @@ public:
 
 struct NetworkStatus {
     bool connected = false;
+
+    /// False means this platform cannot measure a signal, which is not the
+    /// same as a signal of zero. A UI showing "0 dBm" for a radio that never
+    /// answered is the same confident lie as a battery reading 0% because
+    /// nothing did.
+    bool signalKnown = false;
+
+    /// Negative, and closer to zero is better. Meaningful only when
+    /// `signalKnown`.
     int rssiDbm = 0;
+
     std::string ipv4;
     std::string hostname;
+
+    /// The network joined, where the platform can say. Empty otherwise -
+    /// which is normal on a wired or simulated device, not a failure.
+    std::string ssid;
+
+    /// Whether this platform obtains and renews its own address.
+    ///
+    /// False does not mean "no address". It means nothing is renewing one,
+    /// which is a real and different state: a device can be perfectly
+    /// reachable on an address it inherited and lose it hours later when the
+    /// lease it never owned runs out. Reporting that as an ordinary
+    /// connection would hide the one fault nobody can diagnose afterwards
+    /// (ADR 0013).
+    bool leaseKnown = false;
+
+    /// Seconds left on it. Zero when not held; 0xFFFFFFFF when the server
+    /// granted one that never expires. Meaningful only when `leaseKnown`.
+    std::uint32_t leaseSeconds = 0;
+
+    /// What the client is doing, in its own words: bound, renewing,
+    /// rebinding, selecting. Kept verbatim, because a state a UI does not
+    /// recognise is exactly the one worth showing a person.
+    std::string leaseState;
 };
 
-/// Wi-Fi state, read-only at this layer. Joining a network is a provisioning
-/// concern, not something an app or scene should be able to trigger.
+/// One access point in range.
+struct WirelessNetwork {
+    std::string ssid;
+
+    /// Negative dBm, closer to zero is better.
+    int signalDbm = 0;
+
+    /// False for an open network. A UI that cannot tell asks for a password
+    /// that does not exist, or fails to ask for one that does.
+    bool secured = false;
+
+    /// Whether this is the network the device is currently on.
+    bool current = false;
+};
+
+/// Wi-Fi state. Read-only at this layer, and deliberately so: an app or a
+/// scene must not be able to change which network the device is on.
 class INetworkManager {
 public:
     virtual ~INetworkManager() = default;
     virtual NetworkStatus status() const = 0;
+
+    /// Whether this platform can list what is in range at all.
+    ///
+    /// False on the simulator and on anything wired. Callers check it rather
+    /// than inferring from an empty list, because "nothing in range" and "this
+    /// device cannot look" are different answers (ADR 0013).
+    virtual bool canScan() const { return false; }
+
+    /// Ask for a scan. Returns false if one could not be started.
+    ///
+    /// Starts it and returns; a scan takes seconds and blueprint §16 does not
+    /// allow that on the render loop. Results arrive through `networks()` when
+    /// the radio has them, which means a caller asks, waits, and asks again -
+    /// exactly as the hardware behaves.
+    virtual bool beginScan() { return false; }
+
+    /// What the last completed scan found. Empty until one has.
+    virtual std::vector<WirelessNetwork> networks() const { return {}; }
+
+    /// False when the list above is remembered rather than current.
+    ///
+    /// **One radio cannot host an access point and scan at the same time**,
+    /// and the moment a person most needs to pick a network is exactly when
+    /// the device is hosting one. So the last scan taken before the radio
+    /// changed job is kept and served, and said to be old rather than
+    /// presented as what is in range now.
+    virtual bool networksAreLive() const { return true; }
+
+    /// Whether this platform can join a network at all. False on the
+    /// simulator and on anything wired.
+    virtual bool canJoin() const { return false; }
+
+    /// Where a join has got to.
+    struct JoinProgress {
+        enum class Stage {
+            /// Nothing has been asked for.
+            Idle,
+            /// Working on it. `detail` says which part.
+            Working,
+            Succeeded,
+            Failed,
+        };
+        Stage stage = Stage::Idle;
+        std::string ssid;
+        /// What is happening, or why it stopped. Written for a person to
+        /// read, because the only person who will read it is the one whose
+        /// password did not work.
+        std::string detail;
+    };
+
+    /// Ask to join. Returns false when it could not even be started - a
+    /// password this device cannot set, or a platform that cannot join -
+    /// with the reason in `joinProgress().detail`.
+    ///
+    /// Returns immediately. Joining takes tens of seconds and blueprint §16
+    /// does not allow that on the render loop, so the answer arrives through
+    /// `joinProgress()`. It also has to return before the work starts for a
+    /// blunter reason: the request may well have arrived over the very
+    /// access point that joining is about to shut down, and the reply has to
+    /// get out first.
+    virtual bool beginJoin(const std::string& ssid, const std::string& password) {
+        (void)ssid;
+        (void)password;
+        return false;
+    }
+
+    virtual JoinProgress joinProgress() const { return {}; }
+};
+
+/// Installing a new NOTRIX, without flashing anything.
+///
+/// **This used to stage `update.img` on the USB volume so the reset button
+/// would install a known-good image. That was withdrawn, and the reason is
+/// worth stating plainly: `/bin/zkdaemon` installs whatever sits there on
+/// *auto* recovery, with nobody pressing anything.** A staged image is an
+/// armed revert, not a safety net - it reverted a working NOTRIX on real
+/// hardware. See docs/research/tc002-platform-findings.md.
+///
+/// What replaces it is better in every way. ADR 0021 puts NOTRIX in `/data`
+/// and points the framework at a shim, so an update is a **file copy**: no
+/// flash, no reset button, no vendor loader, and a rollback that is one
+/// deleted file. The shim tries the override, then the copy flashed beside
+/// it, then the stock clock - so even an install that will not load leaves a
+/// device on the network.
+class IUpgradeManager {
+public:
+    virtual ~IUpgradeManager() = default;
+
+    /// Where a new application is written, for a UI to show.
+    virtual std::string applicationPath() const = 0;
+
+    /// Size of the installed override, or 0 when the device is running the
+    /// copy that was flashed with the shim.
+    ///
+    /// Zero is a real state and not an error: it is what every device looks
+    /// like until somebody updates it.
+    virtual std::size_t installedBytes() const = 0;
+
+    /// Whether the previous application was kept and could be put back.
+    virtual bool hasPrevious() const = 0;
+
+    /// Install `image` as the application, atomically.
+    ///
+    /// The caller has already checked that it is plausibly a library for this
+    /// device; a platform adapter is the wrong place to know what a valid
+    /// NOTRIX looks like.
+    ///
+    /// Returns false with `problem` set. **Failure must leave the running
+    /// application intact.** A half-written library is worse than an old one
+    /// because it looks present, and the device that would report the problem
+    /// is the one that just stopped working - so this writes beside the
+    /// target and renames, rather than writing over it.
+    virtual bool install(std::string_view image, std::string& problem) = 0;
+
+    /// Put the previous application back. False when there is not one.
+    virtual bool rollback(std::string& problem) = 0;
 };
 
 struct BatteryStatus {
@@ -54,6 +219,27 @@ struct BatteryStatus {
     bool known = false;
     /// 0-100 when `known`.
     int percent = 0;
+
+    /// Cell voltage in millivolts, 0 when unknown.
+    ///
+    /// Reported alongside the percentage rather than instead of it because the
+    /// two answer different questions: the percentage is what a user wants, and
+    /// the voltage is what tells you whether to believe it.
+    int millivolts = 0;
+
+    /// False means this platform cannot tell whether it is charging, which is
+    /// not the same as knowing it is not. Kept separate from `charging` for
+    /// the same reason `known` is separate from `percent`.
+    bool chargingKnown = false;
+
+    /// True while external power is connected.
+    ///
+    /// Worth reporting on its own, and also the explanation for a percentage
+    /// that appears to jump: a voltage-derived gauge sags under load and
+    /// recovers when the cable goes back in. Measured on a TC002, the same
+    /// cell read 3158 mV plugged and 3114 mV unplugged - enough to move the
+    /// reported charge by several percent without anything having changed.
+    bool charging = false;
 };
 
 /// Battery state.
@@ -65,6 +251,29 @@ class IPowerSource {
 public:
     virtual ~IPowerSource() = default;
     virtual BatteryStatus battery() const = 0;
+};
+
+struct SoundLevel {
+    /// False means this platform cannot hear, not that the room is silent.
+    /// A visualiser must tell those apart, or a device with no microphone
+    /// shows a flatline that looks like a bug.
+    bool known = false;
+
+    /// Amplitude, 0 to 32767. Raw rather than normalised: what counts as loud
+    /// depends on the room, and an adapter cannot know that. Auto-gain belongs
+    /// where the history is, which is in the app.
+    int amplitude = 0;
+};
+
+/// The microphone, as a single amplitude.
+///
+/// Not a spectrum. The TC002 reports one 16-bit level roughly twenty times a
+/// second over its MCU link and nothing more, so anything claiming to be a
+/// spectrum analyser here would be inventing the bands.
+class IMicrophone {
+public:
+    virtual ~IMicrophone() = default;
+    virtual SoundLevel level() const = 0;
 };
 
 /// Deliberately its own interface rather than a method on IPlatformServices:
@@ -113,7 +322,15 @@ public:
 
     /// Battery, where there is one to report. Null on a mains-only panel.
     virtual IPowerSource* power() { return nullptr; }
+
+    /// Microphone. Null where the hardware cannot hear.
+    virtual IMicrophone* microphone() { return nullptr; }
     virtual INetworkManager* network() { return nullptr; }
+
+    /// Null where firmware images cannot be staged at all, which is every
+    /// platform but the device. Reported as absence rather than a call that
+    /// silently does nothing (ADR 0013).
+    virtual IUpgradeManager* upgrade() { return nullptr; }
     virtual IRebooter* rebooter() { return nullptr; }
 
     /// HTTP transport. Null everywhere today: the device adapter arrives in

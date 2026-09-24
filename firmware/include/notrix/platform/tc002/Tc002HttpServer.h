@@ -44,6 +44,28 @@ public:
     /// would threaten memory.
     static constexpr std::size_t kMaxRequestBytes = 64 * 1024;
 
+    /// The one request allowed to be enormous: a firmware image.
+    ///
+    /// **Earned, not granted.** Raising kMaxRequestBytes to this would let
+    /// four connections hold sixteen megabytes between them, which is every
+    /// byte of free RAM on this device. Instead a connection only gets this
+    /// ceiling once its first line shows it is the upload. Four
+    /// simultaneous uploads would still be too much, and nothing here stops
+    /// them - but four browsers all posting firmware at once is not a
+    /// threat model, and the connection table caps it at four rather than
+    /// at however many somebody opens.
+    ///
+    /// Four MiB plus room for headers: the res partition is eight, and an
+    /// image for it is compressed - the factory one is 2.8 MB.
+    static constexpr std::size_t kMaxUploadBytes = 4u * 1024u * 1024u + 64u * 1024u;
+
+    /// Matched against the start of a request to decide whether the larger
+    /// ceiling applies. Spelled out rather than routed, because this has to
+    /// be decided from the first packet, long before there is a parsed
+    /// request to route.
+    static constexpr const char* kUploadRequestLine =
+        "POST /api/v1/system/firmware";
+
     /// A connection that has not made progress in this long is dropped. Without
     /// it a half-open socket holds a slot until reboot.
     static constexpr std::uint64_t kIdleTimeoutMillis = 15000;
@@ -57,6 +79,14 @@ public:
     bool start(int port, IHttpRequestHandler& handler) override;
     void stop() override;
     bool running() const override { return listenFd_ >= 0; }
+
+private:
+    /// How much this connection is allowed to accumulate. The larger figure
+    /// applies only to an upload, and only while no other connection is
+    /// already using it.
+    std::size_t ceilingFor(const std::string& inbound) const;
+
+public:
     int port() const override { return port_; }
 
     /// One non-blocking pass: accept what is waiting, read what has arrived,

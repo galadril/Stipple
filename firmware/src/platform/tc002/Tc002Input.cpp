@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/platform/tc002/Tc002Input.h"
 
+#include "notrix/platform/tc002/RotaryDecoder.h"
+
 #include <fcntl.h>
 #include <time.h>
 #include <unistd.h>
@@ -34,24 +36,6 @@ constexpr std::uint16_t kCodeMinus = 108;   // KEY_DOWN
 constexpr std::uint16_t kCodeMiddle = 105;  // KEY_LEFT
 constexpr std::uint16_t kCodePlus = 106;    // KEY_RIGHT
 constexpr std::uint16_t kCodeKnobPress = 103;  // KEY_UP
-
-/// Rotation direction, decoded from the value rather than from a delta.
-///
-/// knob_key reports ABS_X but is not an axis: turning one way alternates
-/// between 1 and 8, the other between 11 and 13, and it never ramps. The
-/// alternation exists because evdev suppresses an EV_ABS event whose value has
-/// not changed — without two values to toggle between, a second detent in the
-/// same direction would emit nothing at all. So the *pair* is the signal and
-/// the toggle is only a mechanism to keep events flowing.
-///
-/// Clockwise was the first half of the capture and produced {1, 8}.
-constexpr bool isClockwise(std::int32_t value) noexcept {
-    return value == 1 || value == 8;
-}
-
-constexpr bool isCounterClockwise(std::int32_t value) noexcept {
-    return value == 11 || value == 13;
-}
 
 /// CLOCK_MONOTONIC, which must stay the same source the device ISystemClock
 /// uses: InputMapper derives press duration and rotary acceleration by
@@ -144,13 +128,18 @@ void Tc002Input::drainKnob() noexcept {
             continue;
         }
 
-        // One detent, one event. Unrecognised values are dropped rather than
-        // guessed at: a wrong direction is worse than a missed one, because it
-        // moves the carousel the way the user did not turn.
-        if (isClockwise(raw.value)) {
-            push(RawInput::RotaryRight, ButtonPhase::Tick);
-        } else if (isCounterClockwise(raw.value)) {
-            push(RawInput::RotaryLeft, ButtonPhase::Tick);
+        // One detent, one tick - and a detent is a *pair* of ABS_X values, not
+        // one. See RotaryDecoder.h: firing on both halves advanced the carousel
+        // two apps per click.
+        switch (decodeRotary(raw.value)) {
+            case Detent::Clockwise:
+                push(RawInput::RotaryRight, ButtonPhase::Tick);
+                break;
+            case Detent::CounterClockwise:
+                push(RawInput::RotaryLeft, ButtonPhase::Tick);
+                break;
+            case Detent::None:
+                break;
         }
     }
 }

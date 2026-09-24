@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "notrix/mqtt/MqttBridge.h"
 
+#include <utility>
+#include <vector>
+
 #include "notrix/api/JsonWriter.h"
 #include "notrix/config/Config.h"
 #include "notrix/core/Version.h"
@@ -193,7 +196,9 @@ std::string Bridge::statusPayload(const config::Config& settings,
                                   std::uint64_t uptimeMillis,
                                   bool healthy,
                                   int rssiDbm,
-                                  bool hasRssi) {
+                                  bool hasRssi,
+                                  int batteryPercent,
+                                  bool hasBattery) {
     api::JsonWriter writer;
     writer.beginObject()
         .member("online", true)
@@ -210,11 +215,151 @@ std::string Bridge::statusPayload(const config::Config& settings,
         writer.member("rssiDbm", rssiDbm);
     }
 
+    // Absent rather than zero when unknown. A battery sensor reading 0% because
+    // nothing answered looks exactly like a flat battery, which is the same lie
+    // BatteryStatus::known exists to prevent one layer down.
+    if (hasBattery) {
+        writer.member("batteryPercent", batteryPercent);
+    }
+
     // No credentials, here or anywhere else that leaves the device (§22). The
     // MQTT block is deliberately absent from status: a broker republishing
     // retained state is the last place a password should be able to surface.
     writer.endObject();
     return writer.take();
+}
+
+std::vector<platform::MqttMessage> Bridge::discoveryMessages(const config::Config& settings,
+                                                             std::string_view deviceId,
+                                                             bool clear) const {
+    std::vector<platform::MqttMessage> out;
+
+    const std::string node = "notrix_" + std::string(deviceId);
+    const std::string name = settings.deviceName.empty() ? std::string("NOTRIX")
+                                                         : settings.deviceName;
+
+    // Every entity carries the same device block, which is what makes Home
+    // Assistant group them under one device rather than scattering five
+    // unrelated entities across the dashboard.
+    api::JsonWriter deviceWriter;
+    deviceWriter.beginObject()
+        .key("identifiers").beginArray().value(node).endArray()
+        .member("name", name)
+        .member("manufacturer", "NOTRIX")
+        .member("model", "Ulanzi TC002")
+        .member("sw_version", kVersion)
+        .endObject();
+    const std::string device = deviceWriter.take();
+
+    const std::string commandTopic = topics_.base + "/cmd/settings";
+
+    auto add = [&](const char* component, const char* object, const std::string& payload) {
+        platform::MqttMessage message;
+        message.topic = "homeassistant/" + std::string(component) + "/" + node + "/" +
+                        std::string(object) + "/config";
+        // Retained, always. An entity that vanishes when Home Assistant
+        // restarts is not an integration.
+        message.retained = true;
+        // Empty payload is how MQTT says "this is gone", and it is how an
+        // entity is withdrawn rather than left orphaned in a dashboard.
+        message.payload = clear ? std::string() : payload;
+        out.push_back(std::move(message));
+    };
+
+    auto common = [&](api::JsonWriter& w, const char* object, const char* label) {
+        w.member("name", label)
+            .member("unique_id", node + "_" + object)
+            .member("availability_topic", topics_.availability)
+            .member("payload_available", std::string(kOnline))
+            .member("payload_not_available", std::string(kOffline))
+            .member("state_topic", topics_.status)
+            .rawMember("device", device);
+    };
+
+    // --- the panel, as a light ----------------------------------------------
+    //
+    // Template schema rather than the default. The default sends "ON" to a
+    // command topic, and this device speaks a settings patch; a template lets
+    // Home Assistant emit exactly the JSON that already works, so discovery
+    // adds no second control path to keep in step.
+    {
+        api::JsonWriter w;
+        w.beginObject();
+        common(w, "panel", "Panel");
+        w.member("schema", "template")
+            .member("command_topic", commandTopic)
+            .member("command_on_template",
+                    "{\"display\":{\"power\":true{% if brightness is defined %},"
+                    "\"brightness\":{{ brightness }}{% endif %}}}")
+            .member("command_off_template", "{\"display\":{\"power\":false}}")
+            .member("state_template", "{{ 'on' if value_json.power else 'off' }}")
+            .member("brightness_template", "{{ value_json.brightness }}")
+            .endObject();
+        add("light", "panel", w.take());
+    }
+
+    // --- volume --------------------------------------------------------------
+    {
+        api::JsonWriter w;
+        w.beginObject();
+        common(w, "volume", "Volume");
+        w.member("command_topic", commandTopic)
+            .member("command_template", "{\"audio\":{\"volumePercent\":{{ value }}}}")
+            .member("value_template", "{{ value_json.volumePercent }}")
+            .member("min", 0)
+            .member("max", 100)
+            .member("unit_of_measurement", "%")
+            .member("entity_category", "config")
+            .endObject();
+        add("number", "volume", w.take());
+    }
+
+    // --- battery -------------------------------------------------------------
+    //
+    // The template yields nothing when batteryPercent is absent, which Home
+    // Assistant reads as unavailable rather than as zero. A battery sensor
+    // reading 0% because the MCU has not answered looks exactly like a flat
+    // battery.
+    {
+        api::JsonWriter w;
+        w.beginObject();
+        common(w, "battery", "Battery");
+        w.member("device_class", "battery")
+            .member("unit_of_measurement", "%")
+            .member("state_class", "measurement")
+            .member("value_template",
+                    "{{ value_json.batteryPercent if value_json.batteryPercent is defined }}")
+            .endObject();
+        add("sensor", "battery", w.take());
+    }
+
+    // --- signal strength ------------------------------------------------------
+    {
+        api::JsonWriter w;
+        w.beginObject();
+        common(w, "rssi", "Signal");
+        w.member("device_class", "signal_strength")
+            .member("unit_of_measurement", "dBm")
+            .member("state_class", "measurement")
+            .member("entity_category", "diagnostic")
+            .member("value_template",
+                    "{{ value_json.rssiDbm if value_json.rssiDbm is defined }}")
+            .endObject();
+        add("sensor", "rssi", w.take());
+    }
+
+    // --- which app is on screen -----------------------------------------------
+    {
+        api::JsonWriter w;
+        w.beginObject();
+        common(w, "app", "Active app");
+        w.member("entity_category", "diagnostic")
+            .member("value_template", "{{ value_json.activeApp }}")
+            .endObject();
+        add("sensor", "app", w.take());
+    }
+
+    return out;
 }
 
 std::string Bridge::buttonPayload(std::string_view action, int repeat, bool longPress) {

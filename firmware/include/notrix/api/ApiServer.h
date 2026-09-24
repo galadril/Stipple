@@ -18,6 +18,10 @@ namespace notify {
 class NotificationQueue;
 }
 
+namespace render {
+class FrameScheduler;
+}
+
 namespace asset {
 class IconStore;
 }
@@ -46,6 +50,13 @@ namespace api {
 /// exactly the subset it needs and a null pointer means "this build does not
 /// offer that", not a crash.
 struct ApiContext {
+    /// Whether this device has never been configured.
+    ///
+    /// A pointer to the host's own flag rather than a copy: it stops being
+    /// true the moment anything is saved, and a copy taken at construction
+    /// would still be claiming first run after the first save.
+    const bool* firstRun = nullptr;
+
     app::AppRegistry* apps = nullptr;
     app::Carousel* carousel = nullptr;
     notify::NotificationQueue* notifications = nullptr;
@@ -67,6 +78,10 @@ struct ApiContext {
     /// Where an injected press goes. Null disables the input endpoint rather
     /// than accepting presses that vanish.
     platform::IInputSink* input = nullptr;
+
+    /// Render pacing, for diagnostics. Null simply omits the section: a build
+    /// that does not schedule frames has nothing truthful to say about them.
+    const render::FrameScheduler* scheduler = nullptr;
 };
 
 struct ApiOptions {
@@ -78,6 +93,19 @@ struct ApiOptions {
     /// Requests larger than this are rejected before parsing. Bodies arrive
     /// from the network and must not be able to exhaust RAM (§38).
     std::size_t maxBodyBytes = 16u * 1024u;
+
+    /// The ceiling for a firmware image, which is the one thing that
+    /// legitimately dwarfs every other request.
+    ///
+    /// Separate from `maxBodyBytes` rather than raising it: everything else
+    /// on this API is small, and a single limit generous enough for a
+    /// firmware image would let any request allocate megabytes. This device
+    /// has 36 MB of RAM and roughly 17 MB of it free.
+    ///
+    /// Four MiB, because the res partition is eight and an image for it is
+    /// compressed - the factory one is 2.8 MB. Anything past this is not a
+    /// firmware image for this device.
+    std::size_t maxImageBytes = 4u * 1024u * 1024u;
 
     /// Token budget for parsing a request body.
     int maxJsonTokens = 512;
@@ -126,6 +154,11 @@ private:
 
     Response handleSettings(const Request& request);
     Response handleReboot(const Request& request);
+    Response handleReset(const Request& request, std::uint64_t nowMillis);
+    Response handleNetwork(const Request& request);
+    Response handleNetworkScan(const Request& request);
+    Response handleNetworkJoin(const Request& request);
+    Response handleFirmware(const Request& request);
 
     Response handleDisplayFrame(const Request& request);
     Response handleInput(const Request& request, std::uint64_t nowMillis);

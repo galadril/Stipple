@@ -175,6 +175,25 @@ animation first is the interface arguing.
 
 ---
 
+### The other two
+
+**Wipe** reveals the incoming frame column by column, travelling the way the
+knob went. Neither frame moves, so it reads as decisive where a slide reads as
+travel. It agrees with the slide about which way "next" is, or the knob would
+feel different depending on a setting.
+
+**Dissolve** turns pixels over in a fixed scattered order and has no direction
+at all. That is its point: it is the one style that does not claim where the
+next app came from.
+
+Both are a pure function of progress, like everything else here. The dissolve's
+order comes from a hash of the coordinate rather than a random number, or it
+would differ between the emulator and the device and could not be tested.
+
+**A notification always fades, whatever is configured.** A slide would say the
+notification is simply the next item in the rotation, and that is a statement
+about what a notification *is* rather than a preference.
+
 ## 7. Overlays
 
 An overlay draws *over* whatever app is showing, without replacing it — rain
@@ -205,9 +224,73 @@ Like every other animation, an overlay is a pure function of elapsed time
 (§5.2) so it stays golden-testable.
 
 The set stays small and physical — the things a pixel clock can suggest in a few
-pixels: rain, snow, storm, frost. Not a taxonomy of meteorological conditions.
+pixels. Not a taxonomy of meteorological conditions: "light rain showers" and
+"rain" look identical at this size, so offering both would be a lie told in a
+dropdown.
 
-## 8. What this rules out
+**Weather:** rain, snow, storm, frost, fog, stars. **Occasion:** sparkle,
+confetti — because marking one is a thing a clock on a shelf gets asked to do.
+
+The test for adding another is whether it is *recognisable* at 52×16 and
+distinct from everything already there. A longer menu of things that look the
+same is not more choice.
+
+Two of them bend a rule each, deliberately. **Stars** never move — a sky that
+drifted would be a clock tumbling through space, which is a busier idea than
+intended — so they twinkle on their own periods instead, and no two share one.
+**Confetti** ignores the overlay palette and brings its own colours, because
+grey confetti is not confetti; it is the one overlay whose entire point is
+colour.
+
+## 8. Interaction
+
+The visual half of this document had no counterpart for a long time, and it
+showed: the controls were bound one at a time, until the two most obviously
+pressable buttons on the case did nothing at all. The model is ADR 0017; what
+follows is what it looks like on screen.
+
+**Each control means one thing, everywhere.** Turn the knob to move between
+things, press it to act on one, use − / + to change its value, press the middle
+button to go back, hold the knob for settings. The mode changes what a control
+applies *to*, never what it means.
+
+### Feedback is not optional
+
+Anything a control changes must be visible on the panel at the moment it
+changes. A brightness step is invisible in daylight and at night reads as the
+panel having glitched, so − / + while browsing draw a readout. It stays for
+1200 ms — long enough to read after the press that caused it, short enough not
+to hide the clock.
+
+The readout uses the settings screen's own layout: label on the first line,
+value on the second, bar on the last row. It began as a bare number and that
+was not enough — it answered "something changed" and not "what", which stopped
+being survivable once the same two buttons reached volume on a tap and
+brightness on a hold. One visual language for adjustment, however you got
+there.
+
+This is not decoration. A control with no feedback is indistinguishable from a
+broken one, which is how volume sat on those buttons doing nothing.
+
+### One setting per screen
+
+52×16 fits about eight characters. A scrolling list is a list with one visible
+row, so settings show a single entry at a time: label on the left in primary
+white, value on the right in the accent colour, and a bar underneath for
+anything with a range. Two-state settings show ON/OFF in green or orange and no
+bar — a slider that is either full or empty reads as broken.
+
+### No mode is a trap
+
+Settings close themselves after ten seconds of no input. The panel cannot say
+"you are in a menu" any other way, so a device left mid-adjustment would
+otherwise show `BRIGHT 168` until somebody touched it.
+
+For the same reason the settings screen is drawn *before* panel power is
+honoured: turning the panel off from the menu must not black out the control
+that turns it back on.
+
+## 9. What this rules out
 
 Written down because each was considered and rejected, and someone will propose
 them again:
@@ -223,7 +306,7 @@ them again:
 
 ---
 
-## 9. When adding something visual
+## 10. When adding something visual
 
 1. Does it fit one of the three vertical layouts in §2? If not, say why.
 2. Does it use the three colour roles from §3, not new colours?
