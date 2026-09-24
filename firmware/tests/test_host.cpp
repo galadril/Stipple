@@ -1218,26 +1218,39 @@ NOTRIX_TEST(Host, OneDetentMovesExactlyOneApp) {
     host.initialize();
     run(host, platform, 200);
 
-    // clock + visualizer + battery
-    NOTRIX_CHECK_EQ(host.apps().count(), 3);
+    // clock + stopwatch + visualizer + battery. Read rather than asserted:
+    // the claim under test is about detents, and pinning the number here
+    // meant adding an app broke a test that has nothing to do with apps.
+    const std::size_t installed = host.apps().count();
+    NOTRIX_CHECK(installed >= 2);
 
     const notrix::app::App* first = host.carousel().active();
     NOTRIX_CHECK(first != nullptr);
     const std::string startId = first->id;
 
-    // Three detents in quick succession - well inside the 120 ms acceleration
-    // window, so the mapper will report a repeat above one.
-    for (int i = 0; i < 3; ++i) {
+    const auto detent = [&]() {
         InputEvent tick;
         tick.source = RawInput::RotaryRight;
         tick.phase = ButtonPhase::Tick;
         tick.timestampMillis = platform.simulatedClock().monotonicMillis();
         host.handleInput(tick);
         platform.simulatedClock().advance(20);
+    };
+
+    // One detent, one app. This is the actual claim, and it was only being
+    // tested implicitly before.
+    detent();
+    const notrix::app::App* second = host.carousel().active();
+    NOTRIX_CHECK(second != nullptr);
+    NOTRIX_CHECK(second->id != startId);
+
+    // The rest of a lap, all inside the 120 ms acceleration window so the
+    // mapper reports a repeat above one. If acceleration leaked through, this
+    // would overshoot and land somewhere else.
+    for (std::size_t i = 1; i < installed; ++i) {
+        detent();
     }
 
-    // Three detents, three apps forward. With two system apps installed that
-    // is exactly one full lap back to where it started.
     const notrix::app::App* landed = host.carousel().active();
     NOTRIX_CHECK(landed != nullptr);
     NOTRIX_CHECK_EQ(landed->id, startId);

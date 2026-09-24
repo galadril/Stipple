@@ -91,7 +91,10 @@ private:
     void encode(const Framebuffer& frame) noexcept;
     bool writeFrame() noexcept;
     bool openLatch() noexcept;
-    void strobe(char level) noexcept;
+    /// Drive the latch line. False means the panel did not get the edge,
+    /// which is indistinguishable from a dark panel at the other end - so
+    /// the result is folded into writeFrame rather than dropped.
+    bool strobe(char level) noexcept;
 
     int fd_ = -1;
     int latchFd_ = -1;

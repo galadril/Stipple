@@ -4,6 +4,7 @@
 #include "notrix/api/BasicAuth.h"
 
 #include "notrix/apps/BatteryApp.h"
+#include "notrix/apps/StopwatchApp.h"
 #include "notrix/render/Overlay.h"
 #include "notrix/apps/VisualizerApp.h"
 
@@ -227,6 +228,22 @@ void ApplicationHost::installBuiltins() {
     clock.durationSeconds = 0;  // uses the carousel default
     registry_.put(std::move(clock));
 
+    // Second in the rotation, immediately after the clock.
+    //
+    // Order here is insertion order, and it is the default a device ships
+    // with rather than a rule - the app manager owns arrangement and the user
+    // can move it. Placed here because a stopwatch is the thing people reach
+    // for on a clock that is already in the room, and because it needs no
+    // hardware at all: unlike the battery and visualiser cards below, there
+    // is no platform to check first.
+    app::App stopwatch;
+    stopwatch.id = std::string(kStopwatchAppId);
+    stopwatch.name = "Stopwatch";
+    stopwatch.source = app::AppSource::System;
+    stopwatch.builtin = app::Builtin::Stopwatch;
+    stopwatch.durationSeconds = 0;
+    registry_.put(std::move(stopwatch));
+
     // Battery is installed only where the platform can actually report one.
     // Registering it unconditionally would put a permanent "NO BATT" card in
     // the rotation of every mains-only panel, which is the carousel equivalent
@@ -381,6 +398,19 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
             if (navigator_.inSettings()) {
                 activateCurrentSetting();
                 navigator_.noteActivity(lastTickMillis_);
+                break;
+            }
+            // The stopwatch takes the press instead of pausing the carousel.
+            //
+            // Start, stop and reset are what somebody looking at a stopwatch
+            // wants from the only control an app is given, and pausing the
+            // rotation is not. The rotation is handled anyway: it is held
+            // while the stopwatch runs, below, so starting it does not send
+            // the thing you are timing off the screen.
+            if (const app::App* active = carousel_.active();
+                active != nullptr && active->builtin == app::Builtin::Stopwatch) {
+                stopwatch_.press(lastTickMillis_);
+                scheduler_.invalidate();
                 break;
             }
             carousel_.setPaused(!carousel_.paused());
@@ -1241,8 +1271,25 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
             carousel_.restartDwell(nowMillis);
         }
         wasInSettings_ = inSettings;
-        if (!inSettings) {
+
+        // A running stopwatch holds the screen.
+        //
+        // Starting one and then watching the carousel carry it away eight
+        // seconds later would make the feature useless, and pausing the
+        // rotation by hand first is a step nobody should have to know about.
+        // It is only held while the stopwatch is both running *and* the app
+        // on screen, so a stopwatch left running in the background does not
+        // freeze the rotation.
+        const app::App* showing = carousel_.active();
+        const bool stopwatchHolding =
+            stopwatch_.running() && showing != nullptr &&
+            showing->builtin == app::Builtin::Stopwatch;
+
+        if (!inSettings && !stopwatchHolding) {
             carouselMoved = carousel_.tick(nowMillis);
+        } else if (stopwatchHolding) {
+            // Kept fresh so the app does not vanish the instant it stops.
+            carousel_.restartDwell(nowMillis);
         }
         const bool notificationsMoved = notifications_.tick(nowMillis);
 
@@ -1288,6 +1335,13 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
                 } else if (active->builtin == app::Builtin::Visualizer) {
                     // Sound does not wait for a redraw to be due.
                     scheduler_.invalidate();
+                } else if (active->builtin == app::Builtin::Stopwatch) {
+                    // Tenths, so ten frames a second - not thirty. The last
+                    // digit is the only thing moving and it changes at 10 Hz;
+                    // anything faster would be redrawing an identical panel.
+                    if ((nowMillis / 100u) != (lastClockMillis_ / 100u)) {
+                        scheduler_.invalidate();
+                    }
                 } else if (active->builtin == app::Builtin::Battery) {
                     // Once a second is ample for a value that moves a percent
                     // an hour, and still far more responsive than the panel
@@ -1633,6 +1687,9 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
             apps::renderBattery(canvas, status, apps::BatteryStyle{});
             return;
         }
+        case app::Builtin::Stopwatch:
+            apps::renderStopwatch(canvas, stopwatch_, nowMillis, apps::StopwatchStyle{});
+            return;
         case app::Builtin::TestPattern:
             demo::drawTestPattern(canvas, static_cast<int>(nowMillis / 33u));
             return;

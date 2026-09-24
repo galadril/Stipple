@@ -75,7 +75,11 @@ static int send_frame(void) {
 static void blank_and_close(void) {
     if (spi_fd >= 0) {
         memset(frame, 0, sizeof(frame));
-        write(spi_fd, frame, FRAME_BYTES);
+        /* Best effort on the way out: the panel is being blanked as a
+           courtesy and the descriptor is closing either way. */
+        if (write(spi_fd, frame, FRAME_BYTES) != (ssize_t)FRAME_BYTES) {
+            fprintf(stderr, "panel_test: could not blank the panel on exit\n");
+        }
         close(spi_fd);
         spi_fd = -1;
     }

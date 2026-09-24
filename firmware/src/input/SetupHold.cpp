@@ -16,6 +16,7 @@ void SetupHold::handle(const platform::InputEvent& event) noexcept {
             down_ = true;
             since_ = event.timestampMillis;
             counting_ = true;
+            visible_ = false;
             fired_ = false;
             break;
         case platform::ButtonPhase::Up:
@@ -24,6 +25,7 @@ void SetupHold::handle(const platform::InputEvent& event) noexcept {
             // need a second deliberate hold.
             down_ = false;
             counting_ = false;
+            visible_ = false;
             fired_ = false;
             break;
         case platform::ButtonPhase::Tick:
@@ -36,6 +38,9 @@ bool SetupHold::tick(std::uint64_t nowMillis) noexcept {
     if (!counting_ || fired_ || !down_) {
         return false;
     }
+
+    // Held long enough to mean it, so the panel may say so now.
+    visible_ = nowMillis >= since_ && (nowMillis - since_) >= kRevealMillis;
     // Guarded rather than assumed: a clock that has not reached `since_` yet
     // would underflow the subtraction and fire instantly.
     if (nowMillis < since_ || nowMillis - since_ < kHoldMillis) {
@@ -43,6 +48,7 @@ bool SetupHold::tick(std::uint64_t nowMillis) noexcept {
     }
     fired_ = true;
     counting_ = false;
+    visible_ = false;
     return true;
 }
 
@@ -58,6 +64,7 @@ void SetupHold::reset() noexcept {
     down_ = false;
     since_ = 0;
     counting_ = false;
+    visible_ = false;
     fired_ = false;
 }
 

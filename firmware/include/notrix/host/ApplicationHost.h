@@ -17,6 +17,7 @@
 #include "notrix/input/InputMapper.h"
 #include "notrix/input/Navigator.h"
 #include "notrix/input/Rescue.h"
+#include "notrix/apps/StopwatchApp.h"
 #include "notrix/input/SetupHold.h"
 #include "notrix/json/Json.h"
 #include "notrix/mqtt/MqttService.h"
@@ -105,6 +106,7 @@ public:
     static constexpr std::string_view kClockAppId = "clock";
     static constexpr std::string_view kBatteryAppId = "battery";
     static constexpr std::string_view kVisualizerAppId = "visualizer";
+    static constexpr std::string_view kStopwatchAppId = "stopwatch";
     static constexpr std::string_view kIconStateKey = "icons";
     static constexpr int kSceneTokens = 512;
 
@@ -383,6 +385,11 @@ private:
     input::Navigator navigator_;
     input::Rescue rescue_;
     input::SetupHold setupHold_;
+
+    /// Lives on the host rather than inside the app, so it keeps counting
+    /// while the carousel is showing something else. A stopwatch that reset
+    /// itself every time the clock came round would be a toy.
+    apps::Stopwatch stopwatch_;
 
     /// One-shot, taken by takeSetupRequest().
     bool setupRequested_ = false;

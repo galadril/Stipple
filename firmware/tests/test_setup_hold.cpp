@@ -132,3 +132,48 @@ NOTRIX_TEST(SetupHold, ResetForgetsAHoldInProgress) {
     NOTRIX_CHECK(!hold.counting());
     NOTRIX_CHECK(!hold.tick(SetupHold::kHoldMillis * 2));
 }
+
+NOTRIX_TEST(SetupHold, AnOrdinaryPressNeverShowsTheCountdown) {
+    // The bug this exists for: the countdown appeared on the press itself, so
+    // every normal use of the knob - pausing the carousel, opening settings,
+    // starting the stopwatch - flashed SETUP across the panel on the way.
+    SetupHold hold;
+    hold.handle(event(RawInput::RotaryPress, ButtonPhase::Down, 1000));
+
+    for (std::uint64_t now = 1000; now < 1000 + SetupHold::kRevealMillis; now += 25) {
+        hold.tick(now);
+        NOTRIX_CHECK(!hold.counting());
+    }
+
+    // Released before the reveal: the panel never mentioned it.
+    hold.handle(event(RawInput::RotaryPress, ButtonPhase::Up, 1000 + 600));
+    NOTRIX_CHECK(!hold.counting());
+}
+
+NOTRIX_TEST(SetupHold, TheCountdownAppearsOnceTheHoldIsDeliberate) {
+    SetupHold hold;
+    hold.handle(event(RawInput::RotaryPress, ButtonPhase::Down, 1000));
+
+    hold.tick(1000 + SetupHold::kRevealMillis - 1);
+    NOTRIX_CHECK(!hold.counting());
+
+    hold.tick(1000 + SetupHold::kRevealMillis);
+    NOTRIX_CHECK(hold.counting());
+}
+
+NOTRIX_TEST(SetupHold, TheRevealIsClearOfTheLongPressThreshold) {
+    // The mapper calls anything over 500 ms a long press, and a long press on
+    // this button opens settings. Showing the countdown before that point
+    // would put SETUP on screen every time somebody opened the menu.
+    NOTRIX_CHECK(SetupHold::kRevealMillis > 500);
+    // And it still has to leave most of the hold visible, or the countdown
+    // would appear and fire almost together.
+    NOTRIX_CHECK(SetupHold::kRevealMillis < SetupHold::kHoldMillis / 2);
+}
+
+NOTRIX_TEST(SetupHold, StillFiresAtTheFullHoldDespiteTheReveal) {
+    SetupHold hold;
+    NOTRIX_CHECK(holdFor(hold, 1000, 1000 + SetupHold::kHoldMillis));
+    // And stops showing the countdown the moment it has fired.
+    NOTRIX_CHECK(!hold.counting());
+}
