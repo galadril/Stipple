@@ -102,9 +102,13 @@ Its content is one byte, `0x30`.
 4. Wait. It restarts and reflashes on its own.
 5. **Remove the stick** when the Ulanzi logo appears.
 
-That last step is not optional housekeeping. An image the loader can still
-find on the next boot is how a device ends up reflashing forever — which is
-exactly what a staged `update.img` on internal storage did.
+Remove it because **whatever sits at `/mnt/storage/update.img` is what the
+reset button installs**. Leave the wrong image there and the recovery button
+is armed with it, silently, until somebody needs it.
+
+(It is not, as this guide previously claimed, what causes a reflash loop.
+That is driven by a pending-upgrade flag in `/data`; a device with an unused
+`update.img` sitting on its storage runs quite happily.)
 
 ### What it does
 

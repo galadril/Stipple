@@ -402,3 +402,38 @@ It should still not happen without the fallback shim in
 being able to recover; the shim is about not needing to. Both matter, and
 this ADR is the wrong place to relax the second one having just spent a day
 proving the first.
+
+## Correction: the loop was a flag, not a file
+
+The post-mortem above says the loader "found it again on the next boot and
+reflashed", i.e. that leaving `update.img` on `/mnt/storage` is itself the
+loop. That is **wrong**, and the recovered device disproved it.
+
+After recovery, `/mnt/storage/update.img` was still the NOTRIX image - the
+same file, in the same place - and the device ran for sixteen minutes
+without touching it. Identified by MD5, not assumed.
+
+What differs is `/data`. The recovery wipes it, and the OTA trigger had
+evidently left a **pending-upgrade flag** there. So the loop was:
+
+```
+flag set in /data  ->  boot  ->  flash  ->  flag still set  ->  boot  ->  ...
+```
+
+and the factory wipe ended it by removing the flag, not by removing the
+image. The same mechanism explains `zkautoupgrade` on external media: the
+loader wants to be *told* there is an update pending, it does not simply
+scan for files.
+
+### What this changes
+
+**"Staging is one-shot" is still right, for a different reason.** An image
+left at `/mnt/storage/update.img` is not a loop - but it *is* what the reset
+button installs. Leaving the NOTRIX image there meant the recovery button was
+armed with the thing that broke the device. That is worse than a loop,
+because it is silent until somebody reaches for it.
+
+So the rule stands and the wording sharpens: **whatever sits at
+`/mnt/storage/update.img` is the device's recovery image.** It should be
+stock, or it should not be there. A pending update belongs somewhere the
+reset button does not read.
