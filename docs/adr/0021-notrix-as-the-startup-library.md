@@ -185,3 +185,45 @@ load-bearing, and nothing needs to be staged at all.
 The shim is built per device rather than shipped: `buildres.sh` already works
 from the owner's own capture, so the vendor library it links against is
 already in the extracted tree and never leaves it.
+
+## The shim is proven on hardware
+
+Tested by bind-mounting a modified `EasyUI.cfg` over the read-only one and
+pointing it at `/tmp` - no flash written, undone by a power cycle. Three
+questions, all answered on the device.
+
+**NOTRIX present.** The shim loaded it and NOTRIX took the process.
+`/proc/<pid>/maps` showed all three libraries: the shim, NOTRIX, and
+`/res/lib/libzkgui.so` pulled in as the shim's `DT_NEEDED` dependency. No
+entry in the shim's log, which is the success path - it only writes when
+NOTRIX will not load.
+
+**NOTRIX absent.** The point of the whole exercise:
+
+```
+mapped:   /tmp/libnotrixboot.so, /res/lib/libzkgui.so   (no NOTRIX)
+log:      no notrix, starting the stock clock:
+          /data/notrix/libnotrix.so: cannot open shared object file
+port 80:  301 -> /settings/general
+```
+
+That 301 is the vendor's own `ConfigWebServer`. **The stock clock ran, on
+the network, through the shim** - with the framework's three obfuscated
+entry points resolved along the dependency chain, exactly as intended and
+without anything here ever naming them.
+
+**And NOTRIX as a library holds its own lease**, which had never been
+observed before because the reflash loop kept restarting the device before
+association finished:
+
+```
+ipv4 192.168.1.238   connected   lease bound, 86332s left, managed
+```
+
+So the networking during the failed flash was not broken. A twenty-six
+second reflash cycle was starving a ten-to-twenty second association. That
+was inference at the time and is now measured.
+
+The failure mode this ADR originally claimed - and got wrong - is now real:
+a missing library leaves a working clock on the network, not a device nobody
+can reach.
