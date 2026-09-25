@@ -3,6 +3,7 @@
 
 extern "C" {
 #include "berry.h"
+#include "be_gc.h"
 }
 
 #include "stipple/core/Rgb.h"
@@ -235,33 +236,51 @@ bool ScriptHost::load(std::string_view source, std::string& problem) {
     // draws the panel.
     g_active = Active{};
 
+    // Same stack discipline as draw(), and for the same reason - see the
+    // comment there. Recorded depth in, restored depth out, on every path.
+    const int topBefore = be_top(vm);
+    bool ok = false;
+
     if (be_loadbuffer(vm, "app", source.data(), source.size()) != 0) {
         // Berry leaves the message on the stack, and it carries the line
         // number - which is the whole value of it to somebody in the editor.
         problem = be_isstring(vm, -1) ? be_tostring(vm, -1) : "the script would not compile";
-        be_pop(vm, 1);
-        return false;
-    }
-
-    // A script is a chunk that returns its instance, which is the shape
-    // AWTRIX NG documents and the shape existing scripts are written in.
-    if (be_pcall(vm, 0) != 0) {
+    } else if (be_pcall(vm, 0) != 0) {
         problem = be_isstring(vm, -1) ? be_tostring(vm, -1) : "the script failed while loading";
-        be_pop(vm, 2);
-        return false;
+    } else if (be_isnil(vm, -1)) {
+        // A chunk that returns nothing is the commonest first mistake: the
+        // author wrote the class and forgot to hand back an instance of it.
+        problem = "the script did not return an app instance - end it with `return YourClass()`";
+    } else {
+        be_setglobal(vm, kInstance);
+        ok = true;
     }
 
-    if (be_isnil(vm, -1)) {
-        problem = "the script did not return an app instance";
-        be_pop(vm, 1);
-        return false;
+    if (const int extra = be_top(vm) - topBefore; extra > 0) {
+        be_pop(vm, extra);
     }
 
-    be_setglobal(vm, kInstance);
-    be_pop(vm, 1);
+    if (!ok) {
+        return false;
+    }
 
     ready_ = true;
     return true;
+}
+
+std::size_t ScriptHost::memoryBytes() const noexcept {
+    if (state_ == nullptr || state_->vm == nullptr) {
+        return 0;
+    }
+    return be_gc_memcount(state_->vm);
+}
+
+std::size_t ScriptHost::collectGarbage() noexcept {
+    if (state_ == nullptr || state_->vm == nullptr) {
+        return 0;
+    }
+    be_gc_collect(state_->vm);
+    return be_gc_memcount(state_->vm);
 }
 
 bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& problem) {
@@ -278,6 +297,22 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
+    // The stack is restored to the depth it was at, rather than by popping a
+    // count that matches what was pushed.
+    //
+    // Counting was wrong, and wrong in the way that does not show up in a
+    // test: be_pcall left one more value on the stack than the obvious
+    // reading of push-three-consume-two predicts, so every frame leaked a
+    // single slot. One bvalue is 16 bytes, which is nothing - until you
+    // notice it is 16 bytes thirty times a second, and BE_STACK_TOTAL_MAX is
+    // 4000 slots. A script would have died of stack exhaustion after about
+    // two minutes on screen.
+    //
+    // So the depth is recorded and restored. It is right whatever the call
+    // sequence leaves behind, including on the error paths where the
+    // exception value's position is least obvious.
+    const int topBefore = be_top(vm);
+
     bool ok = false;
     if (be_getglobal(vm, kInstance)) {
         if (be_getmethod(vm, -1, "draw")) {
@@ -285,18 +320,19 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
             be_pushvalue(vm, -2);
             if (be_pcall(vm, 1) == 0) {
                 ok = true;
-                be_pop(vm, 2);
             } else {
                 problem = be_isstring(vm, -1) ? be_tostring(vm, -1)
                                               : "the script failed while drawing";
-                be_pop(vm, 3);
             }
         } else {
             problem = "the script has no draw() method";
-            be_pop(vm, 1);
         }
     } else {
         problem = "the script instance is gone";
+    }
+
+    if (const int extra = be_top(vm) - topBefore; extra > 0) {
+        be_pop(vm, extra);
     }
 
     lastInstructions_ = g_active.heartbeats * 65536u;

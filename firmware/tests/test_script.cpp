@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "stipple/script/ScriptHost.h"
 
+#include <cstdio>
 #include <string>
 
 #include "stipple/graphics/Canvas.h"
 #include "stipple/graphics/Framebuffer.h"
-#include "support/Golden.h"
 #include "support/TestFramework.h"
 
 using stipple::Canvas;
@@ -26,6 +26,66 @@ int countLit(const Framebuffer& framebuffer) {
 }
 
 }  // namespace
+
+STIPPLE_TEST(Script, AnInterpreterCostsAKnownAmountOfMemory) {
+    // How much RAM a script costs decides how many the device can run, and
+    // that is not a question to answer by guessing. This is Berry's own
+    // accounting, so a change to the sandbox that doubles the footprint
+    // fails here rather than on a device with 36 MB and no swap.
+    ScriptHost empty;
+    const std::size_t baseline = empty.memoryBytes();
+
+    // A bare interpreter, before any script. The bound is generous - the
+    // point is to catch a regression of the order that matters, not to pin
+    // an exact number that shifts with every Berry release.
+    STIPPLE_CHECK(baseline > 0);
+    STIPPLE_CHECK(baseline < 64u * 1024u);
+
+    ScriptHost host;
+    std::string problem;
+    STIPPLE_REQUIRE(host.load(
+        "class App\n"
+        "  var frame\n"
+        "  def init()\n"
+        "    self.frame = 0\n"
+        "  end\n"
+        "  def draw()\n"
+        "    self.frame += 1\n"
+        "    clear(rgb(0, 0, 0))\n"
+        "    text(0, 0, 'hello', rgb(255, 255, 255))\n"
+        "  end\n"
+        "end\n"
+        "return App()\n",
+        problem));
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    for (int frame = 0; frame < 120; ++frame) {
+        STIPPLE_REQUIRE(host.draw(canvas, static_cast<std::uint64_t>(frame) * 33u, problem));
+    }
+
+    // Berry is garbage collected, so memoryBytes() sawtooths - it climbs
+    // with every temporary a frame makes and drops when a collection runs.
+    // Measuring it at two arbitrary moments compares two points on a sawtooth
+    // and says nothing. What matters is the floor, so collect first.
+    const std::size_t liveAfter120 = host.collectGarbage();
+    STIPPLE_CHECK(liveAfter120 >= baseline);
+
+    for (int frame = 0; frame < 600; ++frame) {
+        STIPPLE_REQUIRE(host.draw(canvas, static_cast<std::uint64_t>(frame) * 33u, problem));
+    }
+    const std::size_t liveAfter720 = host.collectGarbage();
+
+    // Five times the frames, and the live set must not have moved. A script
+    // that holds on to a little every frame is one that takes the device down
+    // after a day - the failure that a short test never sees unless it looks
+    // at the floor rather than the peak.
+    STIPPLE_CHECK(liveAfter720 <= liveAfter120 + 512u);
+
+    std::printf("    [memory] bare interpreter %zu bytes; live with a script:"
+                " %zu after 120 frames, %zu after 720; uncollected peak %zu\n",
+                baseline, liveAfter120, liveAfter720, host.memoryBytes());
+}
 
 STIPPLE_TEST(Script, AScriptCanDrawAPixel) {
     // The whole point, reduced to its smallest form.
@@ -283,4 +343,66 @@ STIPPLE_TEST(Script, AnimationGetsTheElapsedTime) {
 
     STIPPLE_CHECK(first.at(3, 0) != colors::kBlack);
     STIPPLE_CHECK(second.at(9, 0) != colors::kBlack);
+}
+
+STIPPLE_TEST(Script, NoBuiltinLeaksASlotPerFrame) {
+    // Every builtin, one per script, 600 frames each, live set compared
+    // before and after.
+    //
+    // This exists because the first version of draw() leaked exactly one
+    // stack slot per call by popping a count that was one short. Sixteen
+    // bytes a frame is invisible in any short test and fatal over a couple
+    // of minutes, and nothing about the symptom pointed at the cause - the
+    // scripts were fine, the builtins were fine, and the panel just stopped.
+    // So each builtin is checked on the way in rather than trusted.
+    struct Case {
+        const char* label;
+        const char* body;
+    };
+    const Case cases[] = {
+        {"nothing at all", "    "},
+        {"clear", "    clear(rgb(0,0,0))"},
+        {"pixel", "    pixel(1,1,rgb(1,2,3))"},
+        {"line", "    line(0,0,10,10,rgb(1,2,3))"},
+        {"rect", "    rect(0,0,5,5,rgb(1,2,3))"},
+        {"rect_fill", "    rect_fill(0,0,5,5,rgb(1,2,3))"},
+        {"rgb", "    var c = rgb(1,2,3)"},
+        {"text", "    text(0,0,'hello',rgb(255,255,255))"},
+        {"text_width", "    var w = text_width('hello')"},
+        {"now_ms", "    var t = now_ms()"},
+        {"width and height", "    var w = width() + height()"},
+        {"instance state", "    self.frame += 1"},
+        // String building is where a script would most plausibly leak, since
+        // every concatenation makes an object the collector has to reclaim.
+        {"string building", "    var s = 'n=' + str(self.frame)"},
+    };
+
+    for (const Case& c : cases) {
+        ScriptHost host;
+        std::string problem;
+        const std::string source =
+            std::string("class App\n  var frame\n  def init()\n    self.frame = 0\n  end\n"
+                        "  def draw()\n") + c.body + "\n  end\nend\nreturn App()\n";
+        STIPPLE_REQUIRE(host.load(source, problem));
+
+        Framebuffer framebuffer;
+        Canvas canvas(framebuffer);
+        for (int frame = 0; frame < 100; ++frame) {
+            STIPPLE_REQUIRE(host.draw(canvas, static_cast<std::uint64_t>(frame), problem));
+        }
+        const std::size_t before = host.collectGarbage();
+
+        for (int frame = 0; frame < 600; ++frame) {
+            STIPPLE_REQUIRE(host.draw(canvas, static_cast<std::uint64_t>(frame), problem));
+        }
+        const std::size_t after = host.collectGarbage();
+
+        if (after != before) {
+            std::printf("    [leak] %s: %zu -> %zu over 600 frames\n", c.label, before, after);
+        }
+        // Exactly equal, not "close enough". The live set of a script drawing
+        // the same frame over and over has no reason to move at all, and a
+        // tolerance here is what would have let the original bug through.
+        STIPPLE_CHECK_EQ(after, before);
+    }
 }

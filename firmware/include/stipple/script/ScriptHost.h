@@ -70,6 +70,26 @@ public:
     /// slower frame.
     std::uint32_t lastInstructions() const noexcept { return lastInstructions_; }
 
+    /// Bytes this script's interpreter is holding.
+    ///
+    /// Berry's own accounting, not an estimate. It exists because "how much
+    /// RAM does a script cost" is the question that decides how many scripts
+    /// a 36 MB device can run, and answering it by guessing is how you find
+    /// out on the device rather than in a test.
+    std::size_t memoryBytes() const noexcept;
+
+    /// Force a full collection and report what is actually still live.
+    ///
+    /// memoryBytes() alone sawtooths: Berry is garbage collected, so between
+    /// collections the number climbs with every temporary a frame makes. The
+    /// difference matters - a rising sawtooth is normal and a rising floor is
+    /// a leak, and only this call can tell them apart.
+    ///
+    /// Explicit rather than folded into memoryBytes() because collecting is
+    /// work, and the host wants to choose when to do it: when a script leaves
+    /// the screen, not in the middle of the frame it is drawing.
+    std::size_t collectGarbage() noexcept;
+
 private:
     struct State;
     State* state_;

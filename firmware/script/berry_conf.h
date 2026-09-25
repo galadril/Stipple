@@ -296,6 +296,19 @@
  *   time        wall clock and sleep; scripts get time from the host's own
  *               builtins, which cannot block the thread drawing the panel
  */
+/* Undefined before being redefined, so this block overrides the defaults
+ * above rather than colliding with them. Keeping both visible is the point:
+ * Berry's value stays on the page next to ours, so a review can see what was
+ * changed and a later Berry version that adds a module arrives with their
+ * default rather than going missing. */
+#undef BE_USE_OS_MODULE
+#undef BE_USE_SYS_MODULE
+#undef BE_USE_DEBUG_MODULE
+#undef BE_USE_SOLIDIFY_MODULE
+#undef BE_USE_INTROSPECT_MODULE
+#undef BE_USE_STRICT_MODULE
+#undef BE_USE_TIME_MODULE
+
 #define BE_USE_OS_MODULE                0
 #define BE_USE_SYS_MODULE               0
 #define BE_USE_DEBUG_MODULE             0
@@ -305,7 +318,14 @@
 #define BE_USE_TIME_MODULE              0
 
 /* Kept: string handling, JSON for parsing payloads, math for the arithmetic
- * an animation needs, and global because the runtime requires it. */
+ * an animation needs, and global because the runtime requires it. Redefined
+ * to the same value they already have, so the allowlist reads as one list
+ * rather than half a list and an absence. */
+#undef BE_USE_STRING_MODULE
+#undef BE_USE_JSON_MODULE
+#undef BE_USE_MATH_MODULE
+#undef BE_USE_GLOBAL_MODULE
+
 #define BE_USE_STRING_MODULE            1
 #define BE_USE_JSON_MODULE              1
 #define BE_USE_MATH_MODULE              1
