@@ -5,7 +5,7 @@ protects, what it does not, and how to tell us when something is wrong.
 
 ## Reporting a vulnerability
 
-**Use [GitHub's private vulnerability reporting](https://github.com/galadril/stipple/security/advisories/new)**
+**Use [GitHub's private vulnerability reporting](https://github.com/galadril/Stipple/security/advisories/new)**
 rather than a public issue, so there is time to fix it before it is described
 in the open.
 
@@ -27,10 +27,16 @@ lot of work, and you should know exactly how much.
 
 - **Other people on your LAN**, once you set an access password. Without one,
   anyone who can reach the device can reconfigure it.
-- **Malformed input.** The HTTP parser, JSON parser, DHCP client, SNTP client
-  and MQTT client all parse untrusted bytes, and all are fuzzed by the test
-  suite and run under ASan and UBSan in CI. Request bodies, queues, icon
-  storage and app counts are all bounded — nothing grows without a limit.
+- **Malformed input**, to the extent hand-written tests reach. The HTTP
+  parser, JSON parser, DHCP client, SNTP client and MQTT client all read
+  untrusted bytes, each has tests for truncated, oversized and nonsense
+  input, and the whole suite runs under ASan and UBSan in CI. Request bodies,
+  queues, icon storage and app counts are all bounded — nothing grows without
+  a limit.
+
+  **There is no fuzzing.** That is a real gap rather than an oversight in
+  this description, and a fuzzing harness would be a genuinely valuable
+  contribution.
 - **Bricking itself.** A firmware that will not load falls back to the copy
   flashed beside it, and then to the stock clock, rather than to nothing.
 
