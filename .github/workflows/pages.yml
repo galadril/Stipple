@@ -12,9 +12,10 @@
 # Nothing here is a mockup or a screenshot, which is the point: if the
 # firmware changed and the page looked wrong, a test would already be failing.
 #
-# Dormant until somebody sets the STIPPLE_PAGES repository variable, because
-# Pages needs the repository to be public and that is a decision, not a
-# default.
+# Requires the repository's Pages source to be set to "GitHub Actions"
+# (Settings > Pages > Build and deployment > Source). Without that,
+# deploy-pages has nowhere to publish and fails with a permissions error that
+# does not say so.
 
 name: Pages
 
@@ -33,7 +34,6 @@ concurrency:
 jobs:
   build:
     name: Build the site
-    if: vars.STIPPLE_PAGES == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,7 +95,6 @@ jobs:
   deploy:
     name: Publish
     needs: build
-    if: vars.STIPPLE_PAGES == 'true'
     runs-on: ubuntu-latest
     permissions:
       pages: write
