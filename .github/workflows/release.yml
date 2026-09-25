@@ -10,15 +10,22 @@ name: Release
 # substitute: it carries our half and builds the rest against a capture of the
 # device it is going to be installed on, which never leaves that machine.
 
+# Publishing needs a tag. A manual run builds, checks and packages
+# everything, and deliberately publishes nothing.
+#
+# That is not a safety setting somebody can switch off - it is what the job
+# can actually do. `gh release create` names the release after the ref it ran
+# on, which for a tag push is `v0.2.0` and for a manual run is the *branch*.
+# A manual publish would produce a release tagged `feature/whatever`.
+#
+# There used to be a `dry_run` input here, defaulting to true. Nothing ever
+# read it: the publish job is gated on the event, not on the input, so the
+# checkbox did nothing whichever way it was set. An option that appears to
+# control something and does not is worse than no option.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: 'Build and package, but publish nothing'
-        type: boolean
-        default: true
 
 # Distinct from ci.yml's group on purpose: a release must not cancel the CI run
 # it depends on, and a half-published release is worse than a slow one.
@@ -226,6 +233,15 @@ jobs:
           name: stipple-release-${{ env.VERSION }}
           path: dist/
 
+      # Said out loud, because "Publish release — Skipped" in the job list
+      # looks like something went wrong rather than like the answer.
+      - name: Note what happens next
+        if: github.event_name != 'push'
+        run: |
+          echo "::notice::Built and packaged ${VERSION}. Nothing will be published:"
+          echo "::notice::a release is cut by pushing a tag, not by running this by hand."
+          echo "::notice::  git tag v${VERSION} && git push origin v${VERSION}"
+
       - name: Upload Pages bundle
         uses: actions/upload-pages-artifact@v3
         with:
@@ -234,6 +250,8 @@ jobs:
   publish:
     name: Publish release
     needs: [guard, package]
+    # Tag pushes only. See the note on the triggers above: a manual run has no
+    # tag to release as, so this is skipped rather than made optional.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
