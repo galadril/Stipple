@@ -1350,6 +1350,26 @@ Response ApiServer::handleScriptCollection(const Request& request) {
         return serverError("the script was accepted but cannot be read back");
     }
 
+    // A script is an app. Writing one puts it in the carousel.
+    //
+    // Done here rather than left to the caller because otherwise every client
+    // would have to know the convention, and one that did not would leave the
+    // author with a saved script that never appears on the panel and no
+    // indication why. Two calls that must always be made together are better
+    // made as one.
+    //
+    // Only when the app is absent. A replacement would reset the position,
+    // the duration and the enabled switch, so editing a script would silently
+    // undo the carousel arrangement around it.
+    if (context_.apps != nullptr && context_.apps->find(id) == nullptr) {
+        app::App entry;
+        entry.id = id;
+        entry.name = stored->name;
+        entry.builtin = app::Builtin::Script;
+        entry.source = app::AppSource::Local;
+        context_.apps->put(std::move(entry));
+    }
+
     JsonWriter writer;
     writeScript(writer, *stored, /*withSource=*/false);
     return existed ? ok(writer.take()) : created(writer.take());
@@ -1375,6 +1395,16 @@ Response ApiServer::handleScriptItem(const Request& request, const std::string& 
     }
     if (!context_.scripts->remove(id)) {
         return notFound("no such script");
+    }
+
+    // And its app goes with it, for the same reason it arrived with it. An app
+    // left behind would show SCRIPT ? for ever, which is honest but is not
+    // what anybody deleting a script meant to happen.
+    if (context_.apps != nullptr) {
+        const app::App* entry = context_.apps->find(id);
+        if (entry != nullptr && entry->builtin == app::Builtin::Script) {
+            context_.apps->remove(id);
+        }
     }
     return noContent();
 }

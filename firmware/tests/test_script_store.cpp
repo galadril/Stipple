@@ -580,3 +580,76 @@ STIPPLE_TEST(ScriptStore, CorruptStoredScriptsDoNotStopTheDeviceStarting) {
     }
     STIPPLE_CHECK(countLit(platform.simulatedDisplay().lastFrame()) > 0);
 }
+
+// --- scripts and the carousel ------------------------------------------------
+
+STIPPLE_TEST(ScriptApi, WritingAScriptPutsItInTheCarousel) {
+    // Two calls that must always be made together are better made as one. A
+    // client that did not know the convention would leave its author with a
+    // saved script that never appears on the panel and nothing saying why.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    ScriptStore store;
+    host.setScriptRunner(&store);
+
+    STIPPLE_REQUIRE(call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                         R"({"id":"clockface","name":"Clock face",)"
+                         R"("source":"class App\n def draw()\n  pixel(1,1,rgb(4,5,6))\n end\nend\nreturn App()\n"})")
+                        .status == 201);
+
+    const stipple::app::App* entry = host.apps().find("clockface");
+    STIPPLE_REQUIRE(entry != nullptr);
+    STIPPLE_CHECK(entry->builtin == stipple::app::Builtin::Script);
+    STIPPLE_CHECK(entry->name == "Clock face");
+    STIPPLE_CHECK(entry->enabled);
+
+    // And it draws.
+    STIPPLE_REQUIRE(host.carousel().pin("clockface", 1000));
+    host.tick(1000);
+    STIPPLE_CHECK(countLit(platform.simulatedDisplay().lastFrame()) > 0);
+
+    // Deleting takes the app with it. Leaving one behind would show SCRIPT ?
+    // for ever, which is honest but is not what anybody deleting a script
+    // meant to happen.
+    STIPPLE_CHECK_EQ(call(host, stipple::api::Method::Delete, "/api/v1/scripts/clockface").status,
+                     204);
+    STIPPLE_CHECK(host.apps().find("clockface") == nullptr);
+}
+
+STIPPLE_TEST(ScriptApi, EditingAScriptLeavesTheCarouselArrangementAlone) {
+    // Somebody who has turned a script off, moved it to the end and set it to
+    // twelve seconds has said something. Saving a typo fix must not undo it.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    ScriptStore store;
+    host.setScriptRunner(&store);
+
+    const std::string body =
+        R"({"id":"s","name":"S","source":"class App\n def draw()\n end\nend\nreturn App()\n"})";
+    STIPPLE_REQUIRE(call(host, stipple::api::Method::Post, "/api/v1/scripts", body).status == 201);
+
+    STIPPLE_REQUIRE(host.apps().setEnabled("s", false));
+    STIPPLE_REQUIRE(host.apps().move("s", 0));
+    stipple::app::App* entry = host.apps().find("s");
+    STIPPLE_REQUIRE(entry != nullptr);
+    entry->durationSeconds = 12;
+
+    // Save again, with different source and a different name.
+    STIPPLE_REQUIRE(call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                         R"({"id":"s","name":"Renamed",)"
+                         R"("source":"class App\n def draw()\n  pixel(0,0,rgb(1,1,1))\n end\nend\nreturn App()\n"})")
+                        .status == 200);
+
+    const stipple::app::App* after = host.apps().find("s");
+    STIPPLE_REQUIRE(after != nullptr);
+    STIPPLE_CHECK_EQ(host.apps().indexOf("s"), 0);
+    STIPPLE_CHECK(!after->enabled);
+    STIPPLE_CHECK_EQ(after->durationSeconds, 12);
+
+    // The source really did change, so the test is not passing because the
+    // write did nothing.
+    STIPPLE_REQUIRE(store.find("s") != nullptr);
+    STIPPLE_CHECK(store.find("s")->source.find("pixel(0,0,rgb(1,1,1))") != std::string::npos);
+}

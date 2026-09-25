@@ -573,3 +573,86 @@ input[type="color"] {
     background-size: 8px 8px;
     background-position: 0 0, 0 4px, 4px -4px, -4px 0;
 }
+
+/* --- the script editor --------------------------------------------------- */
+
+/* Two columns on a desktop, stacked on a phone. The list is narrow because it
+   holds short names; the code gets everything else, since a wrapped line of
+   Berry is a line you have to read twice. */
+.editor {
+    display: grid;
+    grid-template-columns: minmax(180px, 240px) 1fr;
+    gap: 18px;
+    align-items: start;
+}
+
+.editor-main { min-width: 0; }
+.editor-side .list { margin-bottom: 8px; }
+
+.editor-side .list li {
+    cursor: pointer;
+    gap: 8px;
+}
+
+.editor-side .list li.selected {
+    border-color: var(--accent);
+}
+
+/* A script that does not compile is still a script, and the list says so
+   without shouting - it is work in progress, not a fault. */
+.editor-side .list li .flag { font-size: 12px; }
+.editor-side .list li .flag.bad { color: var(--danger); }
+.editor-side .list li .flag.good { color: var(--ok); }
+
+textarea.code {
+    width: 100%;
+    min-height: 320px;
+    padding: 10px 12px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    /* Horizontal scrolling rather than wrapping. Wrapped code hides its own
+       indentation, which is most of how Berry's blocks are read. */
+    white-space: pre;
+    overflow-x: auto;
+    resize: vertical;
+    tab-size: 2;
+}
+
+textarea.code:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* The compiler's message, with the line number it gave. Bordered rather than
+   filled: this appears while somebody is mid-edit, and a block of red would
+   read as a failure when it is usually just an unfinished function. */
+.problem {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    border: 1px solid var(--danger);
+    border-left-width: 3px;
+    border-radius: 4px;
+    color: var(--danger);
+    font: 12px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@media (max-width: 720px) {
+    .editor { grid-template-columns: 1fr; }
+}
