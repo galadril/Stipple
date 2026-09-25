@@ -550,3 +550,26 @@ input[type="color"] {
     background: rgba(0, 200, 255, 0.08);
     color: var(--text);
 }
+
+/* Icon previews.
+ *
+ * Rendered at the icon's real pixel size and scaled up with image-rendering:
+ * pixelated, so an 8x8 glyph looks like eight pixels rather than a blur. The
+ * checker underneath is what makes a transparent key readable as absence
+ * rather than as black. */
+.icon-preview {
+    width: 48px;
+    height: 48px;
+    flex: none;
+    object-fit: contain;
+    image-rendering: pixelated;
+    border: 1px solid var(--line);
+    background-color: #111;
+    background-image:
+        linear-gradient(45deg, #1b1b1b 25%, transparent 25%),
+        linear-gradient(-45deg, #1b1b1b 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #1b1b1b 75%),
+        linear-gradient(-45deg, transparent 75%, #1b1b1b 75%);
+    background-size: 8px 8px;
+    background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+}

@@ -12,6 +12,7 @@
 #include "stipple/json/Json.h"
 #include "stipple/notify/Notifications.h"
 #include "stipple/platform/simulator/SimulatorPlatform.h"
+#include "stipple/asset/IconStore.h"
 #include "support/TestFramework.h"
 
 using stipple::api::ApiContext;
@@ -51,6 +52,7 @@ struct Fixture {
     Config config;
     ConfigStore configStore{platform.storage()};
     stipple::Framebuffer framebuffer;
+    stipple::asset::IconStore icons;
     RecordingInput input;
     ApiServer server;
 
@@ -67,6 +69,7 @@ struct Fixture {
         context.platform = &platform;
         context.frame = &framebuffer;
         context.input = &input;
+        context.icons = &icons;
         return context;
     }
 
@@ -1336,4 +1339,36 @@ STIPPLE_TEST(Routes, FirmwareIsRoutedAndNothingElseUnderSystemIs) {
 
     STIPPLE_CHECK(matchRoute("/api/v1/system").resource == Resource::Unknown);
     STIPPLE_CHECK(matchRoute("/api/v1/system/firmware/extra").resource == Resource::Unknown);
+}
+
+STIPPLE_TEST(Assets, AnIconCanBeFetchedBackWithItsPixels) {
+    Fixture fixture;
+
+    // A 2x2 icon, four distinct colours, so a transposed or reversed frame
+    // would not survive the comparison.
+    const char* upload =
+        R"({"id":"quad","width":2,"height":2,"frames":[[16711680,65280,255,16777215]]})";
+    STIPPLE_CHECK_EQ(fixture.call("POST", "/api/v1/assets", upload).status, 201);
+
+    const Response one = fixture.call("GET", "/api/v1/assets/quad");
+    STIPPLE_CHECK_EQ(one.status, 200);
+
+    // The point of returning them: an icon fetched from one device can be
+    // posted to another without translation.
+    STIPPLE_CHECK(one.body.find("\"pixels\"") != std::string::npos);
+    STIPPLE_CHECK(one.body.find("16711680") != std::string::npos);
+    STIPPLE_CHECK(one.body.find("16777215") != std::string::npos);
+}
+
+STIPPLE_TEST(Assets, TheCollectionStaysMetadataOnly) {
+    // Sixty-four icons' worth of pixels would be several hundred kilobytes of
+    // JSON, built whole in RAM before a byte of it can be sent.
+    Fixture fixture;
+    fixture.call("POST", "/api/v1/assets",
+                 R"({"id":"quad","width":2,"height":2,"frames":[[1,2,3,4]]})");
+
+    const Response all = fixture.call("GET", "/api/v1/assets");
+    STIPPLE_CHECK_EQ(all.status, 200);
+    STIPPLE_CHECK(all.body.find("\"quad\"") != std::string::npos);
+    STIPPLE_CHECK(all.body.find("\"pixels\"") == std::string::npos);
 }

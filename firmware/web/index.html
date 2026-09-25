@@ -201,6 +201,28 @@
         settings; the order and the switches are remembered across restarts.
     </p>
     <ul class="list" id="app-list"></ul>
+
+    <h2>Icons</h2>
+    <!-- Icons are stored once and referred to by id, from a scene element or
+         from a notification. The budget is a byte count rather than a count of
+         icons: sixty-four static glyphs and eight animations cost the same
+         RAM, and a per-icon limit would either forbid the first or permit far
+         too much of the second. -->
+    <p class="help">
+        Used by name from a scene &mdash;
+        <code>{"type":"icon","icon":"mail"}</code> &mdash; or on a
+        notification. Pick several images at once and they become the frames of
+        one animation.
+    </p>
+    <div class="toolbar">
+        <button class="btn" id="icon-add" type="button">Add an icon</button>
+        <!-- Converted in the browser, because decoding PNG or GIF on the
+             device would mean running inflate or LZW against a file somebody
+             uploaded. The device only ever sees raw pixels. -->
+        <input type="file" id="icon-file" accept="image/*" multiple hidden>
+        <span class="muted" id="icon-budget">&ndash;</span>
+    </div>
+    <ul class="list" id="icon-list"></ul>
 </section>
 
 <section class="panel" id="panel-notify">

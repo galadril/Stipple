@@ -477,9 +477,38 @@ paths:
         schema: { type: string }
     get:
       tags: [assets]
-      summary: One icon
+      summary: One icon, with its pixels
+      description: |
+        Unlike the collection, this returns the image itself in `pixels` — one
+        array per frame, packed `0xRRGGBB`, the same shape `POST` accepts. So
+        an icon fetched from one device can be posted to another without
+        translation.
+
+        The collection deliberately stays metadata. A store holding sixty-four
+        icons would otherwise answer one request with several hundred
+        kilobytes of JSON, on a device that has to build the whole string in
+        RAM before it can send any of it.
       responses:
-        "200": { description: OK }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  width: { type: integer }
+                  height: { type: integer }
+                  frames: { type: integer, description: How many frames, not the frames themselves. }
+                  frameMillis: { type: integer }
+                  bytes: { type: integer }
+                  transparent:
+                    type: [integer, "null"]
+                    description: Packed colour key, or null when the icon is opaque.
+                  pixels:
+                    type: array
+                    description: One array per frame, each width x height packed values.
+                    items: { type: array, items: { type: integer } }
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
       tags: [assets]
