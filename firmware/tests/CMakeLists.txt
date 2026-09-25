@@ -46,6 +46,7 @@ add_executable(stipple_tests
     test_update_image.cpp
     test_script.cpp
     test_script_store.cpp
+    test_shop_scripts.cpp
 )
 
 target_include_directories(stipple_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -61,6 +62,12 @@ target_link_libraries(stipple_tests PRIVATE
 # test can write its diff PNGs next to the fixture it disagrees with.
 target_compile_definitions(stipple_tests PRIVATE
     STIPPLE_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/testdata")
+
+# The published scripts are read from the source tree for the same reason as
+# the golden fixtures: they are the files people will actually download, and a
+# copy staged into the build directory is a copy that can go stale.
+target_compile_definitions(stipple_tests PRIVATE
+    STIPPLE_SCRIPTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../scripts")
 
 if(MSVC)
     # The golden harness reads STIPPLE_UPDATE_GOLDEN / STIPPLE_STRICT_GOLDEN with
