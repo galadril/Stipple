@@ -33,6 +33,11 @@ set_property(DIRECTORY APPEND
 file(GLOB STIPPLE_BERRY_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/berry/src/*.c")
 
+# be_filelib.c is Berry's file() class. With no filesystem it registers
+# nothing, so it is code that can only ever be dead - and on a device with
+# 36 MB of RAM, dead code that opens files is worth not shipping.
+list(FILTER STIPPLE_BERRY_SOURCES EXCLUDE REGEX "be_filelib\.c$")
+
 add_library(stipple_berry STATIC
     ${STIPPLE_BERRY_SOURCES}
     script/be_port.c
@@ -57,6 +62,17 @@ else()
 endif()
 
 add_library(stipple::berry ALIAS stipple_berry)
+
+# The bindings: Berry on one side, Canvas on the other.
+#
+# Separate from stipple_core for the same reason Berry is - core must stay
+# buildable and testable without a scripting language in it.
+add_library(stipple_script STATIC
+    src/script/ScriptHost.cpp)
+
+target_include_directories(stipple_script PUBLIC include)
+target_link_libraries(stipple_script PUBLIC stipple_core PRIVATE stipple_berry stipple_warnings)
+add_library(stipple::script ALIAS stipple_script)
 
 add_library(stipple_core
     ${STIPPLE_WEB_GENERATED}

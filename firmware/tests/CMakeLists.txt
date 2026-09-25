@@ -44,6 +44,7 @@ add_executable(stipple_tests
     test_basic_auth.cpp
     test_md5.cpp
     test_update_image.cpp
+    test_script.cpp
 )
 
 target_include_directories(stipple_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -52,6 +53,7 @@ target_link_libraries(stipple_tests PRIVATE
     stipple_core
     stipple_imageio
     stipple_platform_simulator
+    stipple_script
     stipple_warnings)
 
 # Golden fixtures are read from the source tree, not the build tree, so a failing
