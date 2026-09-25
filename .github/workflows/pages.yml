@@ -68,6 +68,19 @@ jobs:
       - name: Build the script shop
         run: python3 tooling/site/build-shop.py
 
+      # The previews are real frames from the real engine, which means
+      # building it. A preview drawn any other way would be a picture of
+      # something that does not exist, and the first time the two disagreed
+      # the page would be wrong with nothing to catch it.
+      - name: Render the script previews
+        run: |
+          set -euo pipefail
+          cmake --preset host-release
+          cmake --build --preset host-release --target stipple_tests
+          mkdir -p build/frames
+          STIPPLE_SHOP_FRAMES="$PWD/build/frames"             ./build/host-release/firmware/tests/stipple_tests ShopScripts.WriteFramesOnRequest
+          python3 tooling/site/build-previews.py build/frames
+
       - name: Assemble
         run: |
           set -euo pipefail
@@ -76,6 +89,7 @@ jobs:
           cp site/index.html site/stipple.css site/stipple.js site/frames.js site/favicon.svg dist/
           cp site/api/index.html dist/api/
           cp site/shop/index.html site/shop/shop.css dist/shop/
+          cp site/shop/*.gif dist/shop/
 
           # Redoc fetches the specification at runtime, so it has to sit
           # beside the page that asks for it.
@@ -97,6 +111,15 @@ jobs:
           for page in index.html api/index.html emulator/index.html shop/index.html; do
             test -f "dist/$page" || { echo "missing: $page" >&2; exit 1; }
           done
+
+          # Every preview the shop page references must exist. A card with a
+          # broken image looks like a broken script, which is the opposite of
+          # what the page is for.
+          missing=0
+          for src in $(grep -o 'src="[a-z0-9-]*\.gif"' dist/shop/index.html | cut -d'"' -f2); do
+            test -f "dist/shop/$src" || { echo "missing preview: $src" >&2; missing=1; }
+          done
+          [ "$missing" -eq 0 ] || exit 1
 
           echo "--- what will be published ---"
           find dist -type f | sort

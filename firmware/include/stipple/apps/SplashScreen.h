@@ -18,9 +18,19 @@ class INetworkManager;
 namespace apps {
 
 struct SplashStyle {
-    /// The product name, drawn emboldened. Accent rather than primary: the
-    /// splash is the one screen where the brand outranks the content.
-    Rgb titleColor = rgb(0, 200, 255);
+    /// The product name, drawn emboldened.
+    ///
+    /// White, matching the wordmark on the website and in the device's own
+    /// configuration page. It was cyan, which put the brand in the same
+    /// colour as every value the rest of the firmware uses to mean "this is
+    /// the thing that matters" - and on the one screen where the brand is the
+    /// content, it did not need the help.
+    ///
+    /// This is also the address on the second page, which is white for the
+    /// same reason - it is the one thing on that screen somebody is actually
+    /// trying to read. The cyan is still the wave and the rule underneath, so
+    /// the splash reads as the same family.
+    Rgb titleColor = rgb(255, 255, 255);
     /// Deliberately well below the title, so the hierarchy reads at a glance
     /// even though both lines are the same 7 rows tall (DESIGN.md §8 - there is
     /// only one font, so weight and value carry the whole difference).

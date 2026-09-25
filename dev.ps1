@@ -26,7 +26,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'image', 'usb', 'panel', 'serve', 'site', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'image', 'usb', 'panel', 'serve', 'site', 'previews', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -395,6 +395,31 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/stipple_device \
         # more detail than a wrapper could, and a stack trace over it just
         # buries the explanation.
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+
+    'previews' {
+        # Render the shop's animated previews.
+        #
+        # Two steps because the frames come from the real engine and the GIF
+        # is built from them: a preview drawn any other way would be a picture
+        # of something that does not exist.
+        $frames = Join-Path $repoRoot 'build\frames'
+        New-Item -ItemType Directory -Force $frames | Out-Null
+
+        Invoke-Build 'host-release'
+        $env:STIPPLE_SHOP_FRAMES = $frames
+        try {
+            & (Join-Path $repoRoot 'build\host-release\firmware\tests\stipple_tests.exe') `
+                'ShopScripts.WriteFramesOnRequest'
+            if ($LASTEXITCODE -ne 0) { throw 'the frame dump failed' }
+        } finally {
+            Remove-Item Env:\STIPPLE_SHOP_FRAMES -ErrorAction SilentlyContinue
+        }
+
+        $python = Get-Command python.exe -ErrorAction SilentlyContinue
+        if (-not $python) { throw 'python.exe not found on PATH.' }
+        & $python.Source (Join-Path $repoRoot 'tooling\site\build-previews.py') $frames
+        if ($LASTEXITCODE -ne 0) { throw 'could not build the previews' }
     }
 
     'site' {

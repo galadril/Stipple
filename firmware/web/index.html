@@ -14,7 +14,11 @@
 <body>
 
 <header class="topbar">
-    <h1>STIPPLE</h1>
+    <!-- The same mark and the same wordmark as the website, so the page you
+         read before buying and the page you configure with afterwards are
+         recognisably one product. -->
+    <span class="brandmark" aria-hidden="true"></span>
+    <h1>Stipple</h1>
     <div class="identity">
         <span id="device-name">&hellip;</span>
         <span class="muted" id="device-version"></span>
@@ -25,6 +29,7 @@
 <nav class="tabs" role="tablist">
     <button class="tab" data-panel="panel-display" role="tab" type="button">Display</button>
     <button class="tab" data-panel="panel-apps" role="tab" type="button">Apps</button>
+    <button class="tab" data-panel="panel-icons" role="tab" type="button">Icons</button>
     <button class="tab" data-panel="panel-scripts" role="tab" type="button">Scripts</button>
     <button class="tab" data-panel="panel-notify" role="tab" type="button">Notify</button>
     <button class="tab" data-panel="panel-mqtt" role="tab" type="button">MQTT</button>
@@ -202,7 +207,9 @@
         settings; the order and the switches are remembered across restarts.
     </p>
     <ul class="list" id="app-list"></ul>
+</section>
 
+<section class="panel" id="panel-icons">
     <h2>Icons</h2>
     <!-- Icons are stored once and referred to by id, from a scene element or
          from a notification. The budget is a byte count rather than a count of

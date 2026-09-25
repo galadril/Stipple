@@ -1658,12 +1658,13 @@
     }
 
     function refreshActive() {
-        if (activePanel === 'panel-apps') {
-            // Icons load with the panel rather than at startup. Each one costs
-            // a request for its pixels, and a device that fetched sixty-four
-            // of them before showing a clock would be answering its own
-            // configuration page instead of running.
-            return loadApps().then(loadIcons).catch(fail);
+        if (activePanel === 'panel-apps') { return loadApps().catch(fail); }
+        if (activePanel === 'panel-icons') {
+            // Icons load with their own panel rather than at startup. Each one
+            // costs a request for its pixels, and a device that fetched
+            // sixty-four of them before showing a clock would be answering its
+            // own configuration page instead of running.
+            return loadIcons().catch(fail);
         }
         if (activePanel === 'panel-scripts') { return loadScripts().catch(fail); }
         if (activePanel === 'panel-notify') { return loadNotifications().catch(fail); }

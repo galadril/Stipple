@@ -107,3 +107,45 @@
   color: var(--dim);
   font-size: 0.8125rem;
 }
+
+/* The submit button.
+ *
+ * Deliberately the only filled element on the page. Everything else is an
+ * outline, so the one thing a visitor might actually do next is the one thing
+ * that is solid. */
+.shop__cta { margin: 1.25rem 0 1.5rem; }
+
+.shop__button {
+  display: inline-block;
+  padding: 0.7rem 1.4rem;
+  background: var(--cyan);
+  color: var(--void);
+  border: 1px solid var(--cyan);
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 140ms var(--ease), color 140ms var(--ease);
+}
+
+.shop__button:hover, .shop__button:focus-visible {
+  background: transparent;
+  color: var(--cyan);
+}
+
+/* The preview.
+ *
+ * Real frames from the real engine, at the real panel size, scaled six times
+ * with nearest neighbour - see tooling/site/build-previews.py. A description
+ * of what a script does is worth much less than a second of watching it.
+ *
+ * Pixelated as well as pre-scaled, because a browser asked to fit 312px into
+ * a narrower card will resample it, and a smoothed picture of a pixel panel
+ * misrepresents the one thing the product is. */
+.card__preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-bottom: 0.9rem;
+  background: var(--unlit);
+  image-rendering: pixelated;
+  border: 1px solid var(--rule);
+}

@@ -12,16 +12,30 @@
  */
 
 :root {
-  --void: #000000;
-  --grid: #0c2a35;          /* the dot grid: the drain rule, dimmed far down */
-  --rule: #14323d;
+  /* The same palette as the device's own configuration page.
+   *
+   * The site used pure black, which read as a void rather than as a surface
+   * and made every panel edge disappear. These are the values from
+   * firmware/web/app.css, so the page you look at before buying and the page
+   * you use afterwards are recognisably the same product. Only the panel
+   * itself is still true black - that one is not a colour choice, it is what
+   * an unlit LED is.
+   */
+  --void: #0d1117;          /* the page */
+  --panel: #161b22;         /* surfaces that sit on it */
+  --grid: #16303b;          /* the dot grid, lifted to stay visible on #0d1117 */
+  --rule: #272e38;
 
-  --cyan: #00c8ff;          /* rgb(0,200,255) - the splash title */
-  --green: #00e68c;         /* rgb(0,230,140) - stopwatch running */
+  --cyan: #00beff;          /* the accent, matching the config page */
+  --green: #3fb950;
   --amber: #ffb000;         /* rgb(255,176,0) - stopwatch stopped */
 
-  --ink: #e8edf2;
-  --dim: #8794a1;
+  --ink: #e6edf3;
+  --dim: #8b949e;
+
+  /* An unlit LED, for anything drawing the panel itself. Black there is
+     literal rather than stylistic, so it does not follow the page. */
+  --unlit: #000000;
 
   --pitch: 8px;             /* dot grid pitch, the page's pixel */
   --measure: 34rem;         /* ~68 characters */
@@ -89,7 +103,7 @@ a:hover { color: var(--ink); }
 main {
   max-width: 82rem;
   margin: 0 auto;
-  background-color: var(--void);
+  background-color: var(--panel);
   border-left: 1px solid var(--rule);
   border-right: 1px solid var(--rule);
 }
@@ -174,6 +188,10 @@ main {
   width: 100%;
   height: auto;
   image-rendering: pixelated;
+  /* Literal, not stylistic: this is a picture of an LED panel, and the space
+     between its pixels is off rather than dark grey. It does not follow the
+     page's palette for the same reason a photograph would not. */
+  background: var(--unlit);
 }
 
 .lede h1 {
@@ -252,6 +270,7 @@ main {
   width: 100%;
   height: auto;
   image-rendering: pixelated;
+  background: var(--unlit);
 }
 .specimen p {
   margin: 0.75rem 0 0;

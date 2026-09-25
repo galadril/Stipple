@@ -1,12 +1,14 @@
 name: Release
 
-# Tagging cuts a release of what actually exists. Today that is the browser
-# emulator and nothing else: there is no ARM preset, no TC002 adapter and no
-# device binary, so this workflow deliberately publishes no installable
-# firmware and says so in the release notes. Device artifacts
-# (stipple-X.Y.Z-sideload.zip, stipple-X.Y.Z-update.img — blueprint §33) join the
-# `package` job in Phase 7; the shape here is meant to absorb them without a
-# rewrite.
+# Tagging cuts a release of what actually exists, which is now three things:
+# the device library, the tools to build a flashable image from your own
+# capture, and the browser emulator.
+#
+# What is deliberately *not* here is update.img. A res image contains Ulanzi's
+# libzkgui.so - seven and a half megabytes of their firmware - so publishing
+# one would be redistributing it. The image-builder artifact is the honest
+# substitute: it carries our half and builds the rest against a capture of the
+# device it is going to be installed on, which never leaves that machine.
 
 on:
   push:
@@ -169,6 +171,12 @@ jobs:
                 "bytes": $(stat -c%s "dist/stipple-emulator-${VERSION}.zip")
               },
               {
+                "name": "stipple-imagebuilder-${VERSION}.zip",
+                "sha256": "$(sha256sum "dist/stipple-imagebuilder-${VERSION}.zip" | cut -d' ' -f1)",
+                "bytes": $(stat -c%s "dist/stipple-imagebuilder-${VERSION}.zip"),
+                "target": "tc002"
+              },
+              {
                 "name": "libstipple-${VERSION}.so",
                 "sha256": "$(sha256sum "dist/libstipple-${VERSION}.so" | cut -d' ' -f1)",
                 "bytes": $(stat -c%s "dist/libstipple-${VERSION}.so"),
@@ -181,7 +189,22 @@ jobs:
           python3 -c "import json,sys; json.load(open('dist/manifest.json'))" \
             || { echo "::error::generated manifest.json is not valid JSON"; exit 1; }
 
-          ( cd dist && sha256sum "stipple-emulator-${VERSION}.zip" "libstipple-${VERSION}.so" manifest.json > SHA256SUMS )
+          # The image builder: everything needed to produce a flashable
+          # update.img except the one thing that cannot be published.
+          #
+          # A res image contains Ulanzi's libzkgui.so. Shipping one would be
+          # redistributing their firmware, so this ships our half - the shim
+          # source, the library, and the script that rebuilds a capture with
+          # them - and the vendor's half is taken from the user's own device,
+          # where it already legitimately is.
+          mkdir -p dist/imagebuilder
+          cp tooling/imgtool/buildres.sh tooling/imgtool/imgtool.py dist/imagebuilder/
+          cp firmware/tools/startup_shim/main.cpp dist/imagebuilder/startup_shim.cpp
+          cp "dist/libstipple-${VERSION}.so" dist/imagebuilder/libstipple.so
+          cp docs/install.md dist/imagebuilder/README.md
+          zip -j -q "dist/stipple-imagebuilder-${VERSION}.zip" dist/imagebuilder/*
+
+          ( cd dist && sha256sum "stipple-emulator-${VERSION}.zip" "stipple-imagebuilder-${VERSION}.zip" "libstipple-${VERSION}.so" manifest.json > SHA256SUMS )
           cat dist/SHA256SUMS
 
       - name: Upload release artifacts
@@ -213,13 +236,41 @@ jobs:
           name: stipple-release-${{ needs.guard.outputs.version }}
           path: dist
 
+      # The section for this version, lifted out of CHANGELOG.md.
+      #
+      # Written by hand and read from the file rather than generated from
+      # commit subjects: a changelog is for somebody deciding whether to
+      # install this, and a list of commits answers a different question.
+      #
+      # A missing section stops the release. Notes that quietly fall back to
+      # boilerplate are how a release goes out describing the previous one.
+      - name: Extract the changelog
+        run: |
+          set -euo pipefail
+          awk -v ver="## ${VERSION}" '
+            index($0, ver) == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > changes.md
+
+          if [ ! -s changes.md ]; then
+            echo "::error::CHANGELOG.md has no section for ${VERSION}"
+            exit 1
+          fi
+          echo "--- what the release will say ---"
+          cat changes.md
+
       - name: Write release notes
         run: |
           set -euo pipefail
           cat > notes.md <<EOF
-          ## STIPPLE ${VERSION}
+          ## Stipple ${VERSION}
 
-          Two things: a device update, and the browser emulator.
+          $(cat changes.md)
+
+          ---
+
+          ## Downloads
 
           > **Use at your own risk.** STIPPLE replaces firmware on hardware it
           > was not designed for. It can leave your device unusable and will
@@ -245,11 +296,27 @@ jobs:
           be published — it contains Ulanzi's firmware. See
           [docs/install.md](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/install.md).
 
+          ### \`stipple-imagebuilder-${VERSION}.zip\` — for a stock device
+
+          Everything needed to build a flashable \`update.img\` **except the
+          one part that cannot be published**: a \`res\` image contains
+          Ulanzi's own \`libzkgui.so\`, so shipping one would be
+          redistributing their firmware.
+
+          So this carries our half — the boot shim, the library, and the
+          script that rebuilds an image with them — and takes the vendor's
+          half from a capture of your own device, where it already
+          legitimately is.
+
+          **Capture first.** It is the only copy of your device's original
+          firmware that will ever exist.
+
           ### \`stipple-emulator-${VERSION}.zip\` — no hardware needed
 
           The same framebuffer, font engine, scene renderer, app scheduler and
-          \`/api/v1\` router the device runs. Only the platform adapter
-          differs ([ADR 0011](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/adr/0011-simulator-first-development-order.md)).
+          API router the device runs - including the same Berry interpreter, so
+          a script tried in a browser behaves the way it will on the panel.
+          Only the platform adapter differs.
 
           ### Try it
 
@@ -276,15 +343,32 @@ jobs:
       - name: Create release
         run: |
           set -euo pipefail
-          # 0.x is development, per blueprint §34 — and this one installs
-          # nothing, so "latest stable" would be an outright lie.
+
+          # Every file the notes describe has to actually be attached.
+          #
+          # This list previously omitted libstipple-*.so while the notes spent
+          # four paragraphs on it, so every release promised a download it did
+          # not carry. Checked rather than trusted, because the failure is
+          # silent: the release publishes, looks complete, and only the person
+          # trying to install it finds out.
+          assets=(
+            "dist/libstipple-${VERSION}.so"
+            "dist/stipple-imagebuilder-${VERSION}.zip"
+            "dist/stipple-emulator-${VERSION}.zip"
+            "dist/manifest.json"
+            "dist/SHA256SUMS"
+          )
+          for a in "${assets[@]}"; do
+            [ -f "$a" ] || { echo "::error::missing release asset: $a"; exit 1; }
+          done
+
+          # 0.x is development, so never "latest stable". Prerelease stays
+          # until the interfaces stop moving.
           gh release create "${GITHUB_REF_NAME}" \
-            --title "STIPPLE ${VERSION}" \
+            --title "Stipple ${VERSION}" \
             --notes-file notes.md \
             --prerelease \
-            dist/stipple-emulator-${VERSION}.zip \
-            dist/manifest.json \
-            dist/SHA256SUMS
+            "${assets[@]}"
 
   # Opt-in, and deliberately so: this is the step that makes the emulator
   # public. Enable Pages for the repository (Settings -> Pages -> Source:
