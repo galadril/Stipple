@@ -174,17 +174,19 @@ PAGE = """<!DOCTYPE html>
   <section class="shop__submit">
     <h2>Add one</h2>
     <p>
-      Open a pull request that adds a <code>.be</code> file to
-      <a href="https://github.com/galadril/Stipple/tree/main/scripts">scripts/</a>
-      and a line naming it in
-      <code>firmware/tests/test_shop_scripts.cpp</code>. This page is built
-      from that directory, so there is nothing else to update.
+      The button below opens GitHub's editor with the file already named and
+      a working script in it. Change it to yours, commit, and GitHub offers
+      you the pull request. Nothing to clone, nothing to install.
+    </p>
+    <p class="shop__cta">
+      <a class="shop__button" href="https://github.com/galadril/Stipple/new/main?filename=scripts/my-script.be&value=%23%20name%3A%20My%20Script%0A%23%20summary%3A%20One%20sentence%2C%20shown%20in%20the%20listing.%0A%23%20author%3A%20your-github-handle%0A%23%20tags%3A%20clock%2C%20animation%0A%23%20panel%3A%2052x16%0A%0Aclass%20App%0A%20%20def%20draw%28%29%0A%20%20%20%20clear%28rgb%280%2C%200%2C%200%29%29%0A%20%20%20%20text%282%2C%205%2C%20%22hello%22%2C%20rgb%280%2C%20190%2C%20255%29%29%0A%20%20end%0Aend%0A%0Areturn%20App%28%29%0A">Write a script</a>
     </p>
     <p>
-      Start the file with the header the others have &mdash;
-      <code>name</code>, <code>summary</code>, <code>author</code>,
-      <code>tags</code> &mdash; and the build will tell you if anything is
-      missing.
+      One more line is needed: add your filename to the list in
+      <a href="https://github.com/galadril/Stipple/blob/main/firmware/tests/test_shop_scripts.cpp"><code>test_shop_scripts.cpp</code></a>,
+      which is what runs it. The build refuses a script that nothing runs &mdash;
+      a listing that says it was tested when it was not would be worse than no
+      listing at all.
     </p>
     <p>
       Two things the tests will hold you to, both learned the hard way. Text
