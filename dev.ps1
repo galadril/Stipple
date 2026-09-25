@@ -333,11 +333,15 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/stipple_device \
     }
 
     'image' {
-        # Build a res partition image from a capture, changing one line.
+        # Build a res partition image from a capture.
         #
-        # The image carries no STIPPLE code. ADR 0021 puts STIPPLE in /data and
-        # points the framework's startupLibPath at it, so this is flashed once
-        # and every release after that is a file copy over the network.
+        # The image carries STIPPLE itself, not just a pointer at it. An
+        # earlier design shipped only the shim and left STIPPLE in /data,
+        # which works right up until /data holds an old copy or none: the
+        # flash succeeds and the device runs last week's build, or the stock
+        # clock, with nothing to say why. That happened twice on real
+        # hardware and was read as a bad flash both times. See the note in
+        # tooling/imgtool/buildres.sh.
         #
         # It runs in the container and not on the host because the res
         # filesystem stores uid/gid 1000 and modes like 0770, and extracting
