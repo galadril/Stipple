@@ -96,6 +96,29 @@ a:hover { color: var(--ink); }
   background-repeat: no-repeat;
 }
 
+/* The wordmark is text, not an image and not the canvas. The panel draws
+   the name as well, but only for the first few seconds of the boot sequence
+   and only once the script has run - which left the page with no visible
+   product name at all before that. */
+.bar__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  text-decoration: none;
+  color: var(--ink);
+  margin-right: auto;
+}
+.bar__name { font-weight: 800; font-size: 1.0625rem; letter-spacing: -0.01em; }
+.bar__brand:hover .bar__name, .bar__brand:focus-visible .bar__name { color: var(--cyan); }
+
+.stage__note {
+  margin: 1rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--rule);
+  color: var(--dim);
+  font-size: 0.875rem;
+}
+
 .bar__nav { display: flex; gap: 1.25rem; flex-wrap: wrap; font-size: 0.9375rem; }
 .bar__nav a { color: var(--dim); text-decoration: none; }
 .bar__nav a:hover, .bar__nav a:focus-visible { color: var(--ink); }
@@ -157,6 +180,17 @@ a:hover { color: var(--ink); }
 .button--lit:hover, .button--lit:focus-visible { background: var(--cyan); color: var(--void); }
 
 .fineprint { font-size: 0.875rem; color: var(--dim); margin-top: 1.25rem; }
+
+/* Amber, which on the device means "stopped, read this" - the page's own
+   vocabulary rather than a new colour for a new purpose. */
+.prerelease {
+  margin-top: 1rem;
+  padding: 0.75rem 0.9rem;
+  border-left: 2px solid var(--amber);
+  font-size: 0.875rem;
+  color: var(--dim);
+}
+.prerelease strong { color: var(--amber); font-weight: 600; }
 
 /* --- bands ---------------------------------------------------------------- */
 
