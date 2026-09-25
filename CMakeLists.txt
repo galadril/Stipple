@@ -10,7 +10,9 @@ cmake_minimum_required(VERSION 3.18)
 project(stipple
     VERSION 0.1.0
     DESCRIPTION "Open pixel firmware for the Ulanzi TC002"
-    LANGUAGES CXX)
+    # C as well as C++: Berry is ANSI C99 (ADR 0022), and the probe tools
+    # under firmware/tools/ have always been C.
+    LANGUAGES CXX C)
 
 # STIPPLE core is portable C++17 with no external dependencies. It must compile
 # identically for the host test runner, the Emscripten emulator and (later) the

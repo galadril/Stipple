@@ -20,6 +20,44 @@ stipple_embed_web_assets(
 set_property(DIRECTORY APPEND
     PROPERTY CMAKE_CONFIGURE_DEPENDS ${STIPPLE_WEB_SOURCES})
 
+# --- Berry ------------------------------------------------------------------
+#
+# The scripting language, vendored at a pinned commit (ADR 0022). MIT, ANSI
+# C99, under 40 KiB of code.
+#
+# Its own target rather than part of stipple_core, so core stays
+# dependency-free and host-testable and a build without scripting is the same
+# core. The sandbox lives in firmware/script/: our berry_conf.h turns off the
+# filesystem, the dynamic loader and the bytecode reader, and be_modtab.c is
+# an allowlist of the modules a script may import.
+file(GLOB STIPPLE_BERRY_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/berry/src/*.c")
+
+add_library(stipple_berry STATIC
+    ${STIPPLE_BERRY_SOURCES}
+    script/be_port.c
+    script/be_modtab.c)
+
+target_include_directories(stipple_berry PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/script"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/berry/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/berry/generate")
+
+set_target_properties(stipple_berry PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
+
+# Vendored code does not get this project's warning flags.
+#
+# Not laziness: -Werror on somebody else's source means their next release
+# cannot be taken without editing it, which is how a pinned dependency becomes
+# a fork. Our own code in script/ is small enough to read.
+if(MSVC)
+    target_compile_options(stipple_berry PRIVATE /W0)
+else()
+    target_compile_options(stipple_berry PRIVATE -w)
+endif()
+
+add_library(stipple::berry ALIAS stipple_berry)
+
 add_library(stipple_core
     ${STIPPLE_WEB_GENERATED}
     src/web/StaticFiles.cpp
