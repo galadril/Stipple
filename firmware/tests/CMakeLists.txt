@@ -45,6 +45,7 @@ add_executable(stipple_tests
     test_md5.cpp
     test_update_image.cpp
     test_script.cpp
+    test_script_store.cpp
 )
 
 target_include_directories(stipple_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

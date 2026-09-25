@@ -8,6 +8,7 @@
 #include "stipple/web/StaticFiles.h"
 #include "stipple/app/Carousel.h"
 #include "stipple/asset/IconStore.h"
+#include "stipple/script/IScriptRunner.h"
 #include "stipple/apps/ClockApp.h"
 #include "stipple/apps/VisualizerApp.h"
 #include "stipple/apps/SplashScreen.h"
@@ -146,6 +147,20 @@ public:
     app::Carousel& carousel() noexcept { return carousel_; }
     notify::NotificationQueue& notifications() noexcept { return notifications_; }
     asset::IconStore& icons() noexcept { return icons_; }
+
+    /// Give the host something that can run scripts.
+    ///
+    /// Optional, and null is a supported configuration rather than a broken
+    /// one - the core cannot link a language runtime (ADR 0012), so whoever
+    /// builds the platform decides whether scripting exists. A host without a
+    /// runner still shows script apps; it shows them saying scripting is not
+    /// available, which is what ADR 0013 asks for.
+    ///
+    /// The host does not own it. It outlives the host in every arrangement
+    /// that exists - main() holds it, the simulator holds it, a test holds it
+    /// on the stack.
+    void setScriptRunner(script::IScriptRunner* runner) noexcept { scripts_ = runner; }
+    script::IScriptRunner* scriptRunner() const noexcept { return scripts_; }
     config::Config& settings() noexcept { return settings_; }
 
     /// Exposed so a settings UI can show what the controls currently do, rather
@@ -284,6 +299,7 @@ private:
     app::Carousel carousel_;
     notify::NotificationQueue notifications_;
     asset::IconStore icons_;
+    script::IScriptRunner* scripts_ = nullptr;
     /// Move brightness by `steps` of the configured step size, clamped, and
     /// bring the panel back on if it was off.
     void adjustBrightness(int steps);

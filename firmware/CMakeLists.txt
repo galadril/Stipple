@@ -68,7 +68,8 @@ add_library(stipple::berry ALIAS stipple_berry)
 # Separate from stipple_core for the same reason Berry is - core must stay
 # buildable and testable without a scripting language in it.
 add_library(stipple_script STATIC
-    src/script/ScriptHost.cpp)
+    src/script/ScriptHost.cpp
+    src/script/ScriptStore.cpp)
 
 target_include_directories(stipple_script PUBLIC include)
 target_link_libraries(stipple_script PUBLIC stipple_core PRIVATE stipple_berry stipple_warnings)
@@ -107,6 +108,7 @@ add_library(stipple_core
     src/apps/ClockApp.cpp
     src/apps/StopwatchApp.cpp
     src/apps/VisualizerApp.cpp
+    src/apps/Unavailable.cpp
     src/apps/SplashScreen.cpp
     src/host/ApplicationHost.cpp
     src/app/AppRegistry.cpp

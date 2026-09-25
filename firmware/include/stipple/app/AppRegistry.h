@@ -34,6 +34,13 @@ enum class Builtin : std::uint8_t {
     Visualizer,
     Stopwatch,
     TestPattern,
+    /// Content is a Berry script, held in the ScriptStore under this app's id.
+    ///
+    /// The source is not in the App because an App is copied whenever the
+    /// carousel is read, and copying a script's source on every frame would
+    /// be absurd. The id is the link, and the store owns the text and the
+    /// interpreter running it.
+    Script,
 };
 
 /// One entry in the carousel.

@@ -6,6 +6,7 @@
 #include "stipple/apps/BatteryApp.h"
 #include "stipple/apps/StopwatchApp.h"
 #include "stipple/render/Overlay.h"
+#include "stipple/apps/Unavailable.h"
 #include "stipple/apps/VisualizerApp.h"
 
 #include "stipple/api/JsonWriter.h"
@@ -1350,6 +1351,12 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
                     if ((nowMillis / 1000u) != (lastClockMillis_ / 1000u)) {
                         scheduler_.invalidate();
                     }
+                } else if (active->builtin == app::Builtin::Script) {
+                    // A script gets the frame time and may use it, and there
+                    // is no way to know whether it did. Dirty tracking needs
+                    // the content to declare that it moves; a script cannot,
+                    // so the safe answer is that it always might.
+                    scheduler_.invalidate();
                 } else if (active->builtin == app::Builtin::Clock) {
                     if (apps::clockChanged(platform_.clock(), clockStyle(),
                                            lastClockMillis_, nowMillis)) {
@@ -1693,6 +1700,25 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
         case app::Builtin::TestPattern:
             demo::drawTestPattern(canvas, static_cast<int>(nowMillis / 33u));
             return;
+        case app::Builtin::Script: {
+            // A script app whose script cannot run says so. Going black would
+            // be indistinguishable from a script that draws nothing, from a
+            // crashed device, and from a panel with a dead row - and the
+            // author is the one person who can fix it and the one person who
+            // would be left guessing. ADR 0013.
+            if (scripts_ == nullptr) {
+                apps::renderUnavailable(canvas, "NO", "SCRIPTS");
+                return;
+            }
+            if (scripts_->draw(active->id, canvas, carousel_.dwellMillis(nowMillis))) {
+                return;
+            }
+            // The reason does not fit on 52 pixels and is not thrown away -
+            // it is in the script's `problem`, which the API and the web UI
+            // both show next to the code that caused it.
+            apps::renderUnavailable(canvas, "SCRIPT", scripts_->has(active->id) ? "ERROR" : "?");
+            return;
+        }
         case app::Builtin::None:
             break;
     }
