@@ -1,0 +1,109 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+
+/* The shop, on top of stipple.css. Only what the listing needs - the bar, the
+   grid, the type scale and the colours all come from the main sheet, because a
+   second page that invents its own is a second page that drifts. */
+
+.shop {
+  padding: clamp(2rem, 6vw, 4rem) var(--pad) 6rem;
+  margin: 0 auto;
+  max-width: 78rem;
+}
+
+.shop__lede { margin-bottom: clamp(2rem, 5vw, 3.5rem); }
+.shop__lede h1 { font-size: clamp(2rem, 6vw, 3rem); letter-spacing: -0.02em; margin: 0 0 0.6em; }
+
+/* The claim the page rests on, so it is set apart from the prose around it
+   rather than buried in a paragraph somebody skims. */
+.shop__gate {
+  border-left: 2px solid var(--green);
+  padding-left: 1rem;
+  color: var(--dim);
+  max-width: var(--measure);
+}
+
+/* Cards size themselves to the content rather than to a fixed column count:
+   six scripts on a laptop and two on a phone should both look deliberate. */
+.shop__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.card {
+  border: 1px solid var(--rule);
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1.25rem;
+  min-width: 0;
+}
+
+.card__head { margin-bottom: 0.5rem; }
+.card__head h3 { margin: 0; font-size: 1.125rem; letter-spacing: -0.01em; }
+
+.card__by {
+  margin: 0.15rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--dim);
+}
+
+.card__summary { margin: 0 0 0.85rem; color: var(--ink); }
+
+.card__tags {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.card__tags li {
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  color: var(--dim);
+  border: 1px solid var(--rule);
+  padding: 0.1rem 0.45rem;
+}
+
+/* Collapsed by default. Six scripts fully expanded is a page of six hundred
+   lines of Berry, which is a listing nobody can scan - and scanning is the
+   only thing somebody arriving here is trying to do. */
+.card__source summary {
+  cursor: pointer;
+  color: var(--cyan);
+  font-size: 0.875rem;
+  margin-bottom: 0.6rem;
+}
+
+.card__source pre {
+  margin: 0 0 0.75rem;
+  padding: 0.85rem;
+  background: var(--void);
+  border: 1px solid var(--rule);
+  overflow-x: auto;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  /* Code wraps badly and Berry's blocks are read by their indentation, so it
+     scrolls instead. */
+  white-space: pre;
+}
+
+.card__source code { color: var(--ink); font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+.card__get { margin: 0; font-size: 0.8125rem; color: var(--dim); }
+
+.shop__submit {
+  margin-top: clamp(2.5rem, 6vw, 4rem);
+  padding-top: clamp(2rem, 4vw, 3rem);
+  border-top: 1px solid var(--rule);
+}
+
+.shop__submit h2 { font-size: 1.5rem; letter-spacing: -0.01em; margin: 0 0 0.8em; }
+
+.foot {
+  padding: 2rem var(--pad) 3rem;
+  border-top: 1px solid var(--rule);
+  color: var(--dim);
+  font-size: 0.8125rem;
+}

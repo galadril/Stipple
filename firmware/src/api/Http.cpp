@@ -188,6 +188,7 @@ RouteMatch matchRoute(std::string_view path) {
         else if (head == "apps") match.resource = Resource::AppCollection;
         else if (head == "notifications") match.resource = Resource::NotificationCollection;
         else if (head == "assets") match.resource = Resource::AssetCollection;
+        else if (head == "scripts") match.resource = Resource::ScriptCollection;
         else if (head == "settings") match.resource = Resource::Settings;
         else if (head == "input") match.resource = Resource::Input;
         else if (head == "network") match.resource = Resource::Network;
@@ -231,6 +232,11 @@ RouteMatch matchRoute(std::string_view path) {
         }
         if (head == "assets") {
             match.resource = Resource::AssetItem;
+            match.id = std::string(parts[3]);
+            return match;
+        }
+        if (head == "scripts") {
+            match.resource = Resource::ScriptItem;
             match.id = std::string(parts[3]);
             return match;
         }

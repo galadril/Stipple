@@ -16,6 +16,7 @@
 #include <string>
 
 #include "stipple/host/ApplicationHost.h"
+#include "stipple/script/ScriptStore.h"
 #include "stipple/platform/simulator/SimulatorPlatform.h"
 
 namespace {
@@ -100,6 +101,12 @@ struct Emulator {
     /// device rather than a half-reset one. ApplicationHost has no reset of its
     /// own by design — a device reboots, it does not re-initialise in place.
     std::unique_ptr<stipple::host::ApplicationHost> host;
+
+    /// Rebuilt alongside the host, for the same reason: stipple_init has to
+    /// produce a genuinely fresh device, and a script library that survived
+    /// the power cycle would not be one.
+    std::unique_ptr<stipple::script::ScriptStore> scripts;
+
     int notifySequence = 0;
     std::string logLine;
 
@@ -149,6 +156,14 @@ EMSCRIPTEN_KEEPALIVE void stipple_init() {
     state.platform.simulatedNetwork().setStatus(network);
 
     state.device().initialize();
+
+    // The emulator runs the same interpreter the device does, so a script
+    // written here behaves the same way there. That is most of the point of
+    // having an emulator at all - and it means somebody can try the scripting
+    // in a browser before owning the hardware.
+    state.scripts = std::make_unique<stipple::script::ScriptStore>();
+    state.device().setScriptRunner(state.scripts.get());
+
     state.device().icons().put(builtInThermometer());
 
     for (const DemoApp& demo : kDemoApps) {

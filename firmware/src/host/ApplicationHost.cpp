@@ -6,6 +6,7 @@
 #include "stipple/apps/BatteryApp.h"
 #include "stipple/apps/StopwatchApp.h"
 #include "stipple/render/Overlay.h"
+#include "stipple/apps/Unavailable.h"
 #include "stipple/apps/VisualizerApp.h"
 
 #include "stipple/api/JsonWriter.h"
@@ -290,6 +291,107 @@ void ApplicationHost::loadIcons() {
     logger_.info(platform_.clock().monotonicMillis(), "icons loaded");
 }
 
+void ApplicationHost::publishScriptEnvironment() {
+    if (scripts_ == nullptr) {
+        return;
+    }
+
+    script::ScriptEnvironment environment;
+
+    const platform::ISystemClock& clock = platform_.clock();
+    environment.timeKnown = clock.wallClockValid();
+    if (environment.timeKnown) {
+        const std::int64_t local = clock.unixSeconds() + clock.utcOffsetSeconds();
+
+        // Floor division rather than truncation. Before 1970 a truncating
+        // divide lands on the wrong day - which nobody will ever see on this
+        // device, and which is still not a reason to write the subtly wrong
+        // one.
+        constexpr std::int64_t kSecondsPerDay = 86400;
+        std::int64_t secondsOfDay = local % kSecondsPerDay;
+        if (secondsOfDay < 0) {
+            secondsOfDay += kSecondsPerDay;
+        }
+        environment.hour = static_cast<int>(secondsOfDay / 3600);
+        environment.minute = static_cast<int>((secondsOfDay % 3600) / 60);
+        environment.second = static_cast<int>(secondsOfDay % 60);
+
+        // civilFromUnix works in UTC, so it gets the already-offset time -
+        // which is exactly the local civil date.
+        const timezone_::CivilDate date = timezone_::civilFromUnix(local);
+        environment.year = date.year;
+        environment.month = date.month;
+        environment.day = date.day;
+        environment.weekday = date.weekday;
+    }
+
+    if (platform::IPowerSource* power = platform_.power()) {
+        const platform::BatteryStatus battery = power->battery();
+        environment.batteryKnown = battery.known;
+        environment.batteryPercent = battery.percent;
+        environment.charging = battery.charging;
+    }
+
+    scripts_->setEnvironment(environment);
+}
+
+void ApplicationHost::setScriptRunner(script::IScriptRunner* runner) {
+    scripts_ = runner;
+
+    // The API gets the same one. Two places holding different answers to "can
+    // this device run scripts" is the kind of drift that shows up as an app on
+    // the panel the web UI insists does not exist.
+    apiServer_.setScriptRunner(runner);
+
+    if (runner == nullptr) {
+        return;
+    }
+
+    // Load here rather than in initialize(). The runner is owned outside the
+    // core and installed after the host is up, so at initialize() time there
+    // is nothing to load into - and a script library that only appeared after
+    // the next reboot would look exactly like one that had not saved.
+    loadScripts();
+    persistedScriptRevision_ = runner->revision();
+}
+
+void ApplicationHost::loadScripts() {
+    if (scripts_ == nullptr || bootMode_ != BootMode::Normal) {
+        return;  // safe mode deliberately runs nothing that arrived over the network
+    }
+
+    std::string blob;
+    if (!platform_.storage().read(kScriptStateKey, blob)) {
+        return;  // nothing stored yet
+    }
+
+    if (!scripts_->deserialize(blob)) {
+        // Same reasoning as icons: corrupt data must not stop the device
+        // starting, and dropping the key keeps one bad write from looking like
+        // an intermittent fault every boot after.
+        logger_.warn(platform_.clock().monotonicMillis(),
+                     "stored scripts unreadable; discarding them");
+        platform_.storage().remove(kScriptStateKey);
+        return;
+    }
+    logger_.info(platform_.clock().monotonicMillis(), "scripts loaded");
+}
+
+void ApplicationHost::persistScriptsIfChanged() {
+    if (scripts_ == nullptr || scripts_->revision() == persistedScriptRevision_) {
+        return;
+    }
+    persistedScriptRevision_ = scripts_->revision();
+
+    if (scripts_->count() == 0) {
+        platform_.storage().remove(kScriptStateKey);
+        return;
+    }
+    if (!platform_.storage().write(kScriptStateKey, scripts_->serialize())) {
+        logger_.error(lastTickMillis_, "could not persist scripts");
+    }
+}
+
 void ApplicationHost::persistIconsIfChanged() {
     if (icons_.revision() == persistedIconRevision_) {
         return;
@@ -412,6 +514,32 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
                 stopwatch_.press(lastTickMillis_);
                 scheduler_.invalidate();
                 break;
+            }
+            // A script gets the press for the same reason the stopwatch does:
+            // this is the only control an app is given, and for an app that
+            // wants one, pausing the carousel is not what it is for.
+            //
+            // Only if the script actually has an on_button. One that does not
+            // must let the press fall through - a script that silently
+            // swallowed the only button would be an app you could not pause
+            // and would look like a device that had stopped responding.
+            //
+            // The knob is deliberately not offered. It is how somebody moves
+            // between apps, and a script that took it would be a script you
+            // could not leave.
+            //
+            // "select" rather than "action", because that is the name the
+            // scripts people have already written test for. The point of
+            // matching the documented interface is that their scripts run
+            // here unchanged, and a different word for the only button would
+            // undo most of that for the sake of a nicer noun.
+            if (scripts_ != nullptr) {
+                if (const app::App* active = carousel_.active();
+                    active != nullptr && active->builtin == app::Builtin::Script &&
+                    scripts_->button(active->id, "select")) {
+                    scheduler_.invalidate();
+                    break;
+                }
             }
             carousel_.setPaused(!carousel_.paused());
             break;
@@ -1139,7 +1267,12 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
     }
 
     pumpInput(nowMillis);
+    // Before anything renders, so a script and the clock app beside it never
+    // disagree about what time it is within one frame.
+    publishScriptEnvironment();
+
     persistIconsIfChanged();
+    persistScriptsIfChanged();
     persistAppOrderIfChanged();
     applyCarouselSettings();
     applyTimeSettings();
@@ -1350,6 +1483,12 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
                     if ((nowMillis / 1000u) != (lastClockMillis_ / 1000u)) {
                         scheduler_.invalidate();
                     }
+                } else if (active->builtin == app::Builtin::Script) {
+                    // A script gets the frame time and may use it, and there
+                    // is no way to know whether it did. Dirty tracking needs
+                    // the content to declare that it moves; a script cannot,
+                    // so the safe answer is that it always might.
+                    scheduler_.invalidate();
                 } else if (active->builtin == app::Builtin::Clock) {
                     if (apps::clockChanged(platform_.clock(), clockStyle(),
                                            lastClockMillis_, nowMillis)) {
@@ -1693,6 +1832,25 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
         case app::Builtin::TestPattern:
             demo::drawTestPattern(canvas, static_cast<int>(nowMillis / 33u));
             return;
+        case app::Builtin::Script: {
+            // A script app whose script cannot run says so. Going black would
+            // be indistinguishable from a script that draws nothing, from a
+            // crashed device, and from a panel with a dead row - and the
+            // author is the one person who can fix it and the one person who
+            // would be left guessing. ADR 0013.
+            if (scripts_ == nullptr) {
+                apps::renderUnavailable(canvas, "NO", "SCRIPTS");
+                return;
+            }
+            if (scripts_->draw(active->id, canvas, carousel_.dwellMillis(nowMillis))) {
+                return;
+            }
+            // The reason does not fit on 52 pixels and is not thrown away -
+            // it is in the script's `problem`, which the API and the web UI
+            // both show next to the code that caused it.
+            apps::renderUnavailable(canvas, "SCRIPT", scripts_->has(active->id) ? "ERROR" : "?");
+            return;
+        }
         case app::Builtin::None:
             break;
     }

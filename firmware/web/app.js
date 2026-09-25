@@ -1665,6 +1665,7 @@
             // configuration page instead of running.
             return loadApps().then(loadIcons).catch(fail);
         }
+        if (activePanel === 'panel-scripts') { return loadScripts().catch(fail); }
         if (activePanel === 'panel-notify') { return loadNotifications().catch(fail); }
         if (activePanel === 'panel-logs') { return loadLogs().catch(fail); }
         // Refreshed when the tab is open rather than on its own timer. A scan
@@ -1675,6 +1676,263 @@
             return loadNetwork().catch(function () {});
         }
         return Promise.resolve();
+    }
+
+
+    // --- the script editor ---------------------------------------------------
+
+    // The id of the script in the editor, or null for one that has not been
+    // saved yet. Kept rather than read back off the id field, because the
+    // field is editable and a rename is a new script - the difference between
+    // "save this" and "save a copy of this" is exactly this variable.
+    var editingId = null;
+    var scriptDirty = false;
+    var scriptMaxBytes = 16 * 1024;
+
+    // What a new script starts as. Something that draws, so the first save
+    // puts pixels on the panel rather than a blank app and a shrug - and so
+    // the shape of the thing (a class, a draw(), a return) is shown rather
+    // than described.
+    var SCRIPT_TEMPLATE = [
+        '# Runs once per frame while this app is on screen.',
+        '#',
+        '# The panel is 52x16. now_ms() is milliseconds since the app',
+        '# appeared, so animation starts from zero each time it comes round.',
+        '',
+        'class App',
+        '  def draw()',
+        '    clear(rgb(0, 0, 0))',
+        '',
+        '    var t = now_ms() / 40',
+        '    var x = t % width()',
+        '',
+        '    text(2, 1, "hello", rgb(0, 190, 255))',
+        '    rect_fill(x, height() - 3, 3, 3, rgb(255, 160, 0))',
+        '  end',
+        'end',
+        '',
+        'return App()',
+        ''
+    ].join('\n');
+
+    function showProblem(text) {
+        var box = $('script-problem');
+        if (!box) { return; }
+        if (text) {
+            box.textContent = text;
+            box.hidden = false;
+        } else {
+            box.textContent = '';
+            box.hidden = true;
+        }
+    }
+
+    function updateScriptBytes() {
+        var source = $('script-source');
+        var label = $('script-bytes');
+        if (!source || !label) { return; }
+        // Bytes, not characters. The device's limit is a byte count and a
+        // comment with an emoji in it costs four of them, so counting
+        // characters would promise room that is not there.
+        var used = new TextEncoder().encode(source.value).length;
+        label.textContent = used + ' of ' + scriptMaxBytes + ' bytes' +
+            (scriptDirty ? ' — unsaved' : '');
+    }
+
+    function markScriptDirty() {
+        scriptDirty = true;
+        updateScriptBytes();
+    }
+
+    function highlightSelectedScript() {
+        var list = $('script-list');
+        if (!list) { return; }
+        Array.prototype.forEach.call(list.children, function (row) {
+            row.className = row.getAttribute('data-id') === editingId ? 'selected' : '';
+        });
+    }
+
+    // entry is null for a script that does not exist yet.
+    function openScript(entry) {
+        editingId = entry ? entry.id : null;
+        $('script-id').value = entry ? entry.id : '';
+        // An id is part of the app's identity in the carousel and in storage.
+        // Changing it in place would silently orphan both, so an existing
+        // script's id is fixed and a rename is a save under a new one.
+        $('script-id').readOnly = !!entry;
+        $('script-name').value = entry ? (entry.name || '') : '';
+        $('script-source').value = entry ? (entry.source || '') : SCRIPT_TEMPLATE;
+        scriptDirty = !entry;
+        showProblem(entry ? entry.problem : '');
+        updateScriptBytes();
+        highlightSelectedScript();
+    }
+
+    function loadScripts() {
+        return send('GET', '/api/v1/scripts').then(function (result) {
+            var list = $('script-list');
+            if (!list) { return; }
+            list.textContent = '';
+
+            var scripts = result.scripts || [];
+            if (result.maxSourceBytes) { scriptMaxBytes = result.maxSourceBytes; }
+
+            var budget = $('script-budget');
+            if (budget) {
+                budget.textContent = scripts.length
+                    ? scripts.length + ' of ' + (result.capacity || '?') + ' used, ' +
+                      Math.round((result.memoryBytes || 0) / 1024) + ' KB of interpreter'
+                    : 'none yet';
+            }
+
+            scripts.forEach(function (entry) {
+                var row = el('li');
+                row.setAttribute('data-id', entry.id);
+
+                var body = el('div', 'grow');
+                body.appendChild(el('span', 'name', entry.name || entry.id));
+                body.appendChild(el('span', 'sub', entry.id));
+
+                // Green for running, red for not. The message itself is too
+                // long for a list this narrow and lives in the editor instead,
+                // next to the code that caused it.
+                var flag = el('span', 'flag ' + (entry.ok ? 'good' : 'bad'), '●');
+                flag.title = entry.ok ? 'Running' : (entry.problem || 'Not running');
+
+                row.appendChild(body);
+                row.appendChild(flag);
+                row.addEventListener('click', function () { selectScript(entry.id); });
+                list.appendChild(row);
+            });
+
+            highlightSelectedScript();
+            updateScriptBytes();
+        });
+    }
+
+    function selectScript(id) {
+        if (id === editingId) { return; }
+        if (scriptDirty && !confirm('Discard the unsaved changes to this script?')) {
+            return;
+        }
+        // The collection carries no source, on purpose - sixteen scripts of
+        // 16 KB would be a quarter of a megabyte per list request. One
+        // script's text is fetched when somebody opens it.
+        send('GET', '/api/v1/scripts/' + encodeURIComponent(id))
+            .then(openScript)
+            .catch(fail);
+    }
+
+    function saveScript() {
+        var id = ($('script-id').value || '').trim();
+        if (!id) {
+            toast('A script needs an id');
+            $('script-id').focus();
+            return;
+        }
+
+        var payload = {
+            id: id,
+            name: ($('script-name').value || '').trim() || id,
+            source: $('script-source').value
+        };
+
+        send('POST', '/api/v1/scripts', payload)
+            .then(function (result) {
+                editingId = result.id;
+                $('script-id').readOnly = true;
+                scriptDirty = false;
+
+                // Saving something that does not compile is a success, not a
+                // failure: the device stores it so the work is not lost. So
+                // this says what happened rather than reporting an error the
+                // request did not return.
+                if (result.ok) {
+                    showProblem('');
+                    toast(result.id + ' saved and running');
+                } else {
+                    showProblem(result.problem || 'It does not compile.');
+                    toast(result.id + ' saved, but it does not run');
+                }
+                return loadScripts();
+            })
+            .catch(fail);
+    }
+
+    function deleteScript() {
+        if (!editingId) {
+            openScript(null);
+            return;
+        }
+        if (!confirm('Delete the script "' + editingId + '"? Its app goes too.')) {
+            return;
+        }
+        var id = editingId;
+        send('DELETE', '/api/v1/scripts/' + encodeURIComponent(id))
+            .then(function () {
+                toast(id + ' deleted');
+                openScript(null);
+                return loadScripts();
+            })
+            .catch(fail);
+    }
+
+    function wireScripts() {
+        var source = $('script-source');
+        if (source) {
+            source.addEventListener('input', markScriptDirty);
+
+            // Tab indents instead of leaving the field. The one thing a plain
+            // textarea gets wrong for code, and the fix is six lines.
+            source.addEventListener('keydown', function (event) {
+                if (event.key !== 'Tab' || event.ctrlKey || event.altKey) { return; }
+                event.preventDefault();
+                var start = source.selectionStart;
+                var end = source.selectionEnd;
+                source.value = source.value.slice(0, start) + '  ' + source.value.slice(end);
+                source.selectionStart = start + 2;
+                source.selectionEnd = start + 2;
+                markScriptDirty();
+            });
+        }
+
+        var idField = $('script-id');
+        if (idField) {
+            // Corrected as it is typed rather than rejected on save. The
+            // device's rule is narrow, and somebody typing "My Script" should
+            // find out now rather than after losing a round trip to it.
+            idField.addEventListener('input', function () {
+                var cleaned = idField.value.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+                if (cleaned !== idField.value) {
+                    var at = idField.selectionStart;
+                    idField.value = cleaned;
+                    idField.selectionStart = at;
+                    idField.selectionEnd = at;
+                }
+            });
+        }
+
+        var name = $('script-name');
+        if (name) { name.addEventListener('input', markScriptDirty); }
+
+        var add = $('script-new');
+        if (add) {
+            add.addEventListener('click', function () {
+                if (scriptDirty && !confirm('Discard the unsaved changes to this script?')) {
+                    return;
+                }
+                openScript(null);
+                $('script-id').focus();
+            });
+        }
+
+        var save = $('script-save');
+        if (save) { save.addEventListener('click', saveScript); }
+
+        var remove = $('script-delete');
+        if (remove) { remove.addEventListener('click', deleteScript); }
+
+        openScript(null);
     }
 
     // --- live view and on-screen controls -----------------------------------
@@ -2417,6 +2675,7 @@
         wireNotify();
         wireMqtt();
         wireIcons();
+        wireScripts();
         wireReboot();
         wireMaintenance();
         wireNetwork();

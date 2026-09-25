@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scripts — Stipple</title>
+<meta name="description" content="Berry scripts for the Stipple firmware. Every one is compiled and run by the test suite before it is published.">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../stipple.css">
+<link rel="stylesheet" href="shop.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <a class="bar__brand" href="../">
+    <span class="bar__mark" aria-hidden="true"></span>
+    <span class="bar__name">Stipple</span>
+  </a>
+  <nav class="bar__nav" aria-label="Main">
+    <a href="../emulator/">Emulator</a>
+    <a href="../#install">Install</a>
+    <a href="../api/">API</a>
+    <a href="https://github.com/galadril/Stipple">Source</a>
+  </nav>
+</header>
+
+<main id="main" class="shop">
+
+  <section class="shop__lede">
+    <h1>Scripts</h1>
+    <p>
+      A script is a Berry class with a <code>draw()</code> method. It runs on
+      the device, inside a sandbox with no filesystem and no loader, under a
+      budget that stops a runaway loop costing anything more than its own
+      frame.
+    </p>
+    <p>
+      Copy one into <strong>Scripts</strong> in your device's web page and
+      save. It joins the carousel immediately. Or try it in the
+      <a href="../emulator/">emulator</a> first &mdash; that runs the same
+      interpreter, so what you see there is what the panel does.
+    </p>
+    <p class="shop__gate">
+      Every script here is compiled and run by the test suite before it is
+      published: ninety frames on a real 52&nbsp;&times;&nbsp;16 framebuffer,
+      buttons pressed, then six hundred more frames checked for leaks. Nothing
+      reaches this page without surviving that.
+    </p>
+  </section>
+
+  <section class="shop__grid">
+
+      <article class="card" id="battery">
+        <header class="card__head">
+          <h3>Battery</h3>
+          <p class="card__by">Stipple · 57 lines</p>
+        </header>
+        <p class="card__summary">Charge as a gauge, and nothing at all when there is no battery to report.</p>
+        <ul class="card__tags"><li>status</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Battery
+# summary: Charge as a gauge, and nothing at all when there is no battery to report.
+# author: Stipple
+# tags: status
+# panel: 52x16
+
+import string
+
+class App
+  def draw()
+    clear(rgb(0, 0, 0))
+
+    # The point of this script, and the reason it is in the examples: a device
+    # with no battery and a device with a flat one are not the same thing, and
+    # an empty gauge would show them as identical. Say which it is.
+    if !battery_known()
+      text(4, 5, &quot;no battery&quot;, rgb(120, 120, 120))
+      return
+    end
+
+    var percent = battery()
+
+    # Red under a fifth, amber under a half, green above. The thresholds are
+    # where somebody&#x27;s behaviour changes, not evenly spaced.
+    var colour = rgb(0, 200, 80)
+    if percent &lt; 20
+      colour = rgb(240, 60, 60)
+    elif percent &lt; 50
+      colour = rgb(240, 170, 0)
+    end
+
+    # A battery outline, drawn as one: the shape says what the number means
+    # without needing a label for it.
+    rect(0, 3, 34, 10, rgb(70, 70, 70))
+    rect_fill(34, 6, 2, 4, rgb(70, 70, 70))
+
+    var filled = (percent * 30) / 100
+    if filled &gt; 0
+      rect_fill(2, 5, filled, 6, colour)
+    end
+
+    # The number itself, right-aligned so 9, 64 and 100 all end in the same
+    # place instead of drifting.
+    var label = string.format(&quot;%d&quot;, percent)
+    text(width() - text_width(label), 4, label, rgb(170, 170, 170))
+
+    if charging()
+      # A bolt would be four pixels of mush at this size. A block that blinks
+      # says the same thing and survives the resolution.
+      if (now_ms() / 500) % 2 == 0
+        rect_fill(15, 6, 4, 4, rgb(255, 255, 255))
+      end
+    end
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/battery.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/battery.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="big-clock">
+        <header class="card__head">
+          <h3>Big Clock</h3>
+          <p class="card__by">Stipple · 50 lines</p>
+        </header>
+        <p class="card__summary">The time across the full width, with a bar that fills over the minute.</p>
+        <ul class="card__tags"><li>clock</li><li>time</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Big Clock
+# summary: The time across the full width, with a bar that fills over the minute.
+# author: Stipple
+# tags: clock, time
+# panel: 52x16
+
+# Written for 52x16. A TC001 script would centre HH:MM in 32 pixels and stop
+# there; here there is room for the time, the seconds, the date and a minute
+# bar at once, which is most of the reason the wider panel is worth having.
+#
+# The 5x7 font advances six pixels per character, so a line holds eight. Every
+# position below is chosen against that: nothing is centred by eye, because
+# anything that overruns is silently clipped rather than wrapped and you only
+# find out by looking at the panel.
+
+import string
+
+class App
+  def draw()
+    clear(rgb(0, 0, 0))
+
+    # A device that has not synchronised its clock does not have a time, and
+    # drawing 00:00 would be inventing one.
+    if !time_known()
+      text(8, 5, &quot;no time&quot;, rgb(180, 60, 60))
+      return
+    end
+
+    # &quot;14:37&quot; is five characters: 1 to 31.
+    text(1, 0, string.format(&quot;%02d:%02d&quot;, hour(), minute()), rgb(255, 255, 255))
+
+    # Seconds beside it, dim, 34 to 46. They move constantly and would pull
+    # the eye off the digits that matter if they were the same weight.
+    text(34, 0, string.format(&quot;%02d&quot;, second()), rgb(0, 110, 160))
+
+    # &quot;09.11&quot; is five characters again: 1 to 31, under the time.
+    text(1, 9, string.format(&quot;%02d.%02d&quot;, day(), month()), rgb(95, 95, 95))
+
+    # The minute as a bar, in the 19 pixels left at the bottom right. It is
+    # the one thing on a clock slow enough to watch, and a bar reads at a
+    # glance where a pair of digits does not.
+    rect(33, 10, 19, 5, rgb(28, 28, 28))
+    var filled = (second() * 17) / 60
+    if filled &gt; 0
+      rect_fill(34, 11, filled, 3, rgb(0, 190, 255))
+    end
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/big-clock.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/big-clock.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="binary-clock">
+        <header class="card__head">
+          <h3>Binary Clock</h3>
+          <p class="card__by">Stipple · 48 lines</p>
+        </header>
+        <p class="card__summary">Hours, minutes and seconds in columns of bits.</p>
+        <ul class="card__tags"><li>clock</li><li>time</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Binary Clock
+# summary: Hours, minutes and seconds in columns of bits.
+# author: Stipple
+# tags: clock, time
+# panel: 52x16
+
+# Wants a wide panel. Six columns of bits with air between them needs about
+# forty-six pixels, which is why this was never a TC001 app.
+
+class App
+  # One column of bits, least significant at the bottom - the way a binary
+  # clock is read everywhere, and the opposite of how you would write it.
+  def column(x, value, bits, colour)
+    for bit : 0 .. bits - 1
+      var y = 13 - bit * 3
+      if (value &gt;&gt; bit) % 2 == 1
+        rect_fill(x, y, 3, 3, colour)
+      else
+        # Unlit bits are drawn, not left black. Without them the lit ones
+        # float with nothing to count against, and a binary clock you cannot
+        # count is just some squares.
+        rect(x, y, 3, 3, rgb(34, 34, 34))
+      end
+    end
+  end
+
+  def pair(x, value, colour)
+    self.column(x, value / 10, 3, colour)
+    self.column(x + 5, value % 10, 4, colour)
+  end
+
+  def draw()
+    clear(rgb(0, 0, 0))
+
+    if !time_known()
+      text(8, 5, &quot;no time&quot;, rgb(180, 60, 60))
+      return
+    end
+
+    # 3 to 11, 21 to 29, 39 to 47. Wide gaps, because the grouping into
+    # hours, minutes and seconds is the only thing making this readable.
+    self.pair(3, hour(), rgb(255, 80, 80))
+    self.pair(21, minute(), rgb(80, 255, 120))
+    self.pair(39, second(), rgb(80, 150, 255))
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/binary-clock.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/binary-clock.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="day-progress">
+        <header class="card__head">
+          <h3>Day Progress</h3>
+          <p class="card__by">Stipple · 46 lines</p>
+        </header>
+        <p class="card__summary">How much of the day has gone, as a bar you can read from across a room.</p>
+        <ul class="card__tags"><li>time</li><li>ambient</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Day Progress
+# summary: How much of the day has gone, as a bar you can read from across a room.
+# author: Stipple
+# tags: time, ambient
+# panel: 52x16
+
+import string
+
+class App
+  def draw()
+    clear(rgb(0, 0, 0))
+
+    if !time_known()
+      text(8, 5, &quot;no time&quot;, rgb(180, 60, 60))
+      return
+    end
+
+    var minutes = hour() * 60 + minute()
+    var through = (minutes * width()) / 1440
+
+    # &quot;14:37&quot;, five characters: 1 to 31.
+    text(1, 0, string.format(&quot;%02d:%02d&quot;, hour(), minute()), rgb(210, 210, 210))
+
+    # What is left, right-aligned by hand. &quot;23h59&quot; is the widest this gets at
+    # five characters, so it starts at 21 and ends at 51 - measured rather
+    # than guessed, because an overrun is clipped without complaint.
+    var left = 1440 - minutes
+    var remaining = string.format(&quot;%2dh%02d&quot;, left / 60, left % 60)
+    text(width() - text_width(remaining), 0, remaining, rgb(80, 80, 80))
+
+    # The bar cools as the day goes on: amber in the morning, blue by night.
+    # Not decoration - it is what makes this readable from the other side of a
+    # room, where the exact length of a bar is not. Both channels move
+    # together so the middle of the day is still a colour rather than the grey
+    # you get from crossfading one against the other.
+    var evening = (minutes * 255) / 1440
+    var colour = rgb(255 - evening, 90 + evening / 3, evening)
+
+    rect(0, 10, width(), 5, rgb(22, 22, 22))
+    if through &gt; 1
+      rect_fill(1, 11, through - 1, 3, colour)
+    end
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/day-progress.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/day-progress.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="flappy">
+        <header class="card__head">
+          <h3>Flappy</h3>
+          <p class="card__by">Stipple · 144 lines</p>
+        </header>
+        <p class="card__summary">One button, one pixel, gaps to fly through. Press to flap.</p>
+        <ul class="card__tags"><li>game</li><li>button</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Flappy
+# summary: One button, one pixel, gaps to fly through. Press to flap.
+# author: Stipple
+# tags: game, button
+# panel: 52x16
+
+# A 52x16 rebuild of the one-button pixel game. The original was written for a
+# 32x8 panel, where a gap is three pixels and the whole board is two jumps
+# wide; here there is room for a real gap, a readable score, and enough warning
+# of the next pipe to react to it. Same idea, not the same code.
+#
+# Positions are in hundredths of a pixel so gravity is not all-or-nothing: at
+# whole pixels the bird either hangs still or teleports, and there is no
+# setting in between that feels like flying.
+
+import math
+
+class App
+  var y, fall, pipeX, gapY, score, best, over, started
+
+  def init()
+    self.best = 0
+    self.reset()
+  end
+
+  def reset()
+    self.y = 600           # row 6, with room above and below
+    self.fall = 0
+    self.pipeX = width()
+    self.gapY = 5
+    self.score = 0
+    self.over = false
+
+    # Waits for the first press rather than starting the moment it appears.
+    #
+    # This app arrives by carousel: it rotates into view whether or not
+    # anybody is looking at it. A game that started immediately would already
+    # have killed you by the time you glanced up, and the first thing you ever
+    # saw of it would be a score of zero.
+    self.started = false
+  end
+
+  # The only control an app gets. Flap while playing, restart when dead.
+  def on_button(name)
+    if self.over
+      self.reset()
+      self.started = true
+      self.fall = -90
+    elif !self.started
+      self.started = true
+      self.fall = -90
+    else
+      # 0.9 px per frame upward against 0.08 of gravity: about eleven frames
+      # of rise, a little over four pixels. Tuned so a single tap clears a gap
+      # and a held rhythm holds height - the difference between a game and a
+      # twitch test.
+      self.fall = -90
+    end
+  end
+
+  def draw()
+    clear(rgb(0, 0, 0))
+
+    if self.over
+      text(2, 0, &quot;score &quot; + str(self.score), rgb(255, 255, 255))
+      text(2, 8, &quot;best &quot; + str(self.best), rgb(120, 120, 120))
+      return
+    end
+
+    if self.started
+      self.step()
+    end
+    self.draw_pipe()
+
+    if self.started
+      pixel(8, self.y / 100, rgb(255, 200, 0))
+    else
+      # Hovering, with a hint. The bird bobs so the screen does not look
+      # frozen - a still panel on a carousel reads as a crashed app.
+      var bob = (now_ms() / 250) % 2
+      pixel(8, self.y / 100 + bob, rgb(255, 200, 0))
+      text(14, 5, &quot;press&quot;, rgb(70, 70, 70))
+    end
+
+    # Score in the corner, dim enough not to compete with the bird.
+    text(44, 0, str(self.score % 10), rgb(45, 75, 45))
+  end
+
+  def step()
+    self.fall += 8
+    self.y += self.fall
+
+    # The ceiling stops you; the floor kills you. A game you cannot lose by
+    # doing nothing is not a game, and a ceiling that killed you would punish
+    # the one input the game has.
+    if self.y &lt; 0
+      self.y = 0
+      self.fall = 0
+    end
+    if self.y &gt; (height() - 1) * 100
+      self.finish()
+      return
+    end
+
+    self.pipeX -= 1
+    if self.pipeX &lt; -2
+      self.pipeX = width() + 6
+      # Gaps kept clear of the very top and bottom. One that needs a
+      # pixel-perfect hold on the first frame is not difficulty, it is a coin
+      # toss.
+      self.gapY = 2 + (math.rand() % (height() - 7))
+      self.score += 1
+    end
+
+    if self.pipeX &lt;= 9 &amp;&amp; self.pipeX &gt;= 7
+      var row = self.y / 100
+      if row &lt; self.gapY || row &gt; self.gapY + 4
+        self.finish()
+      end
+    end
+  end
+
+  def finish()
+    self.over = true
+    if self.score &gt; self.best
+      self.best = self.score
+    end
+  end
+
+  def draw_pipe()
+    if self.pipeX &lt; 0 || self.pipeX &gt;= width()
+      return
+    end
+    var green = rgb(0, 160, 60)
+    for y : 0 .. height() - 1
+      if y &lt; self.gapY || y &gt; self.gapY + 4
+        pixel(self.pipeX, y, green)
+        pixel(self.pipeX + 1, y, green)
+      end
+    end
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/flappy.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/flappy.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="starfield">
+        <header class="card__head">
+          <h3>Starfield</h3>
+          <p class="card__by">Stipple · 46 lines</p>
+        </header>
+        <p class="card__summary">Stars drifting past, at three depths. Quiet enough to leave on.</p>
+        <ul class="card__tags"><li>ambient</li><li>animation</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Starfield
+# summary: Stars drifting past, at three depths. Quiet enough to leave on.
+# author: Stipple
+# tags: ambient, animation
+# panel: 52x16
+
+import math
+
+class App
+  var xs, ys, speeds
+
+  def init()
+    self.xs = []
+    self.ys = []
+    self.speeds = []
+    # Twenty-four stars across 52 pixels is sparse enough to read as depth
+    # rather than as noise. On a 32-pixel panel the same count is a blizzard.
+    for i : 0 .. 23
+      self.xs.push(math.rand() % 52)
+      self.ys.push(math.rand() % 16)
+      self.speeds.push(1 + (i % 3))
+    end
+  end
+
+  def draw()
+    clear(rgb(0, 0, 0))
+
+    for i : 0 .. size(self.xs) - 1
+      # Nearer stars move faster and shine brighter. That pairing is the only
+      # thing doing the work here; either one alone reads as a flat sheet of
+      # moving dots.
+      var speed = self.speeds[i]
+      var x = self.xs[i] - speed
+      if x &lt; 0
+        x = width() - 1
+        self.ys[i] = math.rand() % height()
+      end
+      self.xs[i] = x
+
+      var level = 40 + speed * 70
+      pixel(x, self.ys[i], rgb(level, level, level))
+    end
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/starfield.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/starfield.be">Raw</a>
+        </p>
+      </article>
+
+  </section>
+
+  <section class="shop__submit">
+    <h2>Add one</h2>
+    <p>
+      Open a pull request that adds a <code>.be</code> file to
+      <a href="https://github.com/galadril/Stipple/tree/main/scripts">scripts/</a>
+      and a line naming it in
+      <code>firmware/tests/test_shop_scripts.cpp</code>. This page is built
+      from that directory, so there is nothing else to update.
+    </p>
+    <p>
+      Start the file with the header the others have &mdash;
+      <code>name</code>, <code>summary</code>, <code>author</code>,
+      <code>tags</code> &mdash; and the build will tell you if anything is
+      missing.
+    </p>
+    <p>
+      Two things the tests will hold you to, both learned the hard way. Text
+      that runs past pixel&nbsp;51 is clipped without complaint, so measure it
+      rather than centring by eye. And if your script shows the time or the
+      battery, check <code>time_known()</code> and
+      <code>battery_known()</code> first: a device that has never synchronised
+      its clock does not have a time, and drawing 00:00 invents one.
+    </p>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <p>
+    Stipple is GPL-3.0-or-later. Scripts here are published under the same
+    licence unless their header says otherwise.
+  </p>
+</footer>
+
+</body>
+</html>

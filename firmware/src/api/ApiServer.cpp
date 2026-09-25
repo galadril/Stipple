@@ -16,6 +16,7 @@
 #include "stipple/render/Overlay.h"
 #include "stipple/graphics/Framebuffer.h"
 #include "stipple/asset/IconStore.h"
+#include "stipple/script/IScriptRunner.h"
 #include "stipple/app/Carousel.h"
 #include "stipple/apps/ClockApp.h"
 #include "stipple/apps/VisualizerApp.h"
@@ -253,6 +254,8 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
         case Resource::NotificationItem:
             return handleNotificationItem(request, route.id, nowMillis);
         case Resource::AssetCollection: return handleAssetCollection(request);
+        case Resource::ScriptCollection: return handleScriptCollection(request);
+        case Resource::ScriptItem: return handleScriptItem(request, route.id);
         case Resource::AssetItem: return handleAssetItem(request, route.id);
         case Resource::Settings: return handleSettings(request);
         case Resource::SystemReboot: return handleReboot(request);
@@ -1219,6 +1222,200 @@ Response ApiServer::handleAssetItem(const Request& request, const std::string& i
     }
     if (!context_.icons->remove(id)) {
         return notFound("no such icon");
+    }
+    return noContent();
+}
+
+// --- scripts -----------------------------------------------------------------
+
+namespace {
+
+/// A script, as JSON.
+///
+/// `source` is omitted from the collection on purpose. Sixteen scripts at up
+/// to 16 KB each would make a list request answer with a quarter of a megabyte
+/// on a device with 36 MB of RAM, and the list is what the web UI asks for
+/// every time somebody opens the scripts panel. The editor fetches one script
+/// at a time, which is also the only time anyone needs the text.
+void writeScript(JsonWriter& writer, const script::Script& entry, bool withSource) {
+    writer.beginObject();
+    writer.member("id", entry.id);
+    writer.member("name", entry.name);
+    writer.member("ok", entry.ok);
+
+    // Always present, empty when fine. A caller should not have to tell the
+    // difference between "no problem" and "the field is missing because this
+    // firmware does not report problems".
+    writer.member("problem", entry.problem);
+
+    writer.member("bytes", static_cast<std::int64_t>(entry.source.size()));
+    writer.member("lastInstructions", static_cast<std::int64_t>(entry.lastInstructions));
+    writer.member("memoryBytes", static_cast<std::int64_t>(entry.memoryBytes));
+    if (withSource) {
+        writer.member("source", entry.source);
+    }
+    writer.endObject();
+}
+
+Response noScripting() {
+    // Not a 500. The device is working exactly as built; it simply has no
+    // interpreter in it, and saying "internal error" would send somebody
+    // looking for a fault that is not there.
+    return error(501, "unsupported", "this firmware was built without scripting");
+}
+
+}  // namespace
+
+Response ApiServer::handleScriptCollection(const Request& request) {
+    if (context_.scripts == nullptr) {
+        return noScripting();
+    }
+
+    if (request.method == Method::Get) {
+        JsonWriter writer;
+        writer.beginObject().key("scripts").beginArray();
+        for (int i = 0; i < context_.scripts->count(); ++i) {
+            writeScript(writer, *context_.scripts->at(i), /*withSource=*/false);
+        }
+        writer.endArray();
+        writer.member("count", context_.scripts->count());
+        writer.member("capacity", context_.scripts->capacity());
+        // So the editor can refuse an over-long paste before it is sent,
+        // rather than after the author has lost it to a 422.
+        writer.member("maxSourceBytes",
+                      static_cast<std::int64_t>(context_.scripts->maxSourceBytes()));
+        writer.member("memoryBytes",
+                      static_cast<std::int64_t>(context_.scripts->memoryBytes()));
+        writer.endObject();
+        return ok(writer.take());
+    }
+
+    if (request.method == Method::Delete) {
+        context_.scripts->clear();
+        return noContent();
+    }
+
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+
+    Body body(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+    if (!body.valid()) {
+        return badRequest(std::string("invalid JSON: ") + body.errorText());
+    }
+    const json::Value root = body.root();
+    if (!root.isObject()) {
+        return badRequest("body must be a JSON object");
+    }
+
+    const std::string id = root["id"].toString();
+    std::string name = root["name"].toString();
+    if (name.empty()) {
+        name = id;
+    }
+    const json::Value source = root["source"];
+    if (!source.isString()) {
+        return unprocessable("'source' must be a string");
+    }
+
+    // Asked before the put, because ScriptPutResult collapses added and
+    // replaced into DidNotCompile when the source is broken - and a script
+    // that did not exist a moment ago was created, whether or not it
+    // compiles. Reading the status off the enum alone answered 200 for a new
+    // resource, which is a lie about what just happened.
+    const bool existed = context_.scripts->find(id) != nullptr;
+
+    const script::ScriptPutResult result =
+        context_.scripts->put(id, std::move(name), source.toString());
+
+    switch (result) {
+        case script::ScriptPutResult::Added:
+        case script::ScriptPutResult::Replaced:
+        case script::ScriptPutResult::DidNotCompile:
+            // DidNotCompile is a success. The source is stored, and the
+            // response carries `ok:false` and the compiler's message so the
+            // editor can put a marker on the line that caused it. Failing the
+            // request would mean the device refuses to hold work in progress,
+            // which is most of what an editor holds.
+            break;
+        case script::ScriptPutResult::InvalidId:
+        case script::ScriptPutResult::SourceTooLarge:
+            return unprocessable(script::describeScriptPut(result));
+        case script::ScriptPutResult::TooManyScripts:
+            return conflict(script::describeScriptPut(result));
+    }
+
+    const script::Script* stored = context_.scripts->find(id);
+    if (stored == nullptr) {
+        return serverError("the script was accepted but cannot be read back");
+    }
+
+    // A script is an app. Writing one puts it in the carousel.
+    //
+    // Done here rather than left to the caller because otherwise every client
+    // would have to know the convention, and one that did not would leave the
+    // author with a saved script that never appears on the panel and no
+    // indication why. Two calls that must always be made together are better
+    // made as one.
+    //
+    // Only when the app is absent. A replacement would reset the position,
+    // the duration and the enabled switch, so editing a script would silently
+    // undo the carousel arrangement around it.
+    if (context_.apps != nullptr && context_.apps->find(id) == nullptr) {
+        app::App entry;
+        entry.id = id;
+        entry.name = stored->name;
+        entry.builtin = app::Builtin::Script;
+        entry.source = app::AppSource::Local;
+
+        // A script with a duration() gets what it asked for, rounded to whole
+        // seconds because that is what the carousel deals in. Only on the
+        // first save: after that it is the user's setting, and a script
+        // overwriting it on every edit would undo a choice they made on
+        // purpose. The script declares a default, not a policy.
+        const std::uint32_t wanted = context_.scripts->durationMillis(id);
+        if (wanted > 0) {
+            entry.durationSeconds = static_cast<int>((wanted + 999u) / 1000u);
+        }
+
+        context_.apps->put(std::move(entry));
+    }
+
+    JsonWriter writer;
+    writeScript(writer, *stored, /*withSource=*/false);
+    return existed ? ok(writer.take()) : created(writer.take());
+}
+
+Response ApiServer::handleScriptItem(const Request& request, const std::string& id) {
+    if (context_.scripts == nullptr) {
+        return noScripting();
+    }
+
+    if (request.method == Method::Get) {
+        const script::Script* entry = context_.scripts->find(id);
+        if (entry == nullptr) {
+            return notFound("no such script");
+        }
+        JsonWriter writer;
+        writeScript(writer, *entry, /*withSource=*/true);
+        return ok(writer.take());
+    }
+
+    if (request.method != Method::Delete) {
+        return methodNotAllowed();
+    }
+    if (!context_.scripts->remove(id)) {
+        return notFound("no such script");
+    }
+
+    // And its app goes with it, for the same reason it arrived with it. An app
+    // left behind would show SCRIPT ? for ever, which is honest but is not
+    // what anybody deleting a script meant to happen.
+    if (context_.apps != nullptr) {
+        const app::App* entry = context_.apps->find(id);
+        if (entry != nullptr && entry->builtin == app::Builtin::Script) {
+            context_.apps->remove(id);
+        }
     }
     return noContent();
 }

@@ -25,6 +25,7 @@
 <nav class="tabs" role="tablist">
     <button class="tab" data-panel="panel-display" role="tab" type="button">Display</button>
     <button class="tab" data-panel="panel-apps" role="tab" type="button">Apps</button>
+    <button class="tab" data-panel="panel-scripts" role="tab" type="button">Scripts</button>
     <button class="tab" data-panel="panel-notify" role="tab" type="button">Notify</button>
     <button class="tab" data-panel="panel-mqtt" role="tab" type="button">MQTT</button>
     <button class="tab" data-panel="panel-system" role="tab" type="button">System</button>
@@ -223,6 +224,70 @@
         <span class="muted" id="icon-budget">&ndash;</span>
     </div>
     <ul class="list" id="icon-list"></ul>
+</section>
+
+<section class="panel" id="panel-scripts">
+    <h2>Scripts</h2>
+    <!-- A script is a Berry class with a draw() method. It runs in a sandbox
+         with no filesystem, no dynamic loader and no bytecode reader, under a
+         per-frame instruction budget: a script that loops for ever loses its
+         frame, not the panel. Saving one puts it in the carousel. -->
+    <p class="help">
+        Berry. A class with a <code>draw()</code> method, ending in
+        <code>return YourClass()</code>. Saving adds it to the carousel; the
+        panel updates as soon as you save.
+    </p>
+
+    <div class="editor">
+        <div class="editor-side">
+            <div class="toolbar">
+                <button class="btn" id="script-new" type="button">New script</button>
+            </div>
+            <ul class="list" id="script-list"></ul>
+            <p class="muted" id="script-budget">&ndash;</p>
+        </div>
+
+        <div class="editor-main">
+            <div class="row">
+                <div class="field">
+                    <label for="script-id">Id</label>
+                    <input type="text" id="script-id" spellcheck="false"
+                           placeholder="my-script" maxlength="48">
+                    <p class="help">
+                        Lowercase letters, digits, dashes and underscores. It
+                        cannot be changed later &mdash; saving under a new id
+                        makes a second script.
+                    </p>
+                </div>
+                <div class="field">
+                    <label for="script-name">Name</label>
+                    <input type="text" id="script-name" maxlength="64"
+                           placeholder="Shown in the app list">
+                </div>
+            </div>
+
+            <!-- A plain textarea, deliberately. A syntax-highlighting editor
+                 means shipping one, and this page is compiled into the
+                 firmware of a device with 36 MB of RAM - see
+                 cmake/EmbedWebAssets.cmake. Tab inserts a tab, which is the
+                 one thing a textarea gets wrong for code. -->
+            <label for="script-source" class="sr-only">Source</label>
+            <textarea id="script-source" class="code" spellcheck="false"
+                      autocapitalize="off" autocomplete="off"
+                      rows="18" wrap="off"></textarea>
+
+            <div class="toolbar">
+                <button class="btn primary" id="script-save" type="button">Save</button>
+                <button class="btn" id="script-delete" type="button">Delete</button>
+                <span class="muted" id="script-bytes">&ndash;</span>
+            </div>
+
+            <!-- Where the compiler's message goes, with the line number it
+                 gave. An error with nowhere to appear is an error somebody has
+                 to guess at. -->
+            <p class="problem" id="script-problem" hidden></p>
+        </div>
+    </div>
 </section>
 
 <section class="panel" id="panel-notify">

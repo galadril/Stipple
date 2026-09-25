@@ -54,6 +54,8 @@ tags:
     description: Things that interrupt it.
   - name: assets
     description: Icons.
+  - name: scripts
+    description: Berry scripts, and the apps that run them.
   - name: settings
   - name: network
   - name: system
@@ -517,6 +519,137 @@ paths:
         "204": { description: Removed. }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /scripts:
+    get:
+      tags: [scripts]
+      summary: List scripts, without their source
+      description: |
+        Metadata only. Sixteen scripts at up to 16 KB each would make one list
+        request answer with a quarter of a megabyte, on a device that has to
+        build the whole string in RAM before it can send any of it — and this
+        is the call the web UI makes every time somebody opens the scripts
+        panel. Fetch a single script when you want the text.
+
+        `maxSourceBytes` is here so an editor can refuse an over-long paste
+        before sending it, rather than after the author has lost it to a 422.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scripts:
+                    type: array
+                    items: { $ref: "#/components/schemas/Script" }
+                  count: { type: integer }
+                  capacity: { type: integer }
+                  maxSourceBytes: { type: integer }
+                  memoryBytes:
+                    type: integer
+                    description: What every interpreter is holding, together.
+        "501": { $ref: "#/components/responses/NoScripting" }
+    post:
+      tags: [scripts]
+      summary: Create or replace a script
+      description: |
+        A script is Berry source that returns an instance of a class with a
+        `draw()` method. It runs in a sandbox with no filesystem, no dynamic
+        loader and no bytecode reader, under a per-frame instruction budget —
+        a script that loops for ever loses its frame, not the panel.
+
+        **Source that does not compile is still stored, and the request still
+        succeeds.** An editor holds work in progress, and a device that
+        refused to save until the code compiled would be one you could not
+        edit on: you would lose the half-finished function every time. The
+        response carries `ok: false` and `problem` with the compiler's message
+        and line number, which is what the editor puts a marker on.
+
+        Replacing a script always builds a fresh interpreter. Reusing one
+        would leave the previous source's globals in place, so the new code
+        would run against state it never created — and would appear to work
+        right up until the device restarted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, source]
+              properties:
+                id:
+                  type: string
+                  description: |
+                    Lowercase letters, digits, dashes and underscores. This
+                    becomes part of a URL and a configuration key, and the set
+                    of characters safe in both is smaller than the set that
+                    looks harmless.
+                name:
+                  type: string
+                  description: Shown in the UI. Defaults to the id.
+                source: { type: string }
+      responses:
+        "200":
+          description: Replaced.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Script" }
+        "201":
+          description: |
+            Created — including when it does not compile, which is a stored
+            script with `ok: false` rather than a failed request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Script" }
+        "409":
+          description: The library is full.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "501": { $ref: "#/components/responses/NoScripting" }
+    delete:
+      tags: [scripts]
+      summary: Remove every script
+      responses:
+        "204": { description: Cleared. }
+        "501": { $ref: "#/components/responses/NoScripting" }
+
+  /scripts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [scripts]
+      summary: One script, with its source
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Script"
+                  - type: object
+                    properties:
+                      source: { type: string }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "501": { $ref: "#/components/responses/NoScripting" }
+    delete:
+      tags: [scripts]
+      summary: Remove one script
+      description: |
+        Removing the script does not remove the app that names it. That app
+        then shows `SCRIPT ?` on the panel rather than going blank, which is
+        the honest answer — see ADR 0013.
+      responses:
+        "204": { description: Removed. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "501": { $ref: "#/components/responses/NoScripting" }
+
   /settings:
     get:
       tags: [settings]
@@ -789,6 +922,15 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    NoScripting:
+      description: |
+        This firmware was built without scripting. Distinct from an empty
+        library on purpose: "you have no scripts" and "this device cannot run
+        scripts" are very different answers to somebody whose script is not
+        showing up, and an empty list gives the wrong one.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
 
   schemas:
     Error:
@@ -805,6 +947,36 @@ components:
               type: string
               description: Written for a person to read.
       required: [error]
+
+    Script:
+      type: object
+      description: |
+        A script as the collection reports it — no `source`. Fetch the item
+        for that.
+      properties:
+        id: { type: string }
+        name: { type: string }
+        ok:
+          type: boolean
+          description: Whether it compiled and has not since failed.
+        problem:
+          type: string
+          description: |
+            Why it is not `ok`, with a line number where the compiler gave
+            one. Always present and empty when there is nothing wrong, so a
+            client never has to tell "no problem" apart from "this firmware
+            does not report problems".
+        bytes: { type: integer, description: Length of the source. }
+        lastInstructions:
+          type: integer
+          description: |
+            What the last frame spent. A script close to the budget is one
+            about to break on a busier frame, which is worth seeing before it
+            does.
+        memoryBytes:
+          type: integer
+          description: What this script's interpreter is holding. About 4 KB is normal.
+      required: [id, name, ok, problem]
 
     App:
       type: object
