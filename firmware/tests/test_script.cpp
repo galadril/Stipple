@@ -326,12 +326,16 @@ STIPPLE_TEST(Script, CoordinatesFromAScriptAreClippedNotTrusted) {
 }
 
 STIPPLE_TEST(Script, AnimationGetsTheElapsedTime) {
+    // elapsed_ms(), not now_ms(). This test used now_ms() back when that was
+    // the per-showing clock. It is the device clock now, and the one that
+    // restarts with the app has its own name - see
+    // TheClockKeepsCountingWhileAnAppIsOffScreen for why they had to split.
     ScriptHost host;
     std::string problem;
     const char* source =
         "class App\n"
         "  def draw()\n"
-        "    var t = now_ms()\n"
+        "    var t = elapsed_ms()\n"
         "    pixel(t % width(), 0, rgb(255, 255, 255))\n"
         "  end\n"
         "end\n"
@@ -410,4 +414,110 @@ STIPPLE_TEST(Script, NoBuiltinLeaksASlotPerFrame) {
         // tolerance here is what would have let the original bug through.
         STIPPLE_CHECK_EQ(after, before);
     }
+}
+
+STIPPLE_TEST(Script, TheClockKeepsCountingWhileAnAppIsOffScreen) {
+    // Reported from a real device: the aquarium's fish stopped moving.
+    //
+    // now_ms() returned time since the app came on screen. Scripts throttle
+    // with `if now_ms() - self.last >= 250`, so when the carousel came back
+    // round the clock restarted at zero while self.last still held a number
+    // from the previous showing - the comparison stayed false for as long as
+    // that showing had lasted, and the script simply stopped.
+    //
+    // Every test here drove one continuous showing, which is exactly the
+    // case that works.
+    ScriptHost host;
+    std::string problem;
+
+    // The throttling pattern, straight out of the scripts this engine exists
+    // to run.
+    STIPPLE_REQUIRE(host.load(
+        "class App\n"
+        "  var last, steps\n"
+        "  def init()\n"
+        "    self.last = 0\n"
+        "    self.steps = 0\n"
+        "  end\n"
+        "  def draw()\n"
+        "    var t = now_ms()\n"
+        "    if t - self.last >= 100\n"
+        "      self.last = t\n"
+        "      self.steps += 1\n"
+        "    end\n"
+        "    pixel(self.steps % width(), 0, rgb(255, 255, 255))\n"
+        "  end\n"
+        "end\n"
+        "return App()\n",
+        problem));
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+
+    stipple::script::ScriptEnvironment environment;
+
+    // First showing: thirty seconds of frames.
+    for (int frame = 0; frame < 900; ++frame) {
+        environment.monotonicMillis = static_cast<std::uint64_t>(frame) * 33u;
+        host.setEnvironment(environment);
+        // The dwell restarts at zero on each showing, which is correct and is
+        // what elapsed_ms() reports.
+        STIPPLE_REQUIRE(host.draw(canvas, static_cast<std::uint64_t>(frame) * 33u, problem));
+    }
+
+    Framebuffer after;
+    Canvas afterCanvas(after);
+    host.setEnvironment(environment);
+    STIPPLE_REQUIRE(host.draw(afterCanvas, 29700, problem));
+    int litFirst = 0;
+    for (int x = 0; x < Framebuffer::kWidth; ++x) {
+        if (after.at(x, 0) != colors::kBlack) { litFirst = x; }
+    }
+
+    // Off screen for a while, then back: the dwell restarts, the device clock
+    // does not.
+    const std::uint64_t base = 900u * 33u + 60000u;
+    int moved = 0;
+    for (int frame = 0; frame < 60; ++frame) {
+        environment.monotonicMillis = base + static_cast<std::uint64_t>(frame) * 33u;
+        host.setEnvironment(environment);
+        Framebuffer next;
+        Canvas nextCanvas(next);
+        STIPPLE_REQUIRE(host.draw(nextCanvas, static_cast<std::uint64_t>(frame) * 33u, problem));
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            if (next.at(x, 0) != colors::kBlack && x != litFirst) { moved = 1; }
+        }
+    }
+
+    // Two seconds of frames after coming back should have stepped it on.
+    // Before the fix this was zero: the script was waiting for a clock that
+    // had gone backwards.
+    STIPPLE_CHECK_EQ(moved, 1);
+}
+
+STIPPLE_TEST(Script, ElapsedIsStillTheClockThatRestarts) {
+    // now_ms() had to become monotonic, but an animation that should begin
+    // again each time its app appears still needs the other one.
+    ScriptHost host;
+    std::string problem;
+    STIPPLE_REQUIRE(host.load(
+        "class App\n"
+        "  def draw()\n"
+        "    pixel(elapsed_ms() / 100, 0, rgb(255, 255, 255))\n"
+        "  end\n"
+        "end\n"
+        "return App()\n",
+        problem));
+
+    stipple::script::ScriptEnvironment environment;
+    environment.monotonicMillis = 500000;  // device has been up a while
+    host.setEnvironment(environment);
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    STIPPLE_REQUIRE(host.draw(canvas, 300, problem));
+
+    // Column three, from the dwell - not from half a million milliseconds of
+    // uptime, which would have been clipped off the panel entirely.
+    STIPPLE_CHECK(framebuffer.at(3, 0) != colors::kBlack);
 }

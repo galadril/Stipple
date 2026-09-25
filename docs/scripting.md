@@ -70,7 +70,35 @@ end
 | `hour()`, `minute()`, `second()` | Local time. |
 | `day()`, `month()`, `year()` | Local date. |
 | `weekday()` | 0 is Sunday. |
-| `now_ms()` | Milliseconds since this app came on screen. Use this for animation — it starts from zero each time the app comes round. |
+| `now_ms()` | Milliseconds since the device started. Never goes backwards. |
+| `elapsed_ms()` | Milliseconds since **this app** came on screen. |
+
+### Which clock
+
+Two, and using the wrong one is the commonest way to write a script that
+looks fine and then stops.
+
+`now_ms()` is the device's clock. Use it to **throttle** — to do something
+every so often:
+
+```berry
+var t = now_ms()
+if t - self.last >= 250
+  self.last = t
+  # ... move something
+end
+```
+
+That pattern needs a clock that keeps counting while your app is off screen.
+The carousel moves on and comes back; if the clock restarted, `self.last`
+would hold a number from the future and the comparison would stay false for
+as long as the previous showing lasted. The app would simply stop moving.
+This is not hypothetical — it is what the aquarium did before `now_ms()` was
+fixed.
+
+`elapsed_ms()` is time since **your app appeared**. Use it for an animation
+that should begin at the beginning each time somebody sees it, rather than
+joining part-way through.
 
 **Check `time_known()` first.** Before the device has synchronised its clock it
 does not have a time, and the fields read zero. A script that draws `00:00`
