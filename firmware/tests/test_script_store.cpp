@@ -434,3 +434,149 @@ STIPPLE_TEST(ScriptApi, TheLibraryIsBoundedOverTheApiToo) {
                            R"({"id":"overflow","source":"return nil\n"})");
     STIPPLE_CHECK_EQ(full.status, 409);
 }
+
+// --- surviving a reboot ------------------------------------------------------
+
+STIPPLE_TEST(ScriptStore, RoundTripsThroughABlob) {
+    ScriptStore before;
+    before.put("one", "First", kRedPixel);
+    before.put("two", "Second",
+               "class App\n  def draw()\n    clear(rgb(9, 9, 9))\n  end\nend\nreturn App()\n");
+    // Source with the characters a delimited format would choke on. The blob
+    // is length-prefixed precisely so a script can contain anything.
+    before.put("awkward", "Awkward \"quoted\"",
+               "class App\n  def draw()\n    var s = 'a\nb\\\"c'\n  end\nend\nreturn App()\n");
+
+    const std::string blob = before.serialize();
+
+    ScriptStore after;
+    STIPPLE_REQUIRE(after.deserialize(blob));
+    STIPPLE_CHECK_EQ(after.count(), 3);
+
+    for (int i = 0; i < before.count(); ++i) {
+        STIPPLE_REQUIRE(after.at(i) != nullptr);
+        STIPPLE_CHECK(after.at(i)->id == before.at(i)->id);
+        STIPPLE_CHECK(after.at(i)->name == before.at(i)->name);
+        STIPPLE_CHECK(after.at(i)->source == before.at(i)->source);
+    }
+
+    // And it runs, which is the part that actually matters - a round trip that
+    // preserves the text but not the ability to execute it would pass every
+    // comparison above and still leave a dead panel.
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    STIPPLE_CHECK(after.draw("one", canvas, 0));
+    STIPPLE_CHECK(framebuffer.at(0, 0) == stipple::rgb(255, 0, 0));
+}
+
+STIPPLE_TEST(ScriptStore, EveryTruncationOfAGoodBlobIsRefusedRatherThanRead) {
+    // The failure storage actually produces. A write interrupted by a power
+    // cut leaves a prefix of the blob, not random bytes, and reading past the
+    // end of one is how a config file takes a device down.
+    ScriptStore source;
+    source.put("a", "A", kRedPixel);
+    source.put("b", "B", kRedPixel);
+    const std::string blob = source.serialize();
+
+    for (std::size_t length = 0; length < blob.size(); ++length) {
+        ScriptStore store;
+        STIPPLE_CHECK(!store.deserialize(std::string_view(blob).substr(0, length)));
+    }
+    ScriptStore whole;
+    STIPPLE_CHECK(whole.deserialize(blob));
+}
+
+STIPPLE_TEST(ScriptStore, RubbishIsRefused) {
+    ScriptStore store;
+    STIPPLE_CHECK(!store.deserialize(""));
+    STIPPLE_CHECK(!store.deserialize("not a blob at all"));
+    STIPPLE_CHECK(!store.deserialize(std::string("SBS") + '\x02' + '\x00'));  // wrong version
+
+    // A good blob with a byte glued on the end is not the blob it claims to be.
+    ScriptStore source;
+    source.put("a", "A", kRedPixel);
+    STIPPLE_CHECK(!store.deserialize(source.serialize() + "x"));
+}
+
+STIPPLE_TEST(ScriptStore, RevisionOnlyMovesWhenSomethingChanges) {
+    // The host writes to flash when this moves, and flash wears out.
+    ScriptStore store;
+    STIPPLE_CHECK_EQ(store.revision(), std::uint32_t{0});
+
+    store.put("a", "A", kRedPixel);
+    const std::uint32_t afterAdd = store.revision();
+    STIPPLE_CHECK(afterAdd > 0);
+
+    // Reading changes nothing.
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    store.draw("a", canvas, 0);
+    store.find("a");
+    store.count();
+    STIPPLE_CHECK_EQ(store.revision(), afterAdd);
+
+    // Removing something that is not there changes nothing either.
+    STIPPLE_CHECK(!store.remove("absent"));
+    STIPPLE_CHECK_EQ(store.revision(), afterAdd);
+
+    store.clear();
+    const std::uint32_t afterClear = store.revision();
+    STIPPLE_CHECK(afterClear > afterAdd);
+    store.clear();  // already empty
+    STIPPLE_CHECK_EQ(store.revision(), afterClear);
+}
+
+STIPPLE_TEST(ScriptStore, ScriptsSurviveARestart) {
+    SimulatorPlatform platform;
+
+    {
+        ApplicationHost host(platform, quietConfig());
+        STIPPLE_REQUIRE(host.initialize());
+        ScriptStore store;
+        host.setScriptRunner(&store);
+        STIPPLE_REQUIRE(call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                             R"({"id":"kept","name":"Kept",)"
+                             R"("source":"class App\n def draw()\n  pixel(2,2,rgb(7,7,7))\n end\nend\nreturn App()\n"})")
+                            .status == 201);
+        host.tick(1000);  // persistence happens on the tick, not the write
+    }
+
+    // Same storage, new everything else.
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    ScriptStore store;
+    host.setScriptRunner(&store);
+
+    STIPPLE_REQUIRE(store.find("kept") != nullptr);
+    STIPPLE_CHECK(store.find("kept")->name == "Kept");
+    STIPPLE_CHECK(store.find("kept")->ok);
+
+    const auto listed = call(host, stipple::api::Method::Get, "/api/v1/scripts");
+    STIPPLE_CHECK(bodyHas(listed, "\"id\":\"kept\""));
+}
+
+STIPPLE_TEST(ScriptStore, CorruptStoredScriptsDoNotStopTheDeviceStarting) {
+    SimulatorPlatform platform;
+    STIPPLE_REQUIRE(platform.storage().write("scripts", "this is not a script blob"));
+
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    ScriptStore store;
+    host.setScriptRunner(&store);
+
+    STIPPLE_CHECK(store.empty());
+
+    // And the bad blob is gone, so the next boot is not the same failure
+    // again - one bad write should not look like an intermittent fault.
+    std::string leftover;
+    STIPPLE_CHECK(!platform.storage().read("scripts", leftover));
+
+    // And the device is up and drawing, which is the whole point - a bad
+    // blob on storage must cost the scripts and nothing else.
+    STIPPLE_CHECK(host.bootMode() == stipple::host::BootMode::Normal);
+    STIPPLE_REQUIRE(host.carousel().pin("clock", 1000));
+    for (int frame = 0; frame < 5; ++frame) {
+        host.tick(1000 + static_cast<std::uint64_t>(frame) * 100u);
+    }
+    STIPPLE_CHECK(countLit(platform.simulatedDisplay().lastFrame()) > 0);
+}

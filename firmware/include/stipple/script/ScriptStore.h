@@ -72,6 +72,10 @@ public:
     std::size_t memoryBytes() const noexcept override;
     std::size_t maxSourceBytes() const noexcept override;
 
+    std::uint32_t revision() const noexcept override { return revision_; }
+    std::string serialize() const override;
+    bool deserialize(std::string_view blob) override;
+
     /// Collect a script's garbage. Worth doing when it leaves the screen,
     /// which is a moment the device has time to spare and the next frame does
     /// not.
@@ -84,6 +88,11 @@ private:
     };
 
     std::vector<Entry> entries_;
+
+    /// Starts at zero so a host that has never written anything and a store
+    /// that has never changed agree, and nothing is written on a boot where
+    /// nothing happened.
+    std::uint32_t revision_ = 0;
 
     Entry* findEntry(std::string_view id) noexcept;
     void refresh(Entry& entry) noexcept;

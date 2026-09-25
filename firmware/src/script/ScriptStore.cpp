@@ -78,6 +78,8 @@ ScriptPutResult ScriptStore::put(std::string id, std::string name, std::string s
     entry.host = std::move(host);
     refresh(entry);
 
+    ++revision_;
+
     if (existing != nullptr) {
         // Position is kept deliberately: saving an edit must not shuffle the
         // carousel under the person who made it.
@@ -93,6 +95,7 @@ bool ScriptStore::remove(std::string_view id) {
     for (std::size_t i = 0; i < entries_.size(); ++i) {
         if (entries_[i].info.id == id) {
             entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(i));
+            ++revision_;
             return true;
         }
     }
@@ -100,7 +103,10 @@ bool ScriptStore::remove(std::string_view id) {
 }
 
 void ScriptStore::clear() {
-    entries_.clear();
+    if (!entries_.empty()) {
+        entries_.clear();
+        ++revision_;
+    }
 }
 
 const Script* ScriptStore::at(int index) const noexcept {
@@ -168,6 +174,152 @@ std::size_t ScriptStore::memoryBytes() const noexcept {
         total += entry.info.memoryBytes;
     }
     return total;
+}
+
+
+// --- persistence -------------------------------------------------------------
+//
+// Length-prefixed, not delimited. A script is arbitrary text that will contain
+// newlines, quotes and very likely whatever separator seemed safe at the time,
+// so nothing here scans for one: every field says how long it is and the
+// reader takes exactly that many bytes. The format cannot be confused by its
+// own contents.
+
+namespace {
+
+constexpr char kMagic[] = "SBS";       // Stipple Berry Scripts
+constexpr std::uint8_t kFormatVersion = 1;
+
+void pushByte(std::string& out, std::uint8_t value) {
+    out.push_back(static_cast<char>(value));
+}
+
+void pushUint32(std::string& out, std::uint32_t value) {
+    pushByte(out, static_cast<std::uint8_t>((value >> 24) & 0xFFu));
+    pushByte(out, static_cast<std::uint8_t>((value >> 16) & 0xFFu));
+    pushByte(out, static_cast<std::uint8_t>((value >> 8) & 0xFFu));
+    pushByte(out, static_cast<std::uint8_t>(value & 0xFFu));
+}
+
+/// Reads forward through a blob, refusing to run off the end.
+///
+/// Every read is checked, because this blob comes off storage that may have
+/// been interrupted mid-write, and a truncated one must be rejected rather
+/// than read past.
+class Reader {
+public:
+    explicit Reader(std::string_view blob) : blob_(blob) {}
+
+    bool byte(std::uint8_t& out) {
+        if (at_ >= blob_.size()) { return false; }
+        out = static_cast<std::uint8_t>(blob_[at_++]);
+        return true;
+    }
+
+    bool uint32(std::uint32_t& out) {
+        std::uint8_t b[4];
+        for (std::uint8_t& each : b) {
+            if (!byte(each)) { return false; }
+        }
+        out = (static_cast<std::uint32_t>(b[0]) << 24) |
+              (static_cast<std::uint32_t>(b[1]) << 16) |
+              (static_cast<std::uint32_t>(b[2]) << 8) |
+              static_cast<std::uint32_t>(b[3]);
+        return true;
+    }
+
+    bool text(std::uint32_t length, std::string& out) {
+        if (length > blob_.size() - at_) { return false; }
+        out.assign(blob_, at_, length);
+        at_ += length;
+        return true;
+    }
+
+    bool exhausted() const { return at_ == blob_.size(); }
+
+private:
+    std::string_view blob_;
+    std::size_t at_ = 0;
+};
+
+}  // namespace
+
+std::string ScriptStore::serialize() const {
+    std::string out;
+    out += kMagic;
+    pushByte(out, kFormatVersion);
+    pushByte(out, static_cast<std::uint8_t>(entries_.size()));
+
+    for (const Entry& entry : entries_) {
+        pushByte(out, static_cast<std::uint8_t>(entry.info.id.size()));
+        out += entry.info.id;
+        pushByte(out, static_cast<std::uint8_t>(entry.info.name.size()));
+        out += entry.info.name;
+        pushUint32(out, static_cast<std::uint32_t>(entry.info.source.size()));
+        out += entry.info.source;
+    }
+    return out;
+}
+
+bool ScriptStore::deserialize(std::string_view blob) {
+    Reader reader(blob);
+
+    for (const char expected : std::string_view(kMagic)) {
+        std::uint8_t actual = 0;
+        if (!reader.byte(actual) || actual != static_cast<std::uint8_t>(expected)) {
+            return false;
+        }
+    }
+
+    std::uint8_t version = 0;
+    if (!reader.byte(version) || version != kFormatVersion) {
+        return false;
+    }
+
+    std::uint8_t stored = 0;
+    if (!reader.byte(stored) || stored > kMaxScripts) {
+        return false;
+    }
+
+    // Read the whole blob before touching the store. A half-applied restore
+    // would leave the device with some of the old library and some of the new,
+    // which is worse than either.
+    struct Pending {
+        std::string id;
+        std::string name;
+        std::string source;
+    };
+    std::vector<Pending> pending;
+    pending.reserve(stored);
+
+    for (std::uint8_t i = 0; i < stored; ++i) {
+        Pending entry;
+        std::uint8_t idLength = 0;
+        std::uint8_t nameLength = 0;
+        std::uint32_t sourceLength = 0;
+        if (!reader.byte(idLength) || !reader.text(idLength, entry.id)) { return false; }
+        if (!reader.byte(nameLength) || !reader.text(nameLength, entry.name)) { return false; }
+        if (!reader.uint32(sourceLength)) { return false; }
+        if (sourceLength > ScriptHost::kMaxSourceBytes) { return false; }
+        if (!reader.text(sourceLength, entry.source)) { return false; }
+        if (!validScriptId(entry.id)) { return false; }
+        pending.push_back(std::move(entry));
+    }
+
+    // Trailing bytes mean this is not the blob it claims to be.
+    if (!reader.exhausted()) {
+        return false;
+    }
+
+    entries_.clear();
+    for (Pending& entry : pending) {
+        // Through put(), so every script is compiled on the way in and a
+        // stored script that no longer compiles - because the firmware's
+        // builtins changed under it, say - comes back with its source intact
+        // and its reason attached, exactly as if it had just been typed.
+        put(std::move(entry.id), std::move(entry.name), std::move(entry.source));
+    }
+    return true;
 }
 
 }  // namespace script

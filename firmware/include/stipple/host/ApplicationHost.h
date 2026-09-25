@@ -109,6 +109,7 @@ public:
     static constexpr std::string_view kVisualizerAppId = "visualizer";
     static constexpr std::string_view kStopwatchAppId = "stopwatch";
     static constexpr std::string_view kIconStateKey = "icons";
+    static constexpr std::string_view kScriptStateKey = "scripts";
     static constexpr int kSceneTokens = 512;
 
     ApplicationHost(platform::IPlatformServices& platform, HostConfig config = HostConfig{});
@@ -159,13 +160,7 @@ public:
     /// The host does not own it. It outlives the host in every arrangement
     /// that exists - main() holds it, the simulator holds it, a test holds it
     /// on the stack.
-    void setScriptRunner(script::IScriptRunner* runner) noexcept {
-        scripts_ = runner;
-        // The API gets the same one. Two places holding different answers to
-        // "can this device run scripts" is the kind of drift that shows up as
-        // an app on the panel the web UI insists does not exist.
-        apiServer_.setScriptRunner(runner);
-    }
+    void setScriptRunner(script::IScriptRunner* runner);
     script::IScriptRunner* scriptRunner() const noexcept { return scripts_; }
     config::Config& settings() noexcept { return settings_; }
 
@@ -279,9 +274,11 @@ private:
 
     void installBuiltins();
     void loadIcons();
+    void loadScripts();
     /// Writes the icon set if it has changed since the last save. Called from
     /// tick(), so every mutation path is covered rather than just the API.
     void persistIconsIfChanged();
+    void persistScriptsIfChanged();
     void pumpInput(std::uint64_t nowMillis);
     void renderFrame(std::uint64_t nowMillis);
     void renderSafeMode();
@@ -306,6 +303,7 @@ private:
     notify::NotificationQueue notifications_;
     asset::IconStore icons_;
     script::IScriptRunner* scripts_ = nullptr;
+    std::uint32_t persistedScriptRevision_ = 0;
     /// Move brightness by `steps` of the configured step size, clamped, and
     /// bring the panel back on if it was off.
     void adjustBrightness(int steps);

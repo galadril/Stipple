@@ -105,6 +105,24 @@ public:
     /// Longest source the runner will accept, so the editor can say so before
     /// somebody pastes something too big and loses it.
     virtual std::size_t maxSourceBytes() const noexcept = 0;
+
+    // --- persistence ---------------------------------------------------------
+
+    /// Bumped by anything that changes the library.
+    ///
+    /// The host writes to storage only when this moves. Scripts live on flash
+    /// and flash wears out; rewriting the whole library on every tick because
+    /// nothing has changed would be a slow way to destroy the device.
+    virtual std::uint32_t revision() const noexcept = 0;
+
+    /// The whole library as one blob, and back again.
+    ///
+    /// deserialize() returns false on anything it does not recognise. The
+    /// caller discards the blob when it does - re-reading the same broken
+    /// bytes every boot turns one bad write into a permanent fault that looks
+    /// intermittent.
+    virtual std::string serialize() const = 0;
+    virtual bool deserialize(std::string_view blob) = 0;
 };
 
 }  // namespace script

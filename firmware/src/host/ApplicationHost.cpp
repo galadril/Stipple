@@ -291,6 +291,63 @@ void ApplicationHost::loadIcons() {
     logger_.info(platform_.clock().monotonicMillis(), "icons loaded");
 }
 
+void ApplicationHost::setScriptRunner(script::IScriptRunner* runner) {
+    scripts_ = runner;
+
+    // The API gets the same one. Two places holding different answers to "can
+    // this device run scripts" is the kind of drift that shows up as an app on
+    // the panel the web UI insists does not exist.
+    apiServer_.setScriptRunner(runner);
+
+    if (runner == nullptr) {
+        return;
+    }
+
+    // Load here rather than in initialize(). The runner is owned outside the
+    // core and installed after the host is up, so at initialize() time there
+    // is nothing to load into - and a script library that only appeared after
+    // the next reboot would look exactly like one that had not saved.
+    loadScripts();
+    persistedScriptRevision_ = runner->revision();
+}
+
+void ApplicationHost::loadScripts() {
+    if (scripts_ == nullptr || bootMode_ != BootMode::Normal) {
+        return;  // safe mode deliberately runs nothing that arrived over the network
+    }
+
+    std::string blob;
+    if (!platform_.storage().read(kScriptStateKey, blob)) {
+        return;  // nothing stored yet
+    }
+
+    if (!scripts_->deserialize(blob)) {
+        // Same reasoning as icons: corrupt data must not stop the device
+        // starting, and dropping the key keeps one bad write from looking like
+        // an intermittent fault every boot after.
+        logger_.warn(platform_.clock().monotonicMillis(),
+                     "stored scripts unreadable; discarding them");
+        platform_.storage().remove(kScriptStateKey);
+        return;
+    }
+    logger_.info(platform_.clock().monotonicMillis(), "scripts loaded");
+}
+
+void ApplicationHost::persistScriptsIfChanged() {
+    if (scripts_ == nullptr || scripts_->revision() == persistedScriptRevision_) {
+        return;
+    }
+    persistedScriptRevision_ = scripts_->revision();
+
+    if (scripts_->count() == 0) {
+        platform_.storage().remove(kScriptStateKey);
+        return;
+    }
+    if (!platform_.storage().write(kScriptStateKey, scripts_->serialize())) {
+        logger_.error(lastTickMillis_, "could not persist scripts");
+    }
+}
+
 void ApplicationHost::persistIconsIfChanged() {
     if (icons_.revision() == persistedIconRevision_) {
         return;
@@ -1141,6 +1198,7 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
 
     pumpInput(nowMillis);
     persistIconsIfChanged();
+    persistScriptsIfChanged();
     persistAppOrderIfChanged();
     applyCarouselSettings();
     applyTimeSettings();
