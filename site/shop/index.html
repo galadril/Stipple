@@ -55,6 +55,377 @@
 
   <section class="shop__grid">
 
+      <article class="card" id="aquarium">
+        <img class="card__preview" src="aquarium.gif" width="312" height="96"
+             loading="lazy" alt="Aquarium running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Aquarium</h3>
+          <p class="card__by">Galadril · 351 lines</p>
+        </header>
+        <p class="card__summary">Three fish, a sunken chest and a bed of weed. Press to feed them.</p>
+        <ul class="card__tags"><li>ambient</li><li>animation</li><li>button</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Aquarium
+# summary: Three fish, a sunken chest and a bed of weed. Press to feed them.
+# author: Galadril
+# tags: ambient, animation, button
+# panel: 52x16
+
+# Rebuilt for 52x16 from Galadril&#x27;s Pixel Aquarium, which was written for a
+# 32x8 panel.
+#
+# Not scaled. On 32x8 the water is six rows deep and everything - fish, weed,
+# chest, bubbles - has to share them, so the tank reads as a strip with things
+# on it. Sixteen rows is a water column: the sand can have depth, the weed can
+# grow tall enough to sway, and the fish can swim at different heights and
+# pass each other. That is what the extra pixels buy, so that is what they are
+# spent on.
+
+import math
+
+class App
+  var fx, fy, fdir, fbody, ftail, fspeed
+  var bx, by
+  var foodX, foodY, feeding, lastFood
+  var lastMove, lastBubble
+
+  def init()
+    # Three fish, at three depths, at three speeds. One fish in a tank this
+    # size looks lost; three at the same depth look like a shoal of one.
+    self.fx    = [6, 30, 18]
+    self.fy    = [3, 7, 10]
+    self.fdir  = [1, -1, 1]
+    self.fbody = [0xFF7A18, 0x00BFFF, 0xFFD060]
+    self.ftail = [0xFFB000, 0x0066FF, 0xC08020]
+    self.fspeed = [0, 0, 0]
+
+    # Five bubbles, started at different heights so they never rise in step.
+    self.bx = [9, 21, 33, 44, 15]
+    self.by = [11, 8, 13, 6, 3]
+
+    self.foodX = 26
+    self.foodY = 0
+    self.feeding = false
+    self.lastFood = 0
+
+    self.lastMove = 0
+    self.lastBubble = 0
+  end
+
+  # Night is quieter and darker. Without a clock it is always day - a tank
+  # that decided it was night because the device had not synchronised yet
+  # would just look broken.
+  def night()
+    if !time_known()
+      return false
+    end
+    var h = hour()
+    return h &gt;= 22 || h &lt; 7
+  end
+
+  def on_button(name)
+    # Food lands somewhere in the middle, away from the glass, and every fish
+    # goes for it.
+    self.foodX = 8 + (math.rand() % 36)
+    self.foodY = 0
+    self.feeding = true
+    self.lastFood = now_ms()
+  end
+
+  def step()
+    var t = now_ms()
+
+    var speed = 260
+    if self.feeding
+      speed = 130
+    elif self.night()
+      speed = 620
+    end
+
+    if t - self.lastMove &gt;= speed
+      self.lastMove = t
+      var i = 0
+      while i &lt; 3
+        # Feeding overrides wandering: everything turns towards the food.
+        if self.feeding
+          if self.fx[i] &lt; self.foodX
+            self.fdir[i] = 1
+          elif self.fx[i] &gt; self.foodX
+            self.fdir[i] = -1
+          end
+        elif (math.rand() % 14) == 0
+          self.fdir[i] = -self.fdir[i]
+        end
+
+        self.fx[i] = self.fx[i] + self.fdir[i]
+
+        # Turn at the glass rather than swimming through it.
+        if self.fx[i] &gt;= width() - 5
+          self.fdir[i] = -1
+        end
+        if self.fx[i] &lt;= 1
+          self.fdir[i] = 1
+        end
+
+        # A slow vertical drift, so they do not swim along invisible rails.
+        if (math.rand() % 20) == 0
+          var dy = 1
+          if (math.rand() % 2) == 0
+            dy = -1
+          end
+          var ny = self.fy[i] + dy
+          if ny &gt;= 2 &amp;&amp; ny &lt;= 11
+            self.fy[i] = ny
+          end
+        end
+        i += 1
+      end
+    end
+
+    if t - self.lastBubble &gt;= 240
+      self.lastBubble = t
+      var b = 0
+      while b &lt; 5
+        self.by[b] = self.by[b] - 1
+        if self.by[b] &lt; 1
+          # Back to the sand, somewhere new.
+          self.by[b] = 13
+          self.bx[b] = 2 + (math.rand() % 48)
+        end
+        b += 1
+      end
+    end
+
+    if self.feeding &amp;&amp; t - self.lastFood &gt;= 260
+      self.lastFood = t
+      self.foodY += 1
+      if self.foodY &gt;= 13
+        self.feeding = false
+      else
+        var f = 0
+        while f &lt; 3
+          var dx = self.fx[f] + 2 - self.foodX
+          if dx &lt; 0
+            dx = -dx
+          end
+          var dy = self.fy[f] - self.foodY
+          if dy &lt; 0
+            dy = -dy
+          end
+          if dx &lt;= 2 &amp;&amp; dy &lt;= 1
+            self.feeding = false
+          end
+          f += 1
+        end
+      end
+    end
+  end
+
+  def draw_water()
+    if self.night()
+      clear(0x000610)
+    else
+      clear(0x001028)
+    end
+
+    # The surface: a line that moves, so the top of the tank is not a hard
+    # edge. Two pixels of it at a time, drifting - a whole lit row would read
+    # as a lid.
+    var lit = 0x0A3A5A
+    if self.night()
+      lit = 0x05202F
+    end
+    var drift = (now_ms() / 220) % 8
+    var x = 0
+    while x &lt; width()
+      if (x + drift) % 8 &lt; 3
+        pixel(x, 0, lit)
+      end
+      x += 1
+    end
+  end
+
+  def draw_bed()
+    var sand = 0xD6A434
+    var dark = 0x8A6325
+    var lite = 0xF0C052
+    if self.night()
+      sand = 0x3A2B12
+      dark = 0x261C0C
+      lite = 0x4C3A18
+    end
+
+    # Two rows, not one. Depth is the point of the taller panel.
+    rect_fill(0, 14, width(), 2, sand)
+
+    # Grains, at an irregular spacing so the bed does not look ruled.
+    var spots = [3, 9, 14, 22, 27, 35, 41, 48]
+    var i = 0
+    while i &lt; size(spots)
+      pixel(spots[i], 14, dark)
+      pixel(spots[i] + 1, 15, lite)
+      i += 1
+    end
+  end
+
+  # One frond, swaying from a fixed root. Tall enough to be worth the motion,
+  # which it never was at eight rows.
+  def weed(rootX, tall, sway, a, b)
+    var y = 13
+    var x = rootX
+    var n = 0
+    while n &lt; tall
+      var colour = a
+      if n % 2 == 1
+        colour = b
+      end
+      pixel(x, y, colour)
+      # The higher up the frond, the further it leans.
+      if n &gt;= tall - 3
+        x += sway
+      end
+      y -= 1
+      n += 1
+    end
+  end
+
+  def draw_plants()
+    var a = 0x00AA44
+    var b = 0x00DD66
+    if self.night()
+      a = 0x00301A
+      b = 0x004A26
+    end
+
+    var sway = 1
+    if (now_ms() / 600) % 2 == 0
+      sway = -1
+    end
+
+    self.weed(3, 8, sway, a, b)
+    self.weed(6, 5, -sway, b, a)
+    self.weed(46, 7, -sway, a, b)
+    self.weed(49, 5, sway, b, a)
+  end
+
+  def draw_rocks()
+    var rock = 0x5A5A5A
+    if self.night()
+      rock = 0x1C1C1C
+    end
+    rect_fill(12, 12, 3, 2, rock)
+    pixel(13, 11, rock)
+    rect_fill(38, 12, 4, 2, rock)
+    pixel(39, 11, rock)
+  end
+
+  def draw_chest()
+    var brown = 0x8B4513
+    var gold = 0xFFBB00
+    if self.night()
+      brown = 0x341A08
+      gold = 0x5A3C00
+    end
+
+    rect_fill(23, 11, 7, 3, brown)
+    rect_fill(23, 11, 7, 1, gold)
+    pixel(26, 12, gold)
+
+    # The glint, which only happens now and then. A chest that sparkled every
+    # frame would be a lamp.
+    if !self.night() &amp;&amp; (now_ms() / 1000) % 5 == 0
+      pixel(26, 10, 0xFFFFFF)
+    end
+  end
+
+  def draw_fish(i)
+    var x = self.fx[i]
+    var y = self.fy[i]
+    var body = self.fbody[i]
+    var tail = self.ftail[i]
+
+    if self.night()
+      body = 0x203040
+      tail = 0x152030
+    end
+
+    if self.fdir[i] &gt; 0
+      pixel(x, y, tail)
+      pixel(x, y + 1, tail)
+      rect_fill(x + 1, y, 3, 1, body)
+      rect_fill(x + 1, y + 1, 2, 1, body)
+      pixel(x + 3, y, 0xFFFFFF)
+    else
+      pixel(x + 4, y, tail)
+      pixel(x + 4, y + 1, tail)
+      rect_fill(x + 1, y, 3, 1, body)
+      rect_fill(x + 2, y + 1, 2, 1, body)
+      pixel(x + 1, y, 0xFFFFFF)
+    end
+  end
+
+  def draw_bubbles()
+    var c = 0x44CCFF
+    if self.night()
+      c = 0x123344
+    end
+    var i = 0
+    while i &lt; 5
+      pixel(self.bx[i], self.by[i], c)
+      i += 1
+    end
+  end
+
+  def draw_sleep()
+    if !self.night()
+      return
+    end
+    # A Z above the first fish, on and off, so a dark tank still has one thing
+    # moving in it.
+    if (now_ms() % 2400) &lt; 1400
+      var x = self.fx[0] + 2
+      var c = 0x446688
+      pixel(x, self.fy[0] - 2, c)
+      pixel(x + 1, self.fy[0] - 2, c)
+      pixel(x, self.fy[0] - 1, c)
+      pixel(x + 1, self.fy[0] - 3, c)
+    end
+  end
+
+  def draw()
+    self.step()
+
+    self.draw_water()
+    self.draw_bed()
+    self.draw_plants()
+    self.draw_rocks()
+    self.draw_chest()
+    self.draw_bubbles()
+
+    var i = 0
+    while i &lt; 3
+      self.draw_fish(i)
+      i += 1
+    end
+
+    if self.feeding
+      pixel(self.foodX, self.foodY, 0xFF7722)
+    end
+    self.draw_sleep()
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/aquarium.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/aquarium.be">Raw</a>
+        </p>
+      </article>
+
       <article class="card" id="battery">
         <img class="card__preview" src="battery.gif" width="312" height="96"
              loading="lazy" alt="Battery running on a 52 by 16 pixel panel">
@@ -333,6 +704,363 @@ return App()
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/day-progress.be">View on GitHub</a>
           ·
           <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/day-progress.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="fireplace">
+        <img class="card__preview" src="fireplace.gif" width="312" height="96"
+             loading="lazy" alt="Fireplace running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Fireplace</h3>
+          <p class="card__by">Galadril · 337 lines</p>
+        </header>
+        <p class="card__summary">Procedural fire, the whole panel. Embers, a coal bed and no two frames alike.</p>
+        <ul class="card__tags"><li>ambient</li><li>animation</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Fireplace
+# summary: Procedural fire, the whole panel. Embers, a coal bed and no two frames alike.
+# author: Galadril
+# tags: ambient, animation
+# panel: 52x16
+
+# Rebuilt for 52x16 from Galadril&#x27;s Pixel Fireplace, which was written for a
+# 32x8 panel.
+#
+# The physics is the same idea - a hot bed at the bottom, heat averaged upward
+# from the row below, cooling that increases with height - but every constant
+# had to move. On eight rows a flame reaches the top in three steps, so the
+# cooling has to be gentle or there is no fire at all. On sixteen it has twice
+# the distance, so it can cool harder and the flames get the tapered shape the
+# small panel never had room for.
+#
+# It also runs on its own clock rather than on the frame rate: fire that
+# simulates once per frame speeds up on a faster device, and this is the one
+# app where &quot;it looks wrong&quot; is the only symptom you would ever get.
+
+class App
+  var a, b, seed, last, phase
+
+  def init()
+    self.seed = now_ms() + 4517
+    self.last = 0
+    self.phase = 0
+    self.a = []
+    self.b = []
+
+    # 52 x 16 cells, flat. A list of lists would be tidier and would cost an
+    # index lookup per cell on a device drawing 832 of them.
+    #
+    # Seeded already burning, hot at the bottom and cooling upward, rather
+    # than from a cold grid.
+    #
+    # From cold the flames take about three seconds to climb sixteen rows,
+    # and this app arrives by carousel: the first thing anybody would see of
+    # it is a black panel that slowly admits to being a fire. Starting warm
+    # costs one pass here and the simulation settles into its own shape
+    # within a second anyway.
+    # With noise, not a clean gradient. A gradient seeds the panel with
+    # sixteen flat bands, which on the first frame reads as a colour chart
+    # rather than as a fire - worse than starting black, because it looks
+    # deliberate. The noise makes the very first frame irregular, and the
+    # simulation takes it from there.
+    var seed = self.seed
+    var i = 0
+    while i &lt; 832
+      seed = (seed * 1103515245 + 12345) % 2147483647
+      if seed &lt; 0
+        seed = -seed
+      end
+      var y = i / 52
+      var h = 240 - (15 - y) * 17 + seed % 70 - 35
+      if h &lt; 0
+        h = 0
+      end
+      self.a.push(h)
+      self.b.push(h)
+      i += 1
+    end
+    self.seed = seed
+  end
+
+  # A linear congruential generator, because the fire needs a great many
+  # small random numbers and math.rand() is not seeded per script - two
+  # fireplaces side by side would burn identically.
+  def rnd(n)
+    self.seed = (self.seed * 1103515245 + 12345) % 2147483647
+    if self.seed &lt; 0
+      self.seed = -self.seed
+    end
+    return self.seed % n
+  end
+
+  def update()
+    var n = now_ms()
+    if n - self.last &lt; 70
+      return
+    end
+    self.last = n
+
+    # Everything the loops touch is pulled into a local first.
+    #
+    # Not premature: this runs 832 cells a frame, and `self.a[i]` is a member
+    # lookup and then an index where `a[i]` is just an index. The first
+    # version of this script spent 262,144 instructions a frame against a
+    # budget of 200,000 and lost every frame it tried to simulate on.
+    var a = self.a
+    var b = self.b
+    var w = width()
+    var bed = 15 * w
+    var seed = self.seed
+
+    # The combustion layer: hot everywhere, with cooler holes and white-hot
+    # pockets. The holes are what stop it looking like a strip light.
+    var x = 0
+    while x &lt; w
+      seed = (seed * 1103515245 + 12345) % 2147483647
+      if seed &lt; 0
+        seed = -seed
+      end
+      var r = seed % 512
+      var h = 195 + r % 61
+      if r % 8 == 0
+        h = 80 + r % 80
+      end
+      a[bed + x] = h
+      x += 1
+    end
+
+    var p = 0
+    while p &lt; 7
+      seed = (seed * 1103515245 + 12345) % 2147483647
+      if seed &lt; 0
+        seed = -seed
+      end
+      a[bed + 2 + seed % (w - 4)] = 255
+      p += 1
+    end
+
+    # Heat rises, averaged with its neighbours and with the row two below -
+    # that second term is what makes flames connect into tongues instead of
+    # breaking into separate dots.
+    #
+    # Half the rows each pass, alternating.
+    #
+    # Simulating all fifteen and drawing a full panel in the same frame put
+    # the worst frame inside the last heartbeat before the budget kills it -
+    # and because the budget is only checked every 65,536 instructions, there
+    # was no way to tell whether it was near the edge or on it. Every row
+    # still updates every 140 ms, which for a diffusion this soft is not a
+    # difference you can see.
+    #
+    # The rows not simulated are copied rather than left: they live in the
+    # other buffer, and a copy is two operations against the seventy a
+    # simulated cell costs.
+    var phase = self.phase
+    self.phase = 1 - phase
+
+    var y = 0
+    while y &lt; 15
+      var row = y * w
+      var belowRow = row + w
+      var twoBelow = belowRow + w
+      if y &gt;= 14
+        twoBelow = belowRow
+      end
+
+      if y % 2 != phase
+        x = 0
+        while x &lt; w
+          b[row + x] = a[row + x]
+          x += 1
+        end
+        y += 1
+        continue
+      end
+
+      x = 0
+      while x &lt; w
+        var below = belowRow + x
+        var h = a[below]
+
+        # At the edges the missing neighbour is counted as the cell itself,
+        # so the average stays over four samples and the outermost columns do
+        # not run cold.
+        if x &gt; 0
+          h += a[below - 1]
+        else
+          h += a[below]
+        end
+
+        if x &lt; w - 1
+          h += a[below + 1]
+        else
+          h += a[below]
+        end
+
+        h += a[twoBelow + x]
+        h = h / 4
+
+        # One random number, used for both the cooling and the sideways
+        # turbulence. Two calls a cell was 1,600 a frame; the fire does not
+        # look any different for sharing one.
+        seed = (seed * 1103515245 + 12345) % 2147483647
+        if seed &lt; 0
+          seed = -seed
+        end
+
+        # Cooling rises with height. Sixteen rows can afford a real gradient,
+        # which is what gives the flames their taper.
+        var cool = 6 + seed % 14
+        if y &lt; 10
+          cool += 6
+        end
+        if y &lt; 5
+          cool += 8
+        end
+        h -= cool
+
+        if h &lt; 0
+          h = 0
+        end
+
+        var xx = x
+        var turn = (seed / 16) % 5
+        if turn == 0 &amp;&amp; x &gt; 0
+          xx = x - 1
+        elif turn == 4 &amp;&amp; x &lt; w - 1
+          xx = x + 1
+        end
+
+        b[row + xx] = h
+        x += 1
+      end
+      y += 1
+    end
+
+    x = 0
+    while x &lt; w
+      b[bed + x] = a[bed + x]
+      x += 1
+    end
+
+    self.seed = seed
+    self.a = b
+    self.b = a
+  end
+
+  def embers()
+    # Sparks above the flames. Rare, because the point is that you catch one
+    # occasionally rather than watch a fountain.
+    if self.rnd(3) == 0
+      var x = 4 + self.rnd(width() - 8)
+      var y = self.rnd(7)
+      if self.rnd(3) == 0
+        pixel(x, y, 0xFFFF80)
+      else
+        pixel(x, y, 0xFF5000)
+      end
+    end
+  end
+
+  def bed()
+    # The coals, drawn rather than simulated: they barely move, and a fixed
+    # bed gives the fire something to sit on.
+    var coals = [0x240800, 0x451000, 0x701500, 0x301000,
+                 0x701500, 0xA02000, 0x451000, 0x8A1800,
+                 0xD03000, 0x601000, 0xA02000, 0xF04000,
+                 0x701500, 0xC02800, 0x501000, 0x901800,
+                 0xD03000, 0x601000, 0x401000, 0x200800]
+    var i = 0
+    while i &lt; size(coals)
+      var x = 1 + i * 26 / 10
+      if x &lt; width()
+        pixel(x, 15, coals[i])
+      end
+      i += 1
+    end
+  end
+
+  def draw()
+    self.update()
+
+    clear(0x010000)
+
+    # Drawn as horizontal runs, not as pixels.
+    #
+    # The colours are eight bands rather than a gradient - an LED panel has
+    # no subtlety to spend, and hard steps read as fire where a smooth ramp
+    # reads as an orange smear. That banding is also what makes runs worth
+    # having: neighbouring cells usually land in the same band, so a row of
+    # 52 becomes a handful of rect_fill calls instead of 52 pixel ones.
+    #
+    # It matters because this is the most expensive script here. Per-pixel
+    # with a dot() method it cost 262,144 instructions a frame against a
+    # budget of 200,000 and lost every frame it simulated on.
+    var a = self.a
+    var w = width()
+    var i = 0
+    var y = 0
+
+    while y &lt; 16
+      var x = 0
+      var runStart = 0
+      var runColour = -1
+
+      while x &lt; w
+        var h = a[i]
+
+        var c = -1
+        if h &gt;= 18
+          c = 0xFFFFD0
+          if h &lt; 55
+            c = 0x260000
+          elif h &lt; 90
+            c = 0x600000
+          elif h &lt; 125
+            c = 0xB01000
+          elif h &lt; 165
+            c = 0xFF2800
+          elif h &lt; 200
+            c = 0xFF7000
+          elif h &lt; 230
+            c = 0xFFC000
+          elif h &lt; 248
+            c = 0xFFFF40
+          end
+        end
+
+        if c != runColour
+          if runColour &gt;= 0
+            rect_fill(runStart, y, x - runStart, 1, runColour)
+          end
+          runColour = c
+          runStart = x
+        end
+
+        i += 1
+        x += 1
+      end
+
+      # The run that reaches the right-hand edge.
+      if runColour &gt;= 0
+        rect_fill(runStart, y, w - runStart, 1, runColour)
+      end
+      y += 1
+    end
+
+    self.embers()
+    self.bed()
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/fireplace.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/fireplace.be">Raw</a>
         </p>
       </article>
 
