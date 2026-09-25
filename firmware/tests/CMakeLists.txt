@@ -34,6 +34,7 @@ add_executable(stipple_tests
     test_setup_hold.cpp
     test_wpa_replies.cpp
     test_dhcp.cpp
+    test_dns.cpp
     test_sntp.cpp
     test_splash.cpp
     test_stopwatch.cpp

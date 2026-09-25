@@ -38,6 +38,7 @@ add_library(stipple_core
     src/audio/Tone.cpp
     src/time/Timezone.cpp
     src/net/DhcpClient.cpp
+    src/net/DnsMessage.cpp
     src/net/SntpMessage.cpp
     src/core/Base64.cpp
     src/core/Checksum.cpp
