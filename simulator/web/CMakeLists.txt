@@ -15,7 +15,7 @@ add_executable(stipple_emulator src/main.cpp)
 # The simulator adapter supplies this build's half of the §53 boundary. The
 # device build will link its TC002 counterpart here instead, and main.cpp will
 # not change.
-target_link_libraries(stipple_emulator PRIVATE stipple_core stipple_platform_simulator)
+target_link_libraries(stipple_emulator PRIVATE stipple_core stipple_platform_simulator stipple_script)
 
 set_target_properties(stipple_emulator PROPERTIES
     OUTPUT_NAME "stipple-core"

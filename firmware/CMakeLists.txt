@@ -288,6 +288,7 @@ if(STIPPLE_DEVICE_BUILD)
     target_link_libraries(stipple_device PRIVATE
         stipple_core
         stipple_platform_tc002
+        stipple_script
         stipple_warnings)
 
     # The same firmware, as the library the TC002 framework loads.
@@ -307,6 +308,7 @@ if(STIPPLE_DEVICE_BUILD)
     target_link_libraries(stipple_startup PRIVATE
         stipple_core
         stipple_platform_tc002
+        stipple_script
         stipple_warnings)
 
     # The C++ runtime travels with us. The device ships libstdc++.so.6.0.26,

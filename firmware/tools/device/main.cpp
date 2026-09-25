@@ -33,6 +33,7 @@
 
 #include "stipple/core/Log.h"
 #include "stipple/host/ApplicationHost.h"
+#include "stipple/script/ScriptStore.h"
 #include "stipple/platform/tc002/Tc002Platform.h"
 
 namespace {
@@ -170,6 +171,13 @@ int stippleMain(int argc, char** argv) {
         platform.close();
         return 1;
     }
+
+    // Scripting is installed here rather than being part of the host, because
+    // the core cannot link an interpreter (ADR 0012). This is the one place
+    // that decides this build has one; setScriptRunner also loads whatever is
+    // on storage, so a library written before the last reboot comes back now.
+    stipple::script::ScriptStore scripts;
+    host.setScriptRunner(&scripts);
 
     // After initialize(), not before: the host pushes the stored setting to the
     // display during startup, so a brightness set earlier is silently replaced
