@@ -7,13 +7,23 @@ owns end to end: a 52×16 framebuffer, declarative custom apps, notifications,
 an HTTP and MQTT API, sound, and a browser emulator. Local-first — no cloud,
 no account, no vendor app.
 
-> **Status: runs on real hardware and survives a power cycle.**
+> **Status: 0.1.0, pre-release. It runs on real hardware — but not this exact
+> build.**
 >
 > Stipple installs into the device's `res` partition beside a small shim that
 > chooses what to run. A Stipple that will not load falls back to the stock
 > Ulanzi clock rather than to nothing, so the device stays reachable and
 > recovery is deleting one file. After the first install, updates are a file
-> upload in the web UI — no flashing, no USB stick.
+> upload in the web UI — no flashing, no USB stick. All of that has been done
+> on a device.
+>
+> Two things have not. The project was **renamed after the last device
+> deployment**, which moved the on-device path from `/data/notrix/` to
+> `/data/stipple/` — so a current build needs one reflash rather than loading
+> beside the old one. And the **firmware-update endpoint has not been
+> exercised end to end**: it validates, installs atomically and keeps the
+> previous version for rollback, and no device has yet been updated through
+> it.
 >
 > See [docs/install.md](docs/install.md).
 
@@ -109,6 +119,10 @@ Stated plainly, because a status section that only lists wins is not one.
 - **Updating through the web UI is implemented but unproven.** The endpoint
   validates, installs atomically and keeps the previous version for rollback,
   and it has not yet been exercised end to end on hardware.
+- **This build has not been on a device.** The code that ran carried the
+  project's previous name; the rename is mechanical and the tests pass, but
+  "the tests pass" and "it booted" are different claims and only one of them
+  has been made about this commit.
 - **No update checking.** Nothing polls for a new release; you upload the file.
   The device also has no working DNS — see the findings document — so anything
   that fetches by hostname needs that solved first.

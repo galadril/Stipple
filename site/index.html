@@ -21,7 +21,10 @@
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="bar">
-  <span class="bar__mark" aria-hidden="true"></span>
+  <a class="bar__brand" href="./">
+    <span class="bar__mark" aria-hidden="true"></span>
+    <span class="bar__name">Stipple</span>
+  </a>
   <nav class="bar__nav" aria-label="Main">
     <a href="emulator/">Emulator</a>
     <a href="#install">Install</a>
@@ -39,6 +42,12 @@
     <div class="stage">
       <canvas id="hero-panel" width="52" height="16"
               aria-label="A 52 by 16 pixel LED panel showing the word STIPPLE over a travelling wave, then the time."></canvas>
+      <noscript>
+        <p class="stage__note">
+          The panel above draws real frames from the firmware's test suite, and
+          needs JavaScript. Everything else on this page reads without it.
+        </p>
+      </noscript>
       <p class="stage__meta" id="hero-caption">52 × 16 · 832 pixels</p>
     </div>
 
@@ -56,6 +65,16 @@
       <p class="fineprint">
         GPL-3.0. No cloud, no account, no telemetry. Everything above runs on
         a device with 36&nbsp;MB of RAM.
+      </p>
+
+      <!-- Specific rather than a "work in progress" badge. Saying which
+           parts have met hardware and which have not is both more useful and
+           more credible than a vague warning. -->
+      <p class="prerelease">
+        <strong>0.1.0, pre-release.</strong> Everything described here has run
+        on real hardware — but not this exact build. The project was renamed
+        after the last device deployment, and the firmware-update endpoint has
+        not yet been exercised end to end.
       </p>
     </div>
   </section>
