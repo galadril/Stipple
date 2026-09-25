@@ -95,17 +95,42 @@ fails only at `dlopen`, on the device, where nothing can tell you why.
 
 ## 3. Put it on the stick
 
+```powershell
+.\dev.ps1 usb
+```
+
+It lists your removable drives, asks which one, erases it, and writes both
+files. It checks the image before touching the drive and verifies the copy
+afterwards.
+
+**Only removable drives are ever offered**, there is a size cap so an external
+backup disk cannot be chosen by accident, and it asks you to type the drive
+letter rather than press "y" — the letter is the thing people get wrong, and a
+yes/no prompt is answered by reflex.
+
+<details>
+<summary>Doing it by hand instead</summary>
+
 Two files in the root, nothing else:
 
 ```
-update.img       the image you just built
-zkautoupgrade    a single ASCII '0' — one byte, no extension
+update.img       the image you built in step 2
+zkautoupgrade    a single ASCII '0' - one byte, no extension
+```
+
+Format FAT32 with **4 KB clusters** — Windows defaults a 32 GB volume to
+16 KB, which is what a failed attempt used:
+
+```
+format D: /FS:FAT32 /A:4096 /Q
 ```
 
 `zkautoupgrade` is the piece nobody can guess from the binaries. Without it
 the loader ignores external media entirely — an attempt with `update.img`,
 `extupdate.img`, `full_update.zk` *and* `zkimg/update.img` but no sentinel did
 nothing at all.
+
+</details>
 
 ## 4. Flash
 

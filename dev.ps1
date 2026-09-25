@@ -26,7 +26,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'image', 'panel', 'serve', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'image', 'usb', 'panel', 'serve', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -370,6 +370,27 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/stipple_device \
 
         Write-Host "`nNothing has been flashed. ADR 0008 gates that on a" -ForegroundColor Yellow
         Write-Host "demonstrated restore, which has not happened." -ForegroundColor Yellow
+    }
+
+    'usb' {
+        # Prepare a stick the device will flash from.
+        #
+        # Wrapped rather than reimplemented: the script carries the guards,
+        # and this verb exists so nobody has to know that FAT32 needs 4 KB
+        # clusters or that a one-byte file called zkautoupgrade is what makes
+        # the loader look at external media at all.
+        $script = Join-Path $repoRoot 'tooling\installer\Prepare-UsbStick.ps1'
+        # A hashtable, not an array. Splatting an array passes its elements
+        # positionally, so @('-Drive', 'D:') bound '-Drive' to the first
+        # parameter and 'D:' to the second - which made 'dev.ps1 usb C:' try
+        # to validate C: as a firmware image.
+        $extra = @{}
+        if ($Rest -and $Rest[0]) { $extra['Drive'] = $Rest[0] }
+        & $script @extra
+        # No throw on top: the script has already said what went wrong, in
+        # more detail than a wrapper could, and a stack trace over it just
+        # buries the explanation.
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 
     'panel' {
