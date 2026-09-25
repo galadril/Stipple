@@ -130,3 +130,22 @@
   background: transparent;
   color: var(--cyan);
 }
+
+/* The preview.
+ *
+ * Real frames from the real engine, at the real panel size, scaled six times
+ * with nearest neighbour - see tooling/site/build-previews.py. A description
+ * of what a script does is worth much less than a second of watching it.
+ *
+ * Pixelated as well as pre-scaled, because a browser asked to fit 312px into
+ * a narrower card will resample it, and a smoothed picture of a pixel panel
+ * misrepresents the one thing the product is. */
+.card__preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-bottom: 0.9rem;
+  background: var(--unlit);
+  image-rendering: pixelated;
+  border: 1px solid var(--rule);
+}

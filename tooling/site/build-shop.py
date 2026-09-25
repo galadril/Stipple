@@ -84,6 +84,8 @@ def card(meta):
 
     return """
       <article class="card" id="{anchor}">
+        <img class="card__preview" src="{anchor}.gif" width="312" height="96"
+             loading="lazy" alt="{name} running on a 52 by 16 pixel panel">
         <header class="card__head">
           <h3>{name}</h3>
           <p class="card__by">{author} · {lines} lines</p>

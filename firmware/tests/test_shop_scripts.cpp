@@ -228,6 +228,83 @@ STIPPLE_TEST(ShopScripts, EachOneSaysWhenTheDeviceCannotTellItTheTime) {
 // Not a test so much as a way to look at them.
 //
 // "Does this look right on a 52x16 panel" cannot be asserted, only seen. Set
+// STIPPLE_SHOP_FRAMES=<directory> and this writes one raw RGB stream per
+// script - every frame, back to back, 52*16*3 bytes each - which
+// tooling/site/build-previews.py turns into the animations on the shop page.
+//
+// Raw rather than PNG, because the consumer is a script that wants pixels and
+// putting them through an image format only to take them out again would be
+// two conversions to get back where it started.
+//
+// The frames come from the real engine at the real size. A preview drawn any
+// other way would be a picture of something that does not exist.
+STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
+    const char* directory = std::getenv("STIPPLE_SHOP_FRAMES");
+    if (directory == nullptr) {
+        return;
+    }
+
+    // Three seconds at thirty frames. Long enough for the animations here to
+    // show what they do and short enough that the page is not carrying
+    // megabytes of them.
+    constexpr int kFrames = 90;
+    constexpr std::uint64_t kFrameMillis = 33;
+
+    stipple::script::ScriptEnvironment environment;
+    environment.timeKnown = true;
+    environment.hour = 14;
+    environment.minute = 37;
+    environment.second = 22;
+    environment.day = 9;
+    environment.month = 11;
+    environment.year = 2025;
+    environment.weekday = 0;
+    environment.batteryKnown = true;
+    environment.batteryPercent = 64;
+    environment.charging = true;
+
+    for (const Example& example : loadExamples()) {
+        if (example.source.empty()) { continue; }
+
+        ScriptStore store;
+        store.setEnvironment(environment);
+        if (store.put("shop", example.name, example.source) !=
+            stipple::script::ScriptPutResult::Added) {
+            continue;
+        }
+
+        const std::string stem = example.name.substr(0, example.name.find('.'));
+        const std::string path = std::string(directory) + "/" + stem + ".rgb";
+        std::FILE* out = std::fopen(path.c_str(), "wb");
+        if (out == nullptr) { continue; }
+
+        Framebuffer framebuffer;
+        Canvas canvas(framebuffer);
+        for (int frame = 0; frame < kFrames; ++frame) {
+            // A script with an on_button is played rather than watched. A
+            // preview of a game showing its game-over screen is a preview of
+            // nothing.
+            if (frame % 12 == 0) {
+                store.button("shop", "select");
+            }
+            store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * kFrameMillis);
+
+            for (int y = 0; y < Framebuffer::kHeight; ++y) {
+                for (int x = 0; x < Framebuffer::kWidth; ++x) {
+                    const stipple::Rgb pixel = framebuffer.at(x, y);
+                    const unsigned char triple[3] = {pixel.r, pixel.g, pixel.b};
+                    std::fwrite(triple, 1, 3, out);
+                }
+            }
+        }
+        std::fclose(out);
+        std::printf("    [frames] %s: %d frames\n", example.name.c_str(), kFrames);
+    }
+}
+
+// Not a test so much as a way to look at them.
+//
+// "Does this look right on a 52x16 panel" cannot be asserted, only seen. Set
 // STIPPLE_SHOP_PREVIEW=<directory> and this writes one PNG per script per
 // sampled frame; without it, it does nothing and costs nothing.
 STIPPLE_TEST(ShopScripts, PreviewsOnRequest) {
