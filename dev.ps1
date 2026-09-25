@@ -410,6 +410,21 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/stipple_device \
         Copy-Item (Join-Path $repoRoot 'docs\openapi.yaml') `
                   (Join-Path $repoRoot 'site\api\openapi.yaml') -Force
 
+        # Assemble the same layout the Pages workflow publishes, so a local
+        # preview is the page that ships rather than a near miss - the
+        # emulator's links up to / and /api/ only resolve in that shape.
+        $emulator = Join-Path $repoRoot 'simulator\web\public'
+        $into = Join-Path $repoRoot 'site\emulator'
+        if (Test-Path $emulator) {
+            New-Item -ItemType Directory -Force $into | Out-Null
+            Copy-Item (Join-Path $emulator '*') $into -Force -ErrorAction SilentlyContinue
+            $built = Get-ChildItem $into -Filter 'stipple-core.*' -ErrorAction SilentlyContinue
+            if (-not $built) {
+                Write-Host "  note: the emulator has not been built, so /emulator/ will not run." -ForegroundColor DarkYellow
+                Write-Host "        build it with '.\dev.ps1 emulator' (needs EMSDK)." -ForegroundColor DarkYellow
+            }
+        }
+
         Write-Host "`nhttp://localhost:8081/  (Ctrl+C to stop)`n" -ForegroundColor Cyan
         Push-Location (Join-Path $repoRoot 'site')
         try { & $python.Source -m http.server 8081 } finally { Pop-Location }
