@@ -299,6 +299,7 @@ void ApplicationHost::publishScriptEnvironment() {
     script::ScriptEnvironment environment;
 
     const platform::ISystemClock& clock = platform_.clock();
+    environment.monotonicMillis = clock.monotonicMillis();
     environment.timeKnown = clock.wallClockValid();
     if (environment.timeKnown) {
         const std::int64_t local = clock.unixSeconds() + clock.utcOffsetSeconds();

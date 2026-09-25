@@ -382,7 +382,26 @@ int b_scroll_text(bvm* vm) {
     be_return(vm);
 }
 
+/// Milliseconds since the device started.
+///
+/// Monotonic, not per-showing. Scripts throttle with
+/// `if now_ms() - self.last >= 250`, and that needs a clock that keeps
+/// counting while the app is off screen: a clock that restarted would leave
+/// `self.last` holding a number from the future and the script would stop
+/// moving until the clock caught up.
+///
+/// This was per-showing to begin with, and the aquarium's fish froze the
+/// first time the carousel came back round to them.
 int b_now_ms(bvm* vm) {
+    be_pushint(vm, static_cast<bint>(g_active.environment.monotonicMillis));
+    be_return(vm);
+}
+
+/// Milliseconds since this app came on screen.
+///
+/// The right clock for an animation that should start from its beginning
+/// every time the app appears, rather than joining part-way through.
+int b_elapsed_ms(bvm* vm) {
     be_pushint(vm, static_cast<bint>(g_active.elapsedMillis));
     be_return(vm);
 }
@@ -400,6 +419,7 @@ void registerBuiltins(bvm* vm) {
     be_regfunc(vm, "text_width", b_text_width);
     be_regfunc(vm, "text_ink_width", b_text_width);
     be_regfunc(vm, "now_ms", b_now_ms);
+    be_regfunc(vm, "elapsed_ms", b_elapsed_ms);
 
     be_regfunc(vm, "hour", b_hour);
     be_regfunc(vm, "minute", b_minute);

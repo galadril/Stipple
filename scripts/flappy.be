@@ -77,7 +77,7 @@ class App
     else
       # Hovering, with a hint. The bird bobs so the screen does not look
       # frozen - a still panel on a carousel reads as a crashed app.
-      var bob = (now_ms() / 250) % 2
+      var bob = (elapsed_ms() / 250) % 2
       pixel(8, self.y / 100 + bob, rgb(255, 200, 0))
       text(14, 5, "press", rgb(70, 70, 70))
     end

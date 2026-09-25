@@ -136,6 +136,16 @@ STIPPLE_TEST(ShopScripts, EveryPublishedScriptCompilesAndDraws) {
         Canvas canvas(framebuffer);
         int litSomething = 0;
         for (int frame = 0; frame < 90; ++frame) {
+            // The device clock advances with the frames.
+            //
+            // Scripts throttle on now_ms(), so a harness that left it at zero
+            // would drive every one of them at a standstill - they would draw
+            // their first frame ninety times and pass every check here. The
+            // previews on the shop page come from this same loop, so it would
+            // have published a page of still images of moving things.
+            environment.monotonicMillis = static_cast<std::uint64_t>(frame) * 33u;
+            store.setEnvironment(environment);
+
             const bool drew =
                 store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * 33u);
             if (!drew) {
@@ -173,15 +183,23 @@ STIPPLE_TEST(ShopScripts, NoneOfThemLeak) {
         STIPPLE_REQUIRE(store.put("shop", example.name, example.source) ==
                         stipple::script::ScriptPutResult::Added);
 
+        // The clock advances here too: a script frozen at time zero allocates
+        // nothing after its first frame, so a leak guard driving one would be
+        // guarding nothing.
+        stipple::script::ScriptEnvironment moving;
         Framebuffer framebuffer;
         Canvas canvas(framebuffer);
         for (int frame = 0; frame < 120; ++frame) {
+            moving.monotonicMillis = static_cast<std::uint64_t>(frame) * 33u;
+            store.setEnvironment(moving);
             store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * 33u);
         }
         store.collectGarbage("shop");
         const std::size_t before = store.find("shop")->memoryBytes;
 
         for (int frame = 0; frame < 600; ++frame) {
+            moving.monotonicMillis = static_cast<std::uint64_t>(120 + frame) * 33u;
+            store.setEnvironment(moving);
             store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * 33u);
         }
         store.collectGarbage("shop");
@@ -290,6 +308,8 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
             if (frame % 12 == 0) {
                 store.button("shop", "select");
             }
+            environment.monotonicMillis = static_cast<std::uint64_t>(frame) * kFrameMillis;
+            store.setEnvironment(environment);
             store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * kFrameMillis);
 
             for (int y = 0; y < Framebuffer::kHeight; ++y) {
@@ -344,6 +364,8 @@ STIPPLE_TEST(ShopScripts, PreviewsOnRequest) {
         int previous = 0;
         for (const int target : kFrames) {
             for (int frame = previous; frame < target; ++frame) {
+                environment.monotonicMillis = static_cast<std::uint64_t>(frame) * 33u;
+                store.setEnvironment(environment);
                 store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * 33u);
                 // Play it, rather than watch it fall. A preview of a game
                 // showing its game-over screen is a preview of nothing.
@@ -352,6 +374,8 @@ STIPPLE_TEST(ShopScripts, PreviewsOnRequest) {
                 }
             }
             previous = target;
+            environment.monotonicMillis = static_cast<std::uint64_t>(target) * 33u;
+            store.setEnvironment(environment);
             store.draw("shop", canvas, static_cast<std::uint64_t>(target) * 33u);
 
             std::string stem = example.name.substr(0, example.name.find('.'));
@@ -397,6 +421,8 @@ STIPPLE_TEST(ShopScripts, InstructionCostProbe) {
         std::uint64_t total = 0;
         std::uint32_t worst = 0;
         for (int frame = 0; frame < kFrames; ++frame) {
+            environment.monotonicMillis = static_cast<std::uint64_t>(frame) * 33u;
+            store.setEnvironment(environment);
             store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * 33u);
             const stipple::script::Script* entry = store.find("shop");
             if (entry != nullptr) {

@@ -73,6 +73,20 @@ struct ScriptEnvironment {
     int batteryPercent = 0;
     bool batteryKnown = false;
     bool charging = false;
+
+    /// Milliseconds since the device started. Never goes backwards.
+    ///
+    /// This is what `now_ms()` returns, and the distinction matters more than
+    /// it looks. Scripts throttle with `if now_ms() - self.last >= 250`, and
+    /// that pattern needs a clock that keeps counting while the app is off
+    /// screen. A clock that restarted whenever the app came round would leave
+    /// `self.last` holding a number from the future, and the comparison would
+    /// stay false for as long as the previous showing lasted - the script
+    /// would simply stop moving.
+    ///
+    /// Time since the app appeared is `elapsed_ms()`, which is the right
+    /// clock for an animation that should start from the beginning each time.
+    std::uint64_t monotonicMillis = 0;
 };
 
 enum class ScriptPutResult : std::uint8_t {
