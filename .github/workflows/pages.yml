@@ -63,13 +63,19 @@ jobs:
       - name: Verify the emulator module
         run: node simulator/web/tools/verify.mjs
 
+      # Generated from scripts/, so the published page lists what the
+      # repository actually holds rather than whatever was committed last.
+      - name: Build the script shop
+        run: python3 tooling/site/build-shop.py
+
       - name: Assemble
         run: |
           set -euo pipefail
-          mkdir -p dist/emulator dist/api
+          mkdir -p dist/emulator dist/api dist/shop
 
           cp site/index.html site/stipple.css site/stipple.js site/frames.js site/favicon.svg dist/
           cp site/api/index.html dist/api/
+          cp site/shop/index.html site/shop/shop.css dist/shop/
 
           # Redoc fetches the specification at runtime, so it has to sit
           # beside the page that asks for it.
@@ -82,6 +88,15 @@ jobs:
           # Pages runs Jekyll otherwise, which eats files beginning with an
           # underscore and is not wanted for a hand-built site.
           touch dist/.nojekyll
+
+          # Every page the nav links to must exist, or the site ships with a
+          # dead link that looks like a broken deploy. Checked here rather
+          # than trusted, because the copy list above is by name and adding a
+          # page without adding a line is the easy mistake - it is how
+          # /shop/ 404'd the first time.
+          for page in index.html api/index.html emulator/index.html shop/index.html; do
+            test -f "dist/$page" || { echo "missing: $page" >&2; exit 1; }
+          done
 
           echo "--- what will be published ---"
           find dist -type f | sort

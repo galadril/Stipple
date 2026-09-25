@@ -43,7 +43,19 @@ add_library(stipple_berry STATIC
     script/be_port.c
     script/be_modtab.c)
 
-target_include_directories(stipple_berry PUBLIC
+# SYSTEM, so a consumer's warning flags do not apply to Berry's headers.
+#
+# The same reasoning as the /W0 below, and it has to be said twice because
+# they cover different things: that one stops Berry's *sources* being held to
+# our flags, this stops its *headers* being held to them inside our own
+# targets. berry.h shadows one of its own struct members, which is Berry's
+# business and not something to patch in a vendored tree - but with -Wshadow
+# -Werror it stopped our code compiling.
+#
+# Found on the ARM build rather than on the host: MSVC has no equivalent
+# warning, so every Windows build of this passed. The same gap as the last
+# time something only ever got compiled by one compiler.
+target_include_directories(stipple_berry SYSTEM PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/script"
     "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/berry/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/berry/generate")
