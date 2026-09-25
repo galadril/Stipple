@@ -14,19 +14,27 @@
     --void: #000000;
     --grid: #0c2a35;
     --rule: #14323d;
+    --panel: #070d10;     /* one step off the void, for surfaces that need one */
     --cyan: #00c8ff;
+    --green: #00e68c;
+    --amber: #ffb000;
+    --red: #ff5b5b;
     --ink: #e8edf2;
     --dim: #8794a1;
+    --mono: ui-monospace, "Cascadia Code", Menlo, monospace;
   }
+
   * { box-sizing: border-box; }
+
   body {
     margin: 0;
-    background: var(--void);
+    background-color: var(--void);
     background-image: radial-gradient(var(--grid) 1px, transparent 1px);
     background-size: 8px 8px;
     color: var(--ink);
     font-family: Archivo, system-ui, sans-serif;
   }
+
   .bar {
     display: flex; align-items: center; gap: 1.5rem;
     padding: 1.25rem clamp(1.25rem, 5vw, 3rem);
@@ -35,19 +43,61 @@
   }
   .bar a { color: var(--dim); text-decoration: none; }
   .bar a:hover, .bar a:focus-visible { color: var(--ink); }
-  .bar strong { font-weight: 600; }
+  .bar strong { font-weight: 800; color: var(--ink); font-size: 1.0625rem; }
+
   .intro {
     max-width: 76rem; margin: 0 auto;
     padding: 0 clamp(1.25rem, 5vw, 3rem) 1.5rem;
   }
   .intro h1 { font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2.25rem); margin: 0 0 0.75rem; letter-spacing: -0.02em; }
   .intro p { color: var(--dim); max-width: 34rem; line-height: 1.6; margin: 0 0 1em; }
-  .intro code { color: var(--cyan); }
-  /* Redoc brings its own layout; give it a light surface so its typography
-     stays readable rather than fighting a dark page it was not built for. */
-  .spec { background: #ffffff; margin-top: 1.5rem; }
+  .intro code { color: var(--cyan); font-family: var(--mono); font-size: 0.9em; }
+
   noscript { display: block; padding: 2rem clamp(1.25rem, 5vw, 3rem); color: var(--dim); }
   :focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+  /* --- Redoc ---------------------------------------------------------------
+   *
+   * Redoc is built light-first: the theme object below covers type and most
+   * colour, but several surfaces are hard-coded white in its stylesheet, so
+   * they need overriding here. Targeted by structure rather than by class,
+   * because its class names are generated and change between versions.
+   */
+  redoc { display: block; background: var(--void); }
+
+  .redoc-wrap, #redoc [role="main"],
+  .api-content, .api-info { background: transparent !important; }
+
+  /* The middle column and everything that lays a panel over it. */
+  redoc div[data-section-id],
+  redoc [data-section-id] > div { background: transparent !important; }
+
+  /* Sidebar: its own surface, one step off the void so the split reads. */
+  redoc .menu-content { background: var(--panel) !important; border-right: 1px solid var(--rule); }
+  redoc .menu-content label,
+  redoc .menu-content li { color: var(--dim) !important; }
+
+  /* Search box, which ships as a white input. */
+  redoc .menu-content input,
+  redoc input[type="text"] {
+    background: var(--void) !important;
+    color: var(--ink) !important;
+    border: 1px solid var(--rule) !important;
+  }
+
+  /* Tables of parameters and schema rows. */
+  redoc table, redoc tbody, redoc tr, redoc td, redoc th { background: transparent !important; }
+  redoc td, redoc th { border-color: var(--rule) !important; }
+
+  /* Anything Redoc renders as a light "panel" behind an example. */
+  redoc pre, redoc code { font-family: var(--mono) !important; }
+  redoc pre { background: var(--panel) !important; border: 1px solid var(--rule); }
+
+  /* The right-hand response column. */
+  redoc .react-tabs__tab-panel { background: transparent !important; }
+
+  /* Redoc's own dark-on-light body copy inside schema blocks. */
+  redoc p, redoc li, redoc span, redoc h1, redoc h2, redoc h3, redoc h5 { color: inherit; }
 </style>
 </head>
 <body>
@@ -65,9 +115,8 @@
     answers MQTT, so the two surfaces cannot drift.
   </p>
   <p>
-    This page is generated from <code>docs/openapi.yaml</code>, which is
-    checked against the router in CI — if a route here did not exist, the
-    build would fail.
+    Generated from <code>docs/openapi.yaml</code>, which is checked against the
+    router in CI — if a route here did not exist, the build would fail.
   </p>
 </div>
 
@@ -77,10 +126,89 @@
   or <a href="https://github.com/galadril/Stipple/blob/main/docs/api.md">docs/api.md</a> directly.
 </noscript>
 
-<div class="spec">
-  <redoc spec-url="openapi.yaml" hide-download-button></redoc>
-</div>
+<redoc></redoc>
 
 <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+<script>
+// Initialised in script rather than declared on the element, because the theme
+// is too large to read as an attribute and Redoc has no dark mode of its own -
+// every colour here has to be named.
+//
+// The palette is the firmware's: the splash cyan, a running stopwatch, a
+// stopped one. HTTP verbs borrow that vocabulary, so a POST is the colour the
+// device uses for "this is the thing", and a DELETE is the only red.
+Redoc.init('openapi.yaml', {
+  hideDownloadButton: true,
+  expandResponses: '200,201',
+  jsonSampleExpandLevel: 3,
+  theme: {
+    spacing: { unit: 5, sectionHorizontal: 40, sectionVertical: 40 },
+    colors: {
+      primary:   { main: '#00c8ff' },
+      success:   { main: '#00e68c' },
+      warning:   { main: '#ffb000' },
+      error:     { main: '#ff5b5b' },
+      text:      { primary: '#e8edf2', secondary: '#8794a1' },
+      border:    { dark: '#14323d', light: '#14323d' },
+      http: {
+        get:     '#00e68c',
+        post:    '#00c8ff',
+        put:     '#ffb000',
+        patch:   '#ffb000',
+        delete:  '#ff5b5b',
+        options: '#8794a1',
+        head:    '#8794a1',
+        basic:   '#8794a1',
+        link:    '#00c8ff'
+      },
+      responses: {
+        success:  { color: '#00e68c', backgroundColor: 'rgba(0,230,140,0.08)', tabTextColor: '#00e68c' },
+        error:    { color: '#ff5b5b', backgroundColor: 'rgba(255,91,91,0.08)', tabTextColor: '#ff5b5b' },
+        redirect: { color: '#ffb000', backgroundColor: 'rgba(255,176,0,0.08)', tabTextColor: '#ffb000' },
+        info:     { color: '#00c8ff', backgroundColor: 'rgba(0,200,255,0.08)', tabTextColor: '#00c8ff' }
+      }
+    },
+    typography: {
+      fontSize: '15px',
+      lineHeight: '1.6',
+      fontFamily: 'Archivo, system-ui, sans-serif',
+      fontWeightRegular: '400',
+      fontWeightBold: '600',
+      fontWeightLight: '400',
+      headings: { fontFamily: 'Archivo, system-ui, sans-serif', fontWeight: '800', lineHeight: '1.15' },
+      code: {
+        fontSize: '13px',
+        fontFamily: 'ui-monospace, "Cascadia Code", Menlo, monospace',
+        color: '#00e68c',
+        backgroundColor: '#070d10',
+        wrap: true
+      },
+      links: { color: '#00c8ff', visited: '#00c8ff', hover: '#e8edf2' }
+    },
+    sidebar: {
+      width: '17rem',
+      backgroundColor: '#070d10',
+      textColor: '#8794a1',
+      activeTextColor: '#00c8ff',
+      groupItems: { textTransform: 'none' },
+      level1Items: { textTransform: 'none' },
+      arrow: { color: '#8794a1' }
+    },
+    rightPanel: {
+      backgroundColor: '#070d10',
+      width: '40%',
+      textColor: '#e8edf2'
+    },
+    schema: {
+      nestedBackground: '#070d10',
+      linesColor: '#14323d',
+      typeNameColor: '#00c8ff',
+      typeTitleColor: '#8794a1',
+      requireLabelColor: '#ff5b5b',
+      labelsTextSize: '13px'
+    }
+  }
+}, document.querySelector('redoc'));
+</script>
 </body>
 </html>

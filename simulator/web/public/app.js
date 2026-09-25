@@ -687,6 +687,10 @@
     };
 
     function mountDeviceUi() {
+        // The embedded configuration page was removed from this page: it is a
+        // convincing copy of a real device's settings, and a convincing form
+        // invites a real password even when nothing it collects goes anywhere.
+        if (!el.uiframe) { return; }
         var page = coreRequest('GET', '/index.html');
         if (page.status !== 200) {
             el.uiframe.srcdoc = '<p style="font:14px system-ui;color:#f2545b;padding:20px">'
@@ -710,6 +714,7 @@
     }
 
     function wireDeviceUi() {
+        if (!el.uiReload) { return; }
         el.uiReload.addEventListener('click', mountDeviceUi);
     }
 

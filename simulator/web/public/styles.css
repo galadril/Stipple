@@ -253,6 +253,18 @@ select.btn { padding-right: 0.5rem; }
 
 /* --- device web ui -------------------------------------------------------- */
 
+/* Amber, which on the device means "stopped, read this" - the same
+   vocabulary the rest of the site uses for a caution. */
+.caution {
+  margin: 0 0 0.9rem;
+  padding: 0.7rem 0.9rem;
+  border-left: 2px solid var(--amber);
+  color: var(--dim);
+  font-size: 0.8125rem;
+  max-width: 62ch;
+}
+.caution strong { color: var(--ink); font-weight: 600; }
+
 .uiframe {
   width: 100%;
   height: 34rem;
