@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API — Stipple</title>
+<meta name="description" content="The Stipple HTTP and MQTT API: 21 routes, served by the device on your own network.">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --void: #000000;
+    --grid: #0c2a35;
+    --rule: #14323d;
+    --cyan: #00c8ff;
+    --ink: #e8edf2;
+    --dim: #8794a1;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--void);
+    background-image: radial-gradient(var(--grid) 1px, transparent 1px);
+    background-size: 8px 8px;
+    color: var(--ink);
+    font-family: Archivo, system-ui, sans-serif;
+  }
+  .bar {
+    display: flex; align-items: center; gap: 1.5rem;
+    padding: 1.25rem clamp(1.25rem, 5vw, 3rem);
+    max-width: 76rem; margin: 0 auto;
+    font-size: 0.9375rem;
+  }
+  .bar a { color: var(--dim); text-decoration: none; }
+  .bar a:hover, .bar a:focus-visible { color: var(--ink); }
+  .bar strong { font-weight: 600; }
+  .intro {
+    max-width: 76rem; margin: 0 auto;
+    padding: 0 clamp(1.25rem, 5vw, 3rem) 1.5rem;
+  }
+  .intro h1 { font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2.25rem); margin: 0 0 0.75rem; letter-spacing: -0.02em; }
+  .intro p { color: var(--dim); max-width: 34rem; line-height: 1.6; margin: 0 0 1em; }
+  .intro code { color: var(--cyan); }
+  /* Redoc brings its own layout; give it a light surface so its typography
+     stays readable rather than fighting a dark page it was not built for. */
+  .spec { background: #ffffff; margin-top: 1.5rem; }
+  noscript { display: block; padding: 2rem clamp(1.25rem, 5vw, 3rem); color: var(--dim); }
+  :focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <a href="../"><strong>Stipple</strong></a>
+  <a href="../emulator/">Emulator</a>
+  <a href="https://github.com/galadril/Stipple">Source</a>
+</header>
+
+<div class="intro">
+  <h1>The API</h1>
+  <p>
+    21 routes, served by the device on your own network. The same router
+    answers MQTT, so the two surfaces cannot drift.
+  </p>
+  <p>
+    This page is generated from <code>docs/openapi.yaml</code>, which is
+    checked against the router in CI — if a route here did not exist, the
+    build would fail.
+  </p>
+</div>
+
+<noscript>
+  This reference renders with JavaScript. Without it, read
+  <a href="https://github.com/galadril/Stipple/blob/main/docs/openapi.yaml">openapi.yaml</a>
+  or <a href="https://github.com/galadril/Stipple/blob/main/docs/api.md">docs/api.md</a> directly.
+</noscript>
+
+<div class="spec">
+  <redoc spec-url="openapi.yaml" hide-download-button></redoc>
+</div>
+
+<script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+</body>
+</html>

@@ -78,3 +78,6 @@ res-*.bin
 # would mislead newcomers. Kept here so it is still to hand, out of the repo
 # so it is not published. Move it to a private repository if you prefer.
 private/
+
+# Copied beside the API page at build time so Redoc can fetch it.
+site/api/openapi.yaml

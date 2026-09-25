@@ -291,17 +291,7 @@ jobs:
   # GitHub Actions), then set the repository variable STIPPLE_PAGES to "true".
   # Until both are done the job is skipped rather than failed, so a release
   # does not go red over a publishing channel nobody asked for yet.
-  pages:
-    name: Deploy emulator to Pages
-    needs: package
-    if: github.event_name == 'push' && vars.STIPPLE_PAGES == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - id: deploy
-        uses: actions/deploy-pages@v4
+  # Pages moved to its own workflow (.github/workflows/pages.yml). The job
+  # that used to live here called deploy-pages without ever uploading an
+  # artifact, so it could only ever have failed, and the site is now more than
+  # the emulator anyway.

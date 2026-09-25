@@ -1,0 +1,313 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * The page is a panel.
+ *
+ * Black here is #000, not a tinted near-black. An unlit LED pixel is
+ * genuinely black, so this is accurate rather than a dark theme - and the dot
+ * grid running through everything is what keeps it reading as a panel with
+ * most of its pixels off, which is what a stipple is.
+ *
+ * Every accent is a colour the firmware already uses and already means
+ * something by: the splash title, a running stopwatch, a stopped one.
+ */
+
+:root {
+  --void: #000000;
+  --grid: #0c2a35;          /* the dot grid: the drain rule, dimmed far down */
+  --rule: #14323d;
+
+  --cyan: #00c8ff;          /* rgb(0,200,255) - the splash title */
+  --green: #00e68c;         /* rgb(0,230,140) - stopwatch running */
+  --amber: #ffb000;         /* rgb(255,176,0) - stopwatch stopped */
+
+  --ink: #e8edf2;
+  --dim: #8794a1;
+
+  --pitch: 8px;             /* dot grid pitch, the page's pixel */
+  --measure: 34rem;         /* ~68 characters */
+  --pad: clamp(1.25rem, 5vw, 3rem);
+
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background-color: var(--void);
+  /* Unlit pixels, everywhere, at a fixed pitch. Content sits on them. */
+  background-image: radial-gradient(var(--grid) 1px, transparent 1px);
+  background-size: var(--pitch) var(--pitch);
+  background-position: center top;
+  color: var(--ink);
+  font-family: Archivo, system-ui, sans-serif;
+  font-size: clamp(1rem, 0.96rem + 0.2vw, 1.0625rem);
+  line-height: 1.6;
+  font-synthesis-weight: none;
+}
+
+h1, h2, h3 { font-weight: 800; line-height: 1.12; letter-spacing: -0.02em; margin: 0; }
+p { margin: 0 0 1.1em; max-width: var(--measure); }
+a { color: var(--cyan); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { color: var(--ink); }
+
+:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+}
+.skip:focus {
+  left: var(--pad);
+  top: var(--pad);
+  z-index: 10;
+  background: var(--void);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--cyan);
+}
+
+/* --- bar ------------------------------------------------------------------ */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.25rem var(--pad);
+  max-width: 76rem;
+  margin: 0 auto;
+}
+
+/* Three lit pixels. The mark is the product's own unit, not a logo. */
+.bar__mark {
+  width: calc(var(--pitch) * 3);
+  height: var(--pitch);
+  flex: none;
+  background-image:
+    linear-gradient(var(--cyan), var(--cyan)),
+    linear-gradient(var(--green), var(--green)),
+    linear-gradient(var(--amber), var(--amber));
+  background-size: 3px 3px;
+  background-position: 1px 2px, 9px 2px, 17px 2px;
+  background-repeat: no-repeat;
+}
+
+.bar__nav { display: flex; gap: 1.25rem; flex-wrap: wrap; font-size: 0.9375rem; }
+.bar__nav a { color: var(--dim); text-decoration: none; }
+.bar__nav a:hover, .bar__nav a:focus-visible { color: var(--ink); }
+
+/* --- hero ----------------------------------------------------------------- */
+
+.hero {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: clamp(2rem, 7vw, 5rem) var(--pad) clamp(3rem, 9vw, 6rem);
+  display: grid;
+  gap: clamp(2rem, 5vw, 3.5rem);
+}
+
+@media (min-width: 62rem) {
+  .hero { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: center; }
+}
+
+/* No frame, no border, no glow. The panel is simply where the page's pixels
+   are lit - so it has to sit flush on the same grid as everything else. */
+.stage__meta {
+  margin: 1rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+#hero-panel {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+
+.lede h1 {
+  font-size: clamp(1.75rem, 1.1rem + 2.6vw, 2.75rem);
+  margin-bottom: 1rem;
+  text-wrap: balance;
+}
+.lede p { color: var(--dim); }
+.lede p:first-of-type { color: var(--ink); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.5rem; }
+
+.button {
+  display: inline-block;
+  padding: 0.65rem 1.1rem;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.9375rem;
+  background: var(--void);
+  transition: border-color 140ms var(--ease), color 140ms var(--ease);
+}
+.button:hover, .button:focus-visible { border-color: var(--cyan); color: var(--cyan); }
+
+.button--lit { border-color: var(--cyan); color: var(--cyan); }
+.button--lit:hover, .button--lit:focus-visible { background: var(--cyan); color: var(--void); }
+
+.fineprint { font-size: 0.875rem; color: var(--dim); margin-top: 1.25rem; }
+
+/* --- bands ---------------------------------------------------------------- */
+
+.band {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: clamp(2.5rem, 7vw, 4.5rem) var(--pad);
+  border-top: 1px solid var(--rule);
+}
+
+.band h2 {
+  font-size: clamp(1.3rem, 1rem + 1.2vw, 1.75rem);
+  margin-bottom: 0.9rem;
+  max-width: var(--measure);
+  text-wrap: balance;
+}
+
+.band > p { color: var(--dim); }
+
+/* --- specimens ------------------------------------------------------------ */
+
+.specimens {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: clamp(1rem, 4vw, 2rem) var(--pad) clamp(2.5rem, 7vw, 4rem);
+  display: grid;
+  gap: clamp(1.5rem, 4vw, 2.5rem);
+}
+
+@media (min-width: 48rem) { .specimens { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Deliberately not a card: no background, no radius, no shadow. A frame and
+   a line of text, sitting on the same grid as the rest of the page. */
+.specimen canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+.specimen p {
+  margin: 0.75rem 0 0;
+  font-size: 0.9375rem;
+  color: var(--dim);
+  max-width: none;
+}
+
+/* --- facts ---------------------------------------------------------------- */
+
+.facts { margin: 1.75rem 0 0; display: grid; gap: 0; max-width: 46rem; }
+.facts > div {
+  display: grid;
+  gap: 0.25rem 1.5rem;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--rule);
+}
+@media (min-width: 40rem) { .facts > div { grid-template-columns: 11rem 1fr; } }
+.facts dt { color: var(--ink); font-weight: 500; }
+.facts dd { margin: 0; color: var(--dim); }
+
+/* --- code ----------------------------------------------------------------- */
+
+pre {
+  margin: 1.5rem 0;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--rule);
+  overflow-x: auto;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  max-width: 46rem;
+}
+pre code { font-family: ui-monospace, "Cascadia Code", Menlo, monospace; color: var(--green); }
+
+/* --- steps ---------------------------------------------------------------- */
+
+/* Numbered because installing genuinely is a sequence - the capture has to
+   happen before the image, and the image before the stick. */
+.steps { margin: 1.75rem 0 0; padding: 0; list-style: none; counter-reset: step; max-width: 46rem; }
+.steps li {
+  counter-increment: step;
+  display: grid;
+  gap: 0.15rem 1rem;
+  grid-template-columns: 1.75rem 1fr;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--rule);
+}
+.steps li::before {
+  content: counter(step);
+  color: var(--cyan);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.steps code {
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: 0.9375rem;
+  color: var(--ink);
+}
+.steps span { grid-column: 2; color: var(--dim); font-size: 0.9375rem; }
+
+/* --- warning -------------------------------------------------------------- */
+
+/* Amber, which is the colour a stopped stopwatch uses on the device: the
+   page's own vocabulary for "read this before carrying on". */
+.warn {
+  margin: 2.5rem 0 0;
+  padding: 1.25rem 1.4rem;
+  border: 1px solid var(--amber);
+  max-width: 46rem;
+}
+.warn h3 { font-size: 1rem; color: var(--amber); margin-bottom: 0.6rem; }
+.warn p { color: var(--dim); font-size: 0.9375rem; margin-bottom: 0.8em; }
+.warn p:last-child { margin-bottom: 0; }
+.warn strong { color: var(--ink); }
+
+/* --- unfinished ----------------------------------------------------------- */
+
+.unfinished { margin: 1.5rem 0 0; padding: 0; list-style: none; max-width: 46rem; }
+.unfinished li {
+  padding: 0.7rem 0 0.7rem 1.5rem;
+  border-top: 1px solid var(--rule);
+  color: var(--dim);
+  font-size: 0.9375rem;
+  position: relative;
+}
+/* An unlit pixel, for a thing not yet lit. */
+.unfinished li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 1.15rem;
+  width: 4px;
+  height: 4px;
+  background: var(--rule);
+}
+
+/* --- foot ----------------------------------------------------------------- */
+
+.foot {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: clamp(2.5rem, 6vw, 4rem) var(--pad) 3rem;
+  border-top: 1px solid var(--rule);
+  color: var(--dim);
+  font-size: 0.875rem;
+}
+.foot p { max-width: 46rem; }
+.foot p:last-child { display: flex; gap: 1.25rem; flex-wrap: wrap; margin: 0; }
+.foot a { color: var(--dim); text-decoration: none; }
+.foot a:hover, .foot a:focus-visible { color: var(--cyan); }
+
+/* --- motion --------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

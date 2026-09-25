@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">
+  <!-- Lit pixels on an unlit panel, in the firmware's own three colours:
+       the splash cyan, a running stopwatch, a stopped one. -->
+  <rect width="16" height="16" fill="#000000"/>
+  <g fill="#0c2a35">
+    <rect x="2"  y="2"  width="2" height="2"/>
+    <rect x="6"  y="2"  width="2" height="2"/>
+    <rect x="10" y="2"  width="2" height="2"/>
+    <rect x="2"  y="6"  width="2" height="2"/>
+    <rect x="10" y="6"  width="2" height="2"/>
+    <rect x="2"  y="10" width="2" height="2"/>
+    <rect x="6"  y="10" width="2" height="2"/>
+  </g>
+  <rect x="6"  y="6"  width="2" height="2" fill="#00c8ff"/>
+  <rect x="10" y="10" width="2" height="2" fill="#00e68c"/>
+  <rect x="12" y="4"  width="2" height="2" fill="#ffb000"/>
+</svg>

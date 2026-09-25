@@ -1,0 +1,108 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Builds and publishes the website.
+#
+# Three things live there and all are generated from the repository rather
+# than maintained beside it:
+#
+#   /           the landing page, drawing real golden-image frames
+#   /emulator/  the actual renderer compiled to WebAssembly
+#   /api/       openapi.yaml, rendered
+#
+# Nothing here is a mockup or a screenshot, which is the point: if the
+# firmware changed and the page looked wrong, a test would already be failing.
+#
+# Dormant until somebody sets the STIPPLE_PAGES repository variable, because
+# Pages needs the repository to be public and that is a decision, not a
+# default.
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the site
+    if: vars.STIPPLE_PAGES == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.61
+          actions-cache-folder: emsdk-cache
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      # Regenerated rather than committed-and-trusted, so the page always
+      # shows the frames the current tests verify.
+      - name: Generate the panel data
+        run: python3 tooling/site/build-frames.py
+
+      - name: Check the panel data
+        run: node tooling/site/check-site.mjs
+
+      - name: Build the emulator
+        run: |
+          emcmake cmake -S . -B build/emulator -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/emulator
+
+      - name: Verify the emulator module
+        run: node simulator/web/tools/verify.mjs
+
+      - name: Assemble
+        run: |
+          set -euo pipefail
+          mkdir -p dist/emulator dist/api
+
+          cp site/index.html site/stipple.css site/stipple.js site/frames.js site/favicon.svg dist/
+          cp site/api/index.html dist/api/
+
+          # Redoc fetches the specification at runtime, so it has to sit
+          # beside the page that asks for it.
+          cp docs/openapi.yaml dist/api/
+
+          for f in index.html styles.css app.js stipple-core.js stipple-core.wasm; do
+            cp "simulator/web/public/$f" dist/emulator/
+          done
+
+          # Pages runs Jekyll otherwise, which eats files beginning with an
+          # underscore and is not wanted for a hand-built site.
+          touch dist/.nojekyll
+
+          echo "--- what will be published ---"
+          find dist -type f | sort
+          du -sh dist
+
+      - name: Upload
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Publish
+    needs: build
+    if: vars.STIPPLE_PAGES == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
