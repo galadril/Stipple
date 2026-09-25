@@ -30,6 +30,42 @@ and no network. `firmware/script/berry_conf.h` records how to regenerate them.
 
 Neither is linked into any artefact; both are developer tooling.
 
+## Acknowledgement: the AWTRIX NG TC002 port
+
+[`sanderdw/awtrix-ng-tc002`](https://github.com/sanderdw/awtrix-ng-tc002) got to
+this hardware first, and some of what Stipple knows about the TC002 started
+with their work. They are owed the credit, and this is the record of exactly
+what was and was not taken.
+
+**No code from that project is in Stipple, and none can be.** It is licensed
+[PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/),
+which is incompatible with GPL-3.0-or-later, so their code could not be
+vendored or linked here even if we wanted it.
+
+What came from them:
+
+- **Their public README**, read as documentation. The partition layout, the
+  `update.img` packaging, the 8 MiB `res` ceiling, the `zkswe` launcher. All of
+  it recorded as second-hand in
+  [`docs/research/tc002-platform-findings.md`](docs/research/tc002-platform-findings.md)
+  and confirmed on our own device before anything depended on it — in one case
+  the binaries contradicted what we had understood, and our note was the thing
+  that was wrong.
+- **One hardware fact read from their source**: that the panel needs GPIO 35
+  strobed low before a SPI write and high after. Our own instrumented capture
+  had missed it, because the vendor application reaches that line through
+  `/dev/oflash` rather than sysfs, so no amount of watching `/sys/class/gpio`
+  would ever have shown it.
+
+That last one set aside the project's own clean-room rule, deliberately, and
+it is written down rather than quietly absorbed. What was taken is a fact
+about how the hardware behaves — a pin number and an ordering — which is not
+something copyright covers. `Tc002Display` is an independent implementation.
+
+Everything else here is our own: the renderer, the scene model, the app
+engine, the API, the MQTT bridge, the scripting sandbox and every platform
+adapter.
+
 ## Pending
 
 The FlyThings SDK components required for the ARM device build are **not yet

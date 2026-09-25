@@ -189,6 +189,7 @@ the binary.
 | [docs/scripting.md](docs/scripting.md) | Writing Berry scripts, and what they can reach |
 | [docs/DESIGN.md](docs/DESIGN.md) | What the thing should feel like |
 | [docs/research/tc002-platform-findings.md](docs/research/tc002-platform-findings.md) | What the hardware actually does, measured |
+| [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | What Stipple uses, what it owes, and to whom |
 | [docs/bring-up.md](docs/bring-up.md) | Day one with a new device |
 
 ## Contributing
