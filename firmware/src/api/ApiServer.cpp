@@ -78,6 +78,7 @@ void writeNotification(JsonWriter& writer, const notify::Notification& notificat
         .member("durationSeconds", notification.durationSeconds)
         .member("hold", notification.hold)
         .member("dismissible", notification.dismissible)
+        .member("icon", notification.icon)
         .endObject();
 }
 
@@ -983,6 +984,14 @@ Response ApiServer::handleNotificationCollection(const Request& request,
     notification.hold = root["hold"].toBool(false);
     notification.dismissible = root["dismissible"].toBool(true);
     notification.sound = root["sound"].toString();
+
+    // Named rather than uploaded alongside: an icon is reusable and a
+    // notification is not, so the same glyph should not arrive again with
+    // every alert on a device with this little RAM. An id that is not stored
+    // renders as text alone rather than failing the request - the message is
+    // the point, and refusing to show it because a decoration is missing
+    // would be the worst possible trade.
+    notification.icon = root["icon"].toString();
 
     if (notification.text.empty()) {
         return unprocessable("'text' is required");

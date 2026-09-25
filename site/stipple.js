@@ -17,10 +17,26 @@ const H = PANEL.height;
 const WHITE = [230, 230, 230];
 const CYAN = [0, 200, 255];
 
+// An unlit LED is not absolutely black.
+//
+// Drawn as #000 on a black page, the panel vanished and the clock read as
+// floating text - which hid the one thing worth showing, that this is 52x16
+// and every glyph is built from countable pixels. Looking at a real matrix
+// you can see the dark LEDs, so showing them is the more truthful choice as
+// well as the one that makes the panel legible.
+const UNLIT = [12, 18, 22];
+
 /* --- a 52x16 buffer ------------------------------------------------------- */
 
 function blank() {
-  return new Uint8ClampedArray(W * H * 4);
+  const buf = new Uint8ClampedArray(W * H * 4);
+  for (let p = 0; p < W * H; p++) {
+    buf[p * 4] = UNLIT[0];
+    buf[p * 4 + 1] = UNLIT[1];
+    buf[p * 4 + 2] = UNLIT[2];
+    buf[p * 4 + 3] = 255;
+  }
+  return buf;
 }
 
 function plot(buf, x, y, rgb) {
@@ -45,10 +61,17 @@ function decode(base64) {
   const binary = atob(base64);
   const buf = blank();
   for (let p = 0; p < W * H; p++) {
-    buf[p * 4] = binary.charCodeAt(p * 3);
-    buf[p * 4 + 1] = binary.charCodeAt(p * 3 + 1);
-    buf[p * 4 + 2] = binary.charCodeAt(p * 3 + 2);
-    buf[p * 4 + 3] = 255;
+    const r = binary.charCodeAt(p * 3);
+    const g = binary.charCodeAt(p * 3 + 1);
+    const b = binary.charCodeAt(p * 3 + 2);
+    // A pixel the firmware left black is an LED that is off, and off is what
+    // UNLIT already holds. Everything else is drawn exactly as produced.
+    if (r === 0 && g === 0 && b === 0) {
+      continue;
+    }
+    buf[p * 4] = r;
+    buf[p * 4 + 1] = g;
+    buf[p * 4 + 2] = b;
   }
   return buf;
 }

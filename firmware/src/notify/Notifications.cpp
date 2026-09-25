@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "stipple/notify/Notifications.h"
 
+#include "stipple/asset/IconStore.h"
+
 #include "stipple/graphics/Canvas.h"
 #include "stipple/text/Scroll.h"
 
@@ -247,8 +249,53 @@ void NotificationQueue::clear() {
 void render(Canvas& canvas,
             const Notification& notification,
             const Rect& box,
-            std::uint64_t elapsedMillis) {
+            std::uint64_t elapsedMillis,
+            const asset::IconStore* icons) {
     canvas.fillRect(box, colors::kBlack);
+
+    Rect textBox = box;
+
+    // The icon takes the left edge and the text keeps the rest.
+    //
+    // Resolved every frame rather than cached: replacing an icon should
+    // change every notification that names it, and looking one up is a map
+    // probe on a store bounded to 64 entries.
+    const asset::Icon* icon =
+        (icons != nullptr && !notification.icon.empty())
+            ? icons->find(notification.icon)
+            : nullptr;
+
+    if (icon != nullptr && icon->width > 0 && icon->height > 0) {
+        // Centred vertically in whatever room the panel has, and never past
+        // half the width - an icon wide enough to crowd out the message has
+        // stopped being an icon.
+        const int maxWidth = box.w / 2;
+        const int drawWidth = icon->width < maxWidth ? icon->width : maxWidth;
+        const int y = box.y + (box.h - icon->height) / 2;
+
+        const int frame = asset::IconStore::frameAt(*icon, elapsedMillis);
+        const BitmapView view = asset::IconStore::frameView(*icon, frame);
+
+        // Clipped to the box rather than trusted: an icon taller than the
+        // panel is a stored value, and the canvas is the wrong place to
+        // discover it.
+        canvas.setClip(box);
+        if (icon->hasTransparency) {
+            canvas.blitKeyed(box.x, y, view, icon->transparent);
+        } else {
+            canvas.blit(box.x, y, view);
+        }
+        canvas.resetClip();
+
+        // One column of air, so the glyph does not touch the first letter.
+        const int taken = drawWidth + 1;
+        textBox.x += taken;
+        textBox.w -= taken;
+    }
+
+    if (textBox.w <= 0) {
+        return;
+    }
 
     text::TextStyle style;
     style.font = &text::font5x7();
@@ -256,7 +303,7 @@ void render(Canvas& canvas,
     style.hAlign = text::HAlign::Center;
     style.vAlign = text::VAlign::Middle;
 
-    text::drawScrolling(canvas, notification.text, box, style, text::ScrollMode::Auto,
+    text::drawScrolling(canvas, notification.text, textBox, style, text::ScrollMode::Auto,
                         elapsedMillis);
 }
 

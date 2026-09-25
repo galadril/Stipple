@@ -7,6 +7,11 @@ owns end to end: a 52×16 framebuffer, declarative custom apps, notifications,
 an HTTP and MQTT API, sound, and a browser emulator. Local-first — no cloud,
 no account, no vendor app.
 
+**[galadril.github.io/Stipple](https://galadril.github.io/Stipple/)** — try it
+in your browser, no hardware needed. Every panel on that page is real output
+from the test suite, and the [API reference](https://galadril.github.io/Stipple/api/)
+is generated from a specification CI checks against the router.
+
 > **Status: 0.1.0, pre-release. It runs on real hardware — but not this exact
 > build.**
 >
@@ -176,6 +181,7 @@ the binary.
 
 | | |
 |---|---|
+| [galadril.github.io/Stipple](https://galadril.github.io/Stipple/) | The site, the emulator and the API reference |
 | [docs/install.md](docs/install.md) | Getting Stipple onto a device |
 | [docs/recovery.md](docs/recovery.md) | Getting a device back |
 | [docs/api.md](docs/api.md) | The `/api/v1` surface |

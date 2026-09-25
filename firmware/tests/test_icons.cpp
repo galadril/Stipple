@@ -6,6 +6,7 @@
 
 #include "stipple/graphics/Canvas.h"
 #include "stipple/json/Json.h"
+#include "stipple/notify/Notifications.h"
 #include "stipple/scene/Scene.h"
 #include "support/Golden.h"
 #include "support/TestFramework.h"
@@ -482,4 +483,128 @@ STIPPLE_TEST(Icons, LyingGeometryInAStoredBlobIsRejected) {
     IconStore target;
     STIPPLE_CHECK_FALSE(target.deserialize(blob));
     STIPPLE_CHECK_EQ(target.count(), 0);
+}
+
+// --- notifications -----------------------------------------------------------
+
+namespace {
+
+stipple::notify::Notification alert(std::string text, std::string icon = "") {
+    stipple::notify::Notification n;
+    n.text = std::move(text);
+    n.icon = std::move(icon);
+    n.color = colors::kWhite;
+    return n;
+}
+
+}  // namespace
+
+STIPPLE_TEST(NotificationIcons, AnIconTakesTheLeftEdge) {
+    IconStore store;
+    store.put(solid("mail", 8, colors::kOrange));
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    stipple::notify::render(canvas, alert("new mail", "mail"), Framebuffer::bounds(), 0,
+                            &store);
+
+    // The icon is 8x8 and orange; the text is white. Both must be present, or
+    // one has crowded out the other.
+    bool sawIcon = false;
+    bool sawText = false;
+    for (int y = 0; y < Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            const Rgb pixel = framebuffer.at(x, y);
+            if (pixel == colors::kOrange) { sawIcon = true; }
+            if (pixel == colors::kWhite) { sawText = true; }
+        }
+    }
+    STIPPLE_CHECK(sawIcon);
+    STIPPLE_CHECK(sawText);
+}
+
+STIPPLE_TEST(NotificationIcons, AMissingIconStillShowsTheMessage) {
+    // The message is the point. A notification that refused to appear because
+    // a decoration was absent would be the worst possible trade.
+    IconStore store;
+
+    Framebuffer withMissing;
+    Canvas a(withMissing);
+    stipple::notify::render(a, alert("the boiler is on fire", "flame"),
+                            Framebuffer::bounds(), 0, &store);
+
+    Framebuffer withNone;
+    Canvas b(withNone);
+    stipple::notify::render(b, alert("the boiler is on fire"), Framebuffer::bounds(), 0,
+                            &store);
+
+    STIPPLE_CHECK(countLit(withMissing) > 0);
+    // Identical: a missing icon must take no space at all, not leave a gap.
+    for (int y = 0; y < Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            STIPPLE_CHECK(withMissing.at(x, y) == withNone.at(x, y));
+        }
+    }
+}
+
+STIPPLE_TEST(NotificationIcons, NoStoreAtAllIsNotAFailure) {
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    stipple::notify::render(canvas, alert("still fine", "mail"), Framebuffer::bounds(), 0,
+                            nullptr);
+    STIPPLE_CHECK(countLit(framebuffer) > 0);
+}
+
+STIPPLE_TEST(NotificationIcons, AnOversizedIconCannotCrowdOutTheText) {
+    // An icon wide enough to take the whole panel has stopped being an icon.
+    IconStore store;
+    store.put(solid("huge", 32, colors::kOrange));
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    stipple::notify::render(canvas, alert("readable", "huge"), Framebuffer::bounds(), 0,
+                            &store);
+
+    bool sawText = false;
+    for (int y = 0; y < Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            if (framebuffer.at(x, y) == colors::kWhite) { sawText = true; }
+        }
+    }
+    STIPPLE_CHECK(sawText);
+}
+
+STIPPLE_TEST(NotificationIcons, AnAnimatedIconAdvancesWithTheNotification) {
+    Icon icon;
+    icon.id = "blink";
+    icon.width = 8;
+    icon.height = 8;
+    icon.frameCount = 2;
+    icon.frameMillis = 100;
+    icon.pixels.assign(64, colors::kOrange);          // frame 0: lit
+    icon.pixels.resize(128, colors::kBlack);          // frame 1: dark
+
+    IconStore store;
+    store.put(std::move(icon));
+
+    Framebuffer first;
+    Canvas a(first);
+    stipple::notify::render(a, alert("x", "blink"), Framebuffer::bounds(), 0, &store);
+
+    Framebuffer second;
+    Canvas b(second);
+    stipple::notify::render(b, alert("x", "blink"), Framebuffer::bounds(), 100, &store);
+
+    STIPPLE_CHECK(countLit(first) != countLit(second));
+}
+
+STIPPLE_TEST(NotificationIcons, MatchesGolden) {
+    IconStore store;
+    store.put(solid("mail", 8, colors::kOrange));
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    stipple::notify::render(canvas, alert("new mail", "mail"), Framebuffer::bounds(), 0,
+                            &store);
+    STIPPLE_CHECK_GOLDEN("notification-icon", framebuffer);
 }

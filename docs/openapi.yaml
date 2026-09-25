@@ -367,6 +367,21 @@ paths:
                   description: Stay up until dismissed.
                 dismissible: { type: boolean }
                 sound: { type: string }
+                icon:
+                  type: string
+                  description: |
+                    An icon from `/assets`, by id. It takes the left edge and
+                    the text keeps the rest.
+
+                    Named rather than uploaded with the notification, because
+                    an icon is reusable and a notification is not - the same
+                    glyph should not arrive again with every alert on a device
+                    with this much RAM.
+
+                    An id that is not stored renders as text alone rather than
+                    failing the request. The message is the point, and
+                    refusing to show it because a decoration is missing would
+                    be the worst possible trade.
       responses:
         "201": { description: Queued. }
         "400": { $ref: "#/components/responses/BadRequest" }
