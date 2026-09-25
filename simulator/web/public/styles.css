@@ -1,417 +1,278 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * The emulator, in the same language as the rest of the site: the page is a
+ * panel. True black because an unlit LED pixel is black, a dot grid for the
+ * pixels that are off, and every accent a colour the firmware already uses -
+ * the splash cyan, a running stopwatch, a stopped one.
+ *
+ * Class names are load-bearing. app.js queries .btn-hw, toggles .is-over on
+ * the dropzone, and builds log rows out of .when / .lvl / .msg / .empty, so
+ * those names cannot be tidied away.
+ */
 
 :root {
-    --bg: #0a0b0d;
-    --surface: #14161a;
-    --surface-raised: #1c1f25;
-    --line: #262a31;
-    --text: #e8eaed;
-    --muted: #868d98;
-    --accent: #ffb347;
-    --accent-dim: #6b4a1c;
-    --radius: 10px;
-    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  --void: #000000;
+  --grid: #0c2a35;
+  --rule: #14323d;
+
+  --cyan: #00c8ff;
+  --green: #00e68c;
+  --amber: #ffb000;
+  --red: #ff5b5b;
+
+  --ink: #e8edf2;
+  --dim: #8794a1;
+
+  --pitch: 8px;
+  --pad: clamp(1rem, 4vw, 2.5rem);
+  --mono: ui-monospace, "Cascadia Code", Menlo, monospace;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
 
-html, body {
-    margin: 0;
-    padding: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
-    font-size: 15px;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-}
-
-.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-
-/* --- masthead ----------------------------------------------------------- */
-
-.masthead {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 22px 28px;
-    border-bottom: 1px solid var(--line);
-}
-
-.brand { display: flex; align-items: baseline; gap: 10px; }
-
-.brand-name {
-    font-size: 20px;
-    font-weight: 650;
-    letter-spacing: 0.16em;
-}
-
-.brand-sub {
-    color: var(--muted);
-    font-size: 13px;
-    letter-spacing: 0.1em;
-    text-transform: lowercase;
-}
-
-.brand-meta { display: flex; gap: 8px; }
-
-.chip {
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    padding: 3px 9px;
-    border-radius: 999px;
-    background: var(--accent-dim);
-    color: var(--accent);
-    border: 1px solid transparent;
-}
-
-.chip-quiet {
-    background: transparent;
-    color: var(--muted);
-    border-color: var(--line);
+body {
+  margin: 0;
+  background-color: var(--void);
+  background-image: radial-gradient(var(--grid) 1px, transparent 1px);
+  background-size: var(--pitch) var(--pitch);
+  color: var(--ink);
+  font-family: Archivo, system-ui, sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.55;
 }
 
 main {
-    max-width: 860px;
-    margin: 0 auto;
-    padding: 32px 28px 56px;
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 0 var(--pad) 4rem;
+  display: grid;
+  gap: clamp(1.5rem, 4vw, 2.5rem);
 }
 
-/* --- the panel ---------------------------------------------------------- */
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
 
-.stage { margin-bottom: 28px; }
+a { color: var(--cyan); text-underline-offset: 3px; }
 
-.bezel {
-    background: linear-gradient(180deg, #17191e 0%, #101216 100%);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 18px;
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+/* --- masthead ------------------------------------------------------------- */
+
+.masthead {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 1.25rem var(--pad);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
+
+.brand { display: flex; align-items: baseline; gap: 0.6rem; }
+.brand-name {
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+.brand-name a { color: var(--ink); text-decoration: none; }
+.brand-name a:hover { color: var(--cyan); }
+.brand-sub { color: var(--dim); }
+
+.brand-meta { display: flex; gap: 0.5rem; align-items: center; }
+
+/* Not a pill. A thin outline, because everything else on this page that
+   carries a value is outlined too. */
+.chip {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--rule);
+  color: var(--dim);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+.chip-quiet { border-color: transparent; }
+
+/* --- the panel ------------------------------------------------------------ */
+
+.stage { display: grid; gap: 0.9rem; justify-items: start; }
+
+/* No moulded bezel, no glow. The panel is where the page's pixels are lit. */
+.bezel { width: 100%; }
 
 #panel {
-    display: block;
-    width: 100%;
-    height: auto;
-    border-radius: 6px;
-    background: #08090b;
-    image-rendering: auto;
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  background: var(--void);
 }
 
 .notice {
-    margin: 14px 0 0;
-    padding: 12px 14px;
-    border-radius: var(--radius);
-    border: 1px solid var(--accent-dim);
-    background: rgba(255, 179, 71, 0.07);
-    color: var(--accent);
-    font-size: 13.5px;
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--amber);
+  color: var(--amber);
+  font-size: 0.875rem;
 }
 
-.notice code {
-    font-family: var(--mono);
-    background: rgba(0, 0, 0, 0.35);
-    padding: 1px 5px;
-    border-radius: 4px;
-}
-
-/* --- controls ----------------------------------------------------------- */
+/* --- controls ------------------------------------------------------------- */
 
 .controls {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
-    padding: 16px 18px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem 2rem;
+  align-items: center;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
 }
 
-.control-group { display: flex; align-items: center; gap: 10px; }
-
-.control-slider { flex: 1 1 260px; }
-
-.control-slider label {
-    color: var(--muted);
-    font-size: 13px;
-    white-space: nowrap;
-}
-
-.control-slider output {
-    min-width: 3ch;
-    text-align: right;
-    color: var(--muted);
-    font-size: 13px;
-}
-
-input[type="range"] {
-    flex: 1;
-    min-width: 120px;
-    accent-color: var(--accent);
-}
+.control-group { display: flex; align-items: center; gap: 0.6rem; }
+.control-label, .cluster-label { color: var(--dim); }
 
 .btn {
-    appearance: none;
-    border: 1px solid var(--line);
-    background: var(--surface-raised);
-    color: var(--text);
-    font: inherit;
-    font-size: 13.5px;
-    padding: 7px 15px;
-    border-radius: 7px;
-    cursor: pointer;
-    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--rule);
+  background: var(--void);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 140ms var(--ease), color 140ms var(--ease);
 }
+.btn:hover, .btn:focus-visible { border-color: var(--cyan); color: var(--cyan); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn:disabled:hover { border-color: var(--rule); color: var(--ink); }
 
-.btn:hover:not(:disabled) { background: #252932; border-color: #343945; }
-.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn-primary { border-color: var(--cyan); color: var(--cyan); }
+.btn-primary:hover, .btn-primary:focus-visible { background: var(--cyan); color: var(--void); }
 
-.btn:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
+select.btn { padding-right: 0.5rem; }
+
+.control-slider { flex: 1 1 15rem; }
+.control-slider input[type="range"] {
+  flex: 1;
+  accent-color: var(--cyan);
+  min-width: 6rem;
 }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--dim); }
 
-.btn-primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #191307;
-    font-weight: 600;
-}
-
-.btn-primary:hover:not(:disabled) { background: #ffc164; border-color: #ffc164; }
-
-.btn:disabled {
-    opacity: 0.38;
-    cursor: not-allowed;
-}
-
-/* --- device inputs ------------------------------------------------------ */
+/* --- device inputs -------------------------------------------------------- */
 
 .device-inputs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 28px;
-    align-items: flex-start;
-    margin-top: 18px;
-    padding: 16px 18px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
+  display: grid;
+  gap: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
+}
+@media (min-width: 46rem) {
+  .device-inputs { grid-template-columns: repeat(3, minmax(0, 1fr)) ; align-items: start; }
+  .device-inputs .hint { grid-column: 1 / -1; }
 }
 
-.input-cluster { display: flex; flex-direction: column; gap: 8px; }
+.input-cluster { display: grid; gap: 0.45rem; }
+.cluster-row { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 
-.cluster-label {
-    color: var(--muted);
-    font-size: 11px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+/* Square, because they stand for physical buttons. The active state matters
+   more than the hover one: it is the feedback that a press registered. */
+.btn-hw {
+  min-width: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  font-family: var(--mono);
+  font-size: 0.875rem;
 }
+.btn-hw:active { border-color: var(--cyan); background: var(--cyan); color: var(--void); }
 
-.cluster-row { display: flex; gap: 8px; }
+.hint { margin: 0; color: var(--dim); font-size: 0.8125rem; max-width: 62ch; }
+.hint code { font-family: var(--mono); color: var(--green); }
 
-.btn-hw { min-width: 62px; }
+/* --- icons ---------------------------------------------------------------- */
 
-.hint {
-    flex: 1 1 100%;
-    margin: 0;
-    color: var(--muted);
-    font-size: 12.5px;
-}
-
-.hint code, .colophon code {
-    font-family: var(--mono);
-    font-size: 0.92em;
-    color: var(--text);
-}
-
-/* --- diagnostics -------------------------------------------------------- */
-
-.diagnostics {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 1px;
-    margin-top: 18px;
-    background: var(--line);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    overflow: hidden;
-}
-
-.stat {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 13px 16px;
-    background: var(--surface);
-}
-
-.stat-label {
-    color: var(--muted);
-    font-size: 11px;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-}
-
-.stat-value { font-size: 17px; }
-
-.colophon {
-    margin-top: 28px;
-    color: var(--muted);
-    font-size: 13px;
-    border-top: 1px solid var(--line);
-    padding-top: 18px;
-}
-
-.colophon p { margin: 0; }
-
-@media (max-width: 560px) {
-    .masthead { padding: 18px; }
-    main { padding: 22px 18px 40px; }
-    .bezel { padding: 12px; }
-}
-
-/* Settings controls that are not buttons. */
-.control-label {
-    color: var(--muted);
-    font-size: 13px;
-    white-space: nowrap;
-}
-
-select.btn {
-    padding-right: 8px;
-    cursor: pointer;
-}
-
-select.btn option {
-    background: var(--surface-raised);
-    color: var(--text);
-}
-
-/* --- icon upload -------------------------------------------------------- */
-
-.icons {
-    margin-top: 18px;
-    padding: 16px 18px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
+.icons, .logs, .deviceui, .diagnostics {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
 }
 
 .icon-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
 }
 
 .dropzone {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 18px;
-    border: 1px dashed #343945;
-    border-radius: var(--radius);
-    cursor: pointer;
-    text-align: center;
-    transition: border-color 120ms ease, background 120ms ease;
+  display: grid;
+  gap: 0.2rem;
+  padding: 1.5rem 1.25rem;
+  border: 1px dashed var(--rule);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 140ms var(--ease), color 140ms var(--ease);
 }
+.dropzone span { color: var(--dim); font-size: 0.8125rem; }
+.dropzone:hover, .dropzone:focus-within { border-color: var(--cyan); }
+/* app.js sets this while a file is over the target. */
+.dropzone.is-over { border-color: var(--cyan); border-style: solid; color: var(--cyan); }
 
-.dropzone:hover,
-.dropzone.is-over {
-    border-color: var(--accent);
-    background: rgba(255, 179, 71, 0.06);
+/* --- diagnostics ---------------------------------------------------------- */
+
+.diagnostics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.25rem 1.5rem;
 }
+.stat { display: grid; gap: 0.1rem; padding: 0.5rem 0; }
+.stat-label { color: var(--dim); font-size: 0.8125rem; }
+.stat-value { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
 
-.dropzone strong {
-    font-size: 13.5px;
-    font-weight: 600;
-}
-
-.dropzone span {
-    color: var(--muted);
-    font-size: 12.5px;
-}
-
-/* --- device log --------------------------------------------------------- */
-
-.logs {
-    margin-top: 18px;
-    padding: 16px 18px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-}
+/* --- log ------------------------------------------------------------------ */
 
 .logview {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    max-height: 190px;
-    overflow-y: auto;
-    font-family: var(--mono);
-    font-size: 12px;
-    line-height: 1.7;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 16rem;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.7;
 }
+.logview li { display: grid; grid-template-columns: 5rem 3.5rem 1fr; gap: 0.75rem; }
+.logview .when { color: var(--dim); font-variant-numeric: tabular-nums; }
+.logview .msg { color: var(--ink); overflow-wrap: anywhere; }
 
-.logview li {
-    display: flex;
-    gap: 10px;
-    padding: 1px 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-    white-space: pre-wrap;
-}
+/* Level colours are the device's own: a warning is the colour a stopped
+   stopwatch uses, and an error is the only red on the page. */
+.logview .lvl { color: var(--dim); }
+.logview .lvl-info { color: var(--cyan); }
+.logview .lvl-warn { color: var(--amber); }
+.logview .lvl-error { color: var(--red); }
+.logview .lvl-debug { color: var(--dim); }
 
-.logview li:last-child { border-bottom: 0; }
+/* Written by app.js when there is nothing to show. An empty log is a state,
+   not a failure, so it says so plainly. */
+.logview .empty, .empty { color: var(--dim); font-style: normal; }
 
-.logview .when {
-    color: #5c636f;
-    flex: 0 0 5.5ch;
-    text-align: right;
-}
+/* --- device web ui -------------------------------------------------------- */
 
-.logview .lvl {
-    flex: 0 0 5ch;
-    font-weight: 600;
-}
-
-/* Only the levels that mean something are coloured; INFO stays quiet so the
-   exceptions stand out rather than competing with everything else. */
-.logview .lvl-INFO  { color: var(--muted); }
-.logview .lvl-DEBUG { color: #4a515c; }
-.logview .lvl-TRACE { color: #4a515c; }
-.logview .lvl-WARN  { color: var(--accent); }
-.logview .lvl-ERROR { color: #ff6a4d; }
-.logview .lvl-FATAL { color: #ff6a4d; }
-
-.logview .msg { color: var(--text); }
-
-.logview .empty { color: var(--muted); }
-
-/* --- device web UI ------------------------------------------------------- */
-
-.deviceui {
-    margin-top: 18px;
-    padding: 16px 18px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-}
-
-/* Tall enough to use without scrolling the outer page, since the point is to
-   exercise the real page rather than to preview a thumbnail of it. */
 .uiframe {
-    display: block;
-    width: 100%;
-    height: 620px;
-    margin-top: 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: #0d1117;
+  width: 100%;
+  height: 34rem;
+  border: 1px solid var(--rule);
+  background: var(--void);
+}
+
+/* --- colophon ------------------------------------------------------------- */
+
+.colophon {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 1.5rem var(--pad) 3rem;
+  border-top: 1px solid var(--rule);
+  color: var(--dim);
+  font-size: 0.8125rem;
+}
+.colophon a { color: var(--dim); }
+.colophon a:hover { color: var(--cyan); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }

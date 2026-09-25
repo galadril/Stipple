@@ -26,7 +26,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'image', 'usb', 'panel', 'serve', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'image', 'usb', 'panel', 'serve', 'site', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -391,6 +391,43 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/stipple_device \
         # more detail than a wrapper could, and a stack trace over it just
         # buries the explanation.
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+
+    'site' {
+        # Preview the website. Regenerates the panel data first, so what you
+        # look at is the frames the tests currently verify rather than
+        # whatever was generated last time.
+        $python = Get-Command python.exe -ErrorAction SilentlyContinue
+        if (-not $python) { throw 'python.exe not found on PATH.' }
+        & $python.Source (Join-Path $repoRoot 'tooling\site\build-frames.py')
+        if ($LASTEXITCODE -ne 0) { throw 'could not build the panel data' }
+
+        $node = Get-Command node -ErrorAction SilentlyContinue
+        if ($node) { & $node.Source (Join-Path $repoRoot 'tooling\site\check-site.mjs') }
+
+        # The API page fetches the specification at runtime, so it has to sit
+        # beside it - the same copy the Pages workflow makes.
+        Copy-Item (Join-Path $repoRoot 'docs\openapi.yaml') `
+                  (Join-Path $repoRoot 'site\api\openapi.yaml') -Force
+
+        # Assemble the same layout the Pages workflow publishes, so a local
+        # preview is the page that ships rather than a near miss - the
+        # emulator's links up to / and /api/ only resolve in that shape.
+        $emulator = Join-Path $repoRoot 'simulator\web\public'
+        $into = Join-Path $repoRoot 'site\emulator'
+        if (Test-Path $emulator) {
+            New-Item -ItemType Directory -Force $into | Out-Null
+            Copy-Item (Join-Path $emulator '*') $into -Force -ErrorAction SilentlyContinue
+            $built = Get-ChildItem $into -Filter 'stipple-core.*' -ErrorAction SilentlyContinue
+            if (-not $built) {
+                Write-Host "  note: the emulator has not been built, so /emulator/ will not run." -ForegroundColor DarkYellow
+                Write-Host "        build it with '.\dev.ps1 emulator' (needs EMSDK)." -ForegroundColor DarkYellow
+            }
+        }
+
+        Write-Host "`nhttp://localhost:8081/  (Ctrl+C to stop)`n" -ForegroundColor Cyan
+        Push-Location (Join-Path $repoRoot 'site')
+        try { & $python.Source -m http.server 8081 } finally { Pop-Location }
     }
 
     'panel' {

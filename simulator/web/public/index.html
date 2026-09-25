@@ -4,19 +4,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>STIPPLE Emulator</title>
+<title>Emulator — Stipple</title>
+<meta name="description" content="The Stipple renderer compiled to WebAssembly: the real app carousel, scene parser and configuration page, running in your browser.">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
 <header class="masthead">
     <div class="brand">
-        <span class="brand-name">STIPPLE</span>
+        <span class="brand-name"><a href="../">Stipple</a></span>
         <span class="brand-sub">emulator</span>
     </div>
     <div class="brand-meta">
-        <span class="chip" id="chip-phase">Phase 1</span>
         <span class="chip chip-quiet" id="chip-geometry">52 &times; 16</span>
+        <a class="chip" href="../api/">API</a>
+        <a class="chip" href="https://github.com/galadril/Stipple">Source</a>
     </div>
 </header>
 
@@ -140,7 +146,7 @@
         <p class="hint">
             The real configuration page, served from the firmware's embedded assets and
             driven through <code>ApplicationHost::handle</code> &mdash; the same entry point
-            the device's HTTP transport will call. Changes made here affect the panel above.
+            the device's HTTP transport calls. Changes made here affect the panel above.
         </p>
         <iframe class="uiframe" id="uiframe" title="Device web UI"></iframe>
     </section>
@@ -148,7 +154,7 @@
     <footer class="colophon">
         <p>
             Everything above comes from <code>stipple_core</code> compiled to WebAssembly &mdash;
-            the same app carousel, scene parser, renderer and input mapping that will run on the
+            the same app carousel, scene parser, renderer and input mapping that runs on the
             TC002. Only the platform adapter differs. The demo apps are ordinary scenes in the
             public JSON format; nothing here is privileged.
         </p>
