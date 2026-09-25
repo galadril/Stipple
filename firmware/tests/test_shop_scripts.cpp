@@ -19,6 +19,7 @@
 #include "stipple/graphics/Canvas.h"
 #include "stipple/imageio/Png.h"
 #include "stipple/graphics/Framebuffer.h"
+#include "stipple/script/ScriptHost.h"
 #include "stipple/script/ScriptStore.h"
 #include "support/TestFramework.h"
 
@@ -62,10 +63,12 @@ std::string readFile(const std::string& path) {
 /// means adding a line here, which is the moment to think about whether it
 /// belongs in the shop.
 const char* kExampleFiles[] = {
+    "aquarium.be",
     "battery.be",
     "big-clock.be",
     "binary-clock.be",
     "day-progress.be",
+    "fireplace.be",
     "flappy.be",
     "starfield.be",
 };
@@ -356,5 +359,54 @@ STIPPLE_TEST(ShopScripts, PreviewsOnRequest) {
                                      std::to_string(target) + ".png";
             stipple::imageio::writePng(path, framebuffer, 8);
         }
+    }
+}
+
+// What each script actually costs per frame, against the 200,000 budget.
+//
+// Set STIPPLE_SCRIPT_COST=1. A number, rather than "it fits" or "it does not":
+// a script at 180,000 passes today and fails the first time somebody adds a
+// line to it, and the author should be able to see that coming.
+STIPPLE_TEST(ShopScripts, InstructionCostProbe) {
+    if (std::getenv("STIPPLE_SCRIPT_COST") == nullptr) {
+        return;
+    }
+    for (const Example& example : loadExamples()) {
+        if (example.source.empty()) { continue; }
+
+        ScriptStore store;
+        stipple::script::ScriptEnvironment environment;
+        environment.timeKnown = true;
+        environment.hour = 14;
+        store.setEnvironment(environment);
+        if (store.put("shop", example.name, example.source) !=
+            stipple::script::ScriptPutResult::Added) {
+            continue;
+        }
+
+        Framebuffer framebuffer;
+        Canvas canvas(framebuffer);
+        // Averaged over many frames, not taken from one.
+        //
+        // lastInstructions only moves in steps of 65,536 - that is the
+        // heartbeat the budget is enforced on - so any single frame can only
+        // say "somewhere in this 64K band". Summing over 300 frames and
+        // dividing gives about 200 instructions of resolution, which is the
+        // difference between optimising and guessing at it.
+        constexpr int kFrames = 300;
+        std::uint64_t total = 0;
+        std::uint32_t worst = 0;
+        for (int frame = 0; frame < kFrames; ++frame) {
+            store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * 33u);
+            const stipple::script::Script* entry = store.find("shop");
+            if (entry != nullptr) {
+                total += entry->lastInstructions;
+                if (entry->lastInstructions > worst) { worst = entry->lastInstructions; }
+            }
+        }
+        std::printf("    [cost] %-18s mean %8llu  worst band %7u  budget %u\n",
+                    example.name.c_str(),
+                    static_cast<unsigned long long>(total / kFrames), worst,
+                    stipple::script::ScriptHost::kInstructionBudget);
     }
 }
