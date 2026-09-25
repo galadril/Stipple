@@ -8,6 +8,7 @@
 #include "stipple/graphics/Framebuffer.h"
 #include "stipple/host/ApplicationHost.h"
 #include "stipple/platform/simulator/SimulatorPlatform.h"
+#include "stipple/api/Http.h"
 #include "stipple/script/ScriptHost.h"
 #include "support/TestFramework.h"
 
@@ -51,7 +52,7 @@ HostConfig quietConfig() {
 
 STIPPLE_TEST(ScriptStore, StoresAndDraws) {
     ScriptStore store;
-    STIPPLE_CHECK(store.put("hello", "Hello", kRedPixel) == ScriptStore::PutResult::Added);
+    STIPPLE_CHECK(store.put("hello", "Hello", kRedPixel) == stipple::script::ScriptPutResult::Added);
     STIPPLE_CHECK_EQ(store.count(), 1);
 
     const stipple::script::Script* script = store.find("hello");
@@ -72,7 +73,7 @@ STIPPLE_TEST(ScriptStore, ABrokenScriptIsKeptSoItCanBeFixed) {
     ScriptStore store;
     const auto result = store.put("broken", "Broken", "class App\n  def draw()\n");
 
-    STIPPLE_CHECK(result == ScriptStore::PutResult::DidNotCompile);
+    STIPPLE_CHECK(result == stipple::script::ScriptPutResult::DidNotCompile);
     const stipple::script::Script* script = store.find("broken");
     STIPPLE_REQUIRE(script != nullptr);
     STIPPLE_CHECK(!script->ok);
@@ -80,7 +81,7 @@ STIPPLE_TEST(ScriptStore, ABrokenScriptIsKeptSoItCanBeFixed) {
     STIPPLE_CHECK(script->source == "class App\n  def draw()\n");
 
     // And fixing it in place works, without having to delete and re-add.
-    STIPPLE_CHECK(store.put("broken", "Broken", kRedPixel) == ScriptStore::PutResult::Replaced);
+    STIPPLE_CHECK(store.put("broken", "Broken", kRedPixel) == stipple::script::ScriptPutResult::Replaced);
     STIPPLE_REQUIRE(store.find("broken") != nullptr);
     STIPPLE_CHECK(store.find("broken")->ok);
     STIPPLE_CHECK(store.find("broken")->problem.empty());
@@ -111,7 +112,7 @@ STIPPLE_TEST(ScriptStore, AnEditGetsAFreshInterpreter) {
     STIPPLE_REQUIRE(store.put("s", "S",
                               "leftover = 42\n"
                               "class App\n  def draw()\n  end\nend\n"
-                              "return App()\n") == ScriptStore::PutResult::Added);
+                              "return App()\n") == stipple::script::ScriptPutResult::Added);
 
     // The replacement reads a global the first script set. A reused
     // interpreter would still have it, and this would compile and run.
@@ -125,7 +126,7 @@ STIPPLE_TEST(ScriptStore, AnEditGetsAFreshInterpreter) {
                             "    pixel(leftover, 0, rgb(1, 2, 3))\n"
                             "  end\n"
                             "end\n"
-                            "return App()\n") == ScriptStore::PutResult::DidNotCompile);
+                            "return App()\n") == stipple::script::ScriptPutResult::DidNotCompile);
 
     Framebuffer framebuffer;
     Canvas canvas(framebuffer);
@@ -140,10 +141,10 @@ STIPPLE_TEST(ScriptStore, IdsAreRestricted) {
     ScriptStore store;
     for (const char* bad : {"", "Capitals", "with space", "dots.here", "slash/es",
                             "..", "semi;colon", "quote'", "percent%20"}) {
-        STIPPLE_CHECK(store.put(bad, "x", kRedPixel) == ScriptStore::PutResult::InvalidId);
+        STIPPLE_CHECK(store.put(bad, "x", kRedPixel) == stipple::script::ScriptPutResult::InvalidId);
     }
     for (const char* good : {"a", "my-script", "my_script", "flappy2"}) {
-        STIPPLE_CHECK(store.put(good, "x", kRedPixel) != ScriptStore::PutResult::InvalidId);
+        STIPPLE_CHECK(store.put(good, "x", kRedPixel) != stipple::script::ScriptPutResult::InvalidId);
     }
 }
 
@@ -151,17 +152,17 @@ STIPPLE_TEST(ScriptStore, IsBounded) {
     ScriptStore store;
     for (int i = 0; i < ScriptStore::kMaxScripts; ++i) {
         const std::string id = "s" + std::to_string(i);
-        STIPPLE_REQUIRE(store.put(id, id, kRedPixel) == ScriptStore::PutResult::Added);
+        STIPPLE_REQUIRE(store.put(id, id, kRedPixel) == stipple::script::ScriptPutResult::Added);
     }
     STIPPLE_CHECK(store.put("one-too-many", "x", kRedPixel) ==
-                  ScriptStore::PutResult::TooManyScripts);
+                  stipple::script::ScriptPutResult::TooManyScripts);
 
     // But replacing an existing one still works when full - otherwise a full
     // device would be one you could not fix a typo on.
-    STIPPLE_CHECK(store.put("s0", "s0", kRedPixel) == ScriptStore::PutResult::Replaced);
+    STIPPLE_CHECK(store.put("s0", "s0", kRedPixel) == stipple::script::ScriptPutResult::Replaced);
 
     const std::string huge(stipple::script::ScriptHost::kMaxSourceBytes + 1, ' ');
-    STIPPLE_CHECK(store.put("huge", "x", huge) == ScriptStore::PutResult::SourceTooLarge);
+    STIPPLE_CHECK(store.put("huge", "x", huge) == stipple::script::ScriptPutResult::SourceTooLarge);
 }
 
 STIPPLE_TEST(ScriptStore, RemovingWorksAndFreesTheInterpreter) {
@@ -196,7 +197,7 @@ STIPPLE_TEST(ScriptStore, AScriptAppRendersThroughTheHost) {
                               "    rect_fill(0, 0, width(), height(), rgb(0, 255, 0))\n"
                               "  end\n"
                               "end\n"
-                              "return App()\n") == ScriptStore::PutResult::Added);
+                              "return App()\n") == stipple::script::ScriptPutResult::Added);
     host.setScriptRunner(&store);
 
     stipple::app::App entry;
@@ -309,4 +310,127 @@ STIPPLE_TEST(ScriptStore, ARunawayScriptDoesNotStopTheDevice) {
     STIPPLE_REQUIRE(host.carousel().pin("clock", 2000));
     host.tick(3000);
     STIPPLE_CHECK(countLit(platform.simulatedDisplay().lastFrame()) > 0);
+}
+
+// --- over the API ------------------------------------------------------------
+
+namespace {
+
+stipple::api::Response call(ApplicationHost& host, stipple::api::Method method,
+                            const std::string& path, const std::string& body = "") {
+    stipple::api::Request request;
+    request.method = method;
+    request.path = path;
+    request.body = body;
+    return host.handle(request);
+}
+
+bool bodyHas(const stipple::api::Response& response, const std::string& needle) {
+    return response.body.find(needle) != std::string::npos;
+}
+
+}  // namespace
+
+STIPPLE_TEST(ScriptApi, WritesReadsAndDeletes) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    ScriptStore store;
+    host.setScriptRunner(&store);
+
+    auto response = call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                         R"({"id":"hello","name":"Hello",)"
+                         R"("source":"class App\n def draw()\n  pixel(0,0,rgb(1,2,3))\n end\nend\nreturn App()\n"})");
+    STIPPLE_CHECK_EQ(response.status, 201);
+    STIPPLE_CHECK(bodyHas(response, "\"ok\":true"));
+
+    // The collection does not carry source. Sixteen scripts at 16 KB each
+    // would make a list request answer with a quarter of a megabyte, and the
+    // web UI asks for the list every time the panel is opened.
+    response = call(host, stipple::api::Method::Get, "/api/v1/scripts");
+    STIPPLE_CHECK_EQ(response.status, 200);
+    STIPPLE_CHECK(bodyHas(response, "\"id\":\"hello\""));
+    STIPPLE_CHECK(bodyHas(response, "\"capacity\""));
+    STIPPLE_CHECK(bodyHas(response, "\"maxSourceBytes\""));
+    STIPPLE_CHECK(!bodyHas(response, "\"source\""));
+
+    // The item does.
+    response = call(host, stipple::api::Method::Get, "/api/v1/scripts/hello");
+    STIPPLE_CHECK_EQ(response.status, 200);
+    STIPPLE_CHECK(bodyHas(response, "\"source\""));
+    STIPPLE_CHECK(bodyHas(response, "rgb(1,2,3)"));
+
+    response = call(host, stipple::api::Method::Delete, "/api/v1/scripts/hello");
+    STIPPLE_CHECK_EQ(response.status, 204);
+    STIPPLE_CHECK_EQ(call(host, stipple::api::Method::Get, "/api/v1/scripts/hello").status, 404);
+}
+
+STIPPLE_TEST(ScriptApi, SavingSomethingBrokenSucceedsAndSaysWhy) {
+    // An editor holds work in progress. A device that refuses to store code
+    // until it compiles is a device you cannot edit on - you would lose the
+    // half-finished function every time you saved.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    ScriptStore store;
+    host.setScriptRunner(&store);
+
+    const auto response = call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                               R"({"id":"wip","source":"class App\n def draw()\n"})");
+    STIPPLE_CHECK_EQ(response.status, 201);
+    STIPPLE_CHECK(bodyHas(response, "\"ok\":false"));
+    STIPPLE_CHECK(bodyHas(response, "\"problem\""));
+    STIPPLE_CHECK(!bodyHas(response, "\"problem\":\"\""));
+
+    // And it really is stored, with the text intact.
+    const auto read = call(host, stipple::api::Method::Get, "/api/v1/scripts/wip");
+    STIPPLE_CHECK_EQ(read.status, 200);
+    STIPPLE_CHECK(bodyHas(read, "def draw()"));
+}
+
+STIPPLE_TEST(ScriptApi, RejectsBadIdsAndOversizedSource) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    ScriptStore store;
+    host.setScriptRunner(&store);
+
+    STIPPLE_CHECK_EQ(call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                          R"({"id":"Not Valid","source":"return nil\n"})").status, 422);
+
+    // A missing source is not an empty one.
+    STIPPLE_CHECK_EQ(call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                          R"({"id":"nosource"})").status, 422);
+}
+
+STIPPLE_TEST(ScriptApi, ADeviceWithoutScriptingSaysSoRatherThanShowingNone) {
+    // "you have no scripts" and "this device cannot run scripts" are very
+    // different answers to somebody whose script is not showing up, and an
+    // empty list would give the wrong one. ADR 0013.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    // No runner installed.
+
+    const auto response = call(host, stipple::api::Method::Get, "/api/v1/scripts");
+    STIPPLE_CHECK_EQ(response.status, 501);
+    STIPPLE_CHECK(bodyHas(response, "without scripting"));
+    STIPPLE_CHECK(!bodyHas(response, "\"scripts\":[]"));
+}
+
+STIPPLE_TEST(ScriptApi, TheLibraryIsBoundedOverTheApiToo) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    ScriptStore store;
+    host.setScriptRunner(&store);
+
+    for (int i = 0; i < ScriptStore::kMaxScripts; ++i) {
+        const std::string body = R"({"id":"s)" + std::to_string(i) +
+                                 R"(","source":"class App\n def draw()\n end\nend\nreturn App()\n"})";
+        STIPPLE_REQUIRE(call(host, stipple::api::Method::Post, "/api/v1/scripts", body).status == 201);
+    }
+    const auto full = call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                           R"({"id":"overflow","source":"return nil\n"})");
+    STIPPLE_CHECK_EQ(full.status, 409);
 }

@@ -124,6 +124,11 @@ enum class Resource : std::uint8_t {
     NotificationItem,
     AssetCollection,
     AssetItem,
+    /// Berry scripts. Separate from apps because the two are edited by
+    /// different people for different reasons: an app is a carousel entry
+    /// anyone can reorder, a script is source code somebody is writing.
+    ScriptCollection,
+    ScriptItem,
     Settings,
     SystemReboot,
     /// Put configuration back to defaults. Separate from a DELETE on settings

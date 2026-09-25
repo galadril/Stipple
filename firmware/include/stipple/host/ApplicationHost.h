@@ -159,7 +159,13 @@ public:
     /// The host does not own it. It outlives the host in every arrangement
     /// that exists - main() holds it, the simulator holds it, a test holds it
     /// on the stack.
-    void setScriptRunner(script::IScriptRunner* runner) noexcept { scripts_ = runner; }
+    void setScriptRunner(script::IScriptRunner* runner) noexcept {
+        scripts_ = runner;
+        // The API gets the same one. Two places holding different answers to
+        // "can this device run scripts" is the kind of drift that shows up as
+        // an app on the panel the web UI insists does not exist.
+        apiServer_.setScriptRunner(runner);
+    }
     script::IScriptRunner* scriptRunner() const noexcept { return scripts_; }
     config::Config& settings() noexcept { return settings_; }
 

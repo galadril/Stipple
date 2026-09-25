@@ -18,32 +18,7 @@ namespace script {
 
 class ScriptHost;
 
-/// One script, and the interpreter running it.
-struct Script {
-    std::string id;
-    std::string name;
-    std::string source;
-
-    /// Whether it compiled and has not since failed.
-    bool ok = false;
-
-    /// Why it is not ok. Empty when it is.
-    ///
-    /// Kept rather than only logged, because this is the one piece of
-    /// information the author is actually waiting for. The editor shows it
-    /// next to the code that caused it.
-    std::string problem;
-
-    /// Instructions the last frame spent. A script close to the budget is one
-    /// about to break on a busier frame, and that is worth seeing before it
-    /// does.
-    std::uint32_t lastInstructions = 0;
-
-    /// Bytes its interpreter is holding.
-    std::size_t memoryBytes = 0;
-};
-
-/// Bounded collection of scripts.
+/// Bounded collection of scripts, each with its own Berry interpreter.
 ///
 /// Each script gets its own interpreter rather than sharing one. Sharing would
 /// save a few kilobytes and cost the property that matters: scripts arrive over
@@ -64,20 +39,6 @@ public:
     static constexpr std::size_t kMaxIdBytes = 48;
     static constexpr std::size_t kMaxNameBytes = 64;
 
-    enum class PutResult {
-        Added,
-        Replaced,
-        InvalidId,
-        SourceTooLarge,
-        TooManyScripts,
-        /// Stored, but it does not run. Deliberately not an error: the source
-        /// is saved and `problem` says what is wrong, so the author can fix it
-        /// in place rather than losing it to a missing `end`.
-        DidNotCompile,
-    };
-
-    static const char* describe(PutResult result) noexcept;
-
     ScriptStore();
     ~ScriptStore() override;
 
@@ -86,16 +47,17 @@ public:
 
     /// Insert or replace by id. A replacement keeps its position, so saving an
     /// edit must not shuffle the carousel under the person who made it.
-    PutResult put(std::string id, std::string name, std::string source);
+    ScriptPutResult put(std::string id, std::string name, std::string source) override;
 
-    bool remove(std::string_view id);
-    void clear();
+    bool remove(std::string_view id) override;
+    void clear() override;
 
-    int count() const noexcept { return static_cast<int>(entries_.size()); }
+    int count() const noexcept override { return static_cast<int>(entries_.size()); }
+    int capacity() const noexcept override { return kMaxScripts; }
     bool empty() const noexcept { return entries_.empty(); }
 
-    const Script* at(int index) const noexcept;
-    const Script* find(std::string_view id) const noexcept;
+    const Script* at(int index) const noexcept override;
+    const Script* find(std::string_view id) const noexcept override;
 
     /// Draw one frame of a script onto the panel.
     ///
@@ -107,13 +69,13 @@ public:
     bool has(std::string_view id) const noexcept override;
     std::string_view problem(std::string_view id) const noexcept override;
 
+    std::size_t memoryBytes() const noexcept override;
+    std::size_t maxSourceBytes() const noexcept override;
+
     /// Collect a script's garbage. Worth doing when it leaves the screen,
     /// which is a moment the device has time to spare and the next frame does
     /// not.
     void collectGarbage(std::string_view id);
-
-    /// Total bytes every interpreter is holding.
-    std::size_t memoryBytes() const noexcept;
 
 private:
     struct Entry {

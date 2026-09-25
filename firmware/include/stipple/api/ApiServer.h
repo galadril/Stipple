@@ -26,6 +26,11 @@ namespace asset {
 class IconStore;
 }
 
+namespace script {
+class IScriptRunner;
+struct Script;
+}  // namespace script
+
 namespace log {
 class RingLog;
 }
@@ -61,6 +66,12 @@ struct ApiContext {
     app::Carousel* carousel = nullptr;
     notify::NotificationQueue* notifications = nullptr;
     asset::IconStore* icons = nullptr;
+
+    /// Optional. Null means this build has no scripting, which the script
+    /// endpoints report honestly rather than pretending to an empty library -
+    /// "you have no scripts" and "this device cannot run scripts" are very
+    /// different answers to somebody whose script is not showing up.
+    script::IScriptRunner* scripts = nullptr;
     config::Config* config = nullptr;
     config::ConfigStore* configStore = nullptr;
     platform::IPlatformServices* platform = nullptr;
@@ -124,6 +135,16 @@ public:
 
     const ApiOptions& options() const noexcept { return options_; }
 
+    /// Hand the API a script runner after construction.
+    ///
+    /// The context is built when the host is constructed and the runner is
+    /// installed after, because whoever owns the interpreter is outside the
+    /// core and cannot exist before it. Without this the API would hold the
+    /// null it was born with and report no scripting on a device that has it.
+    void setScriptRunner(script::IScriptRunner* runner) noexcept {
+        context_.scripts = runner;
+    }
+
 private:
     /// Checks the token when one is configured.
     ///
@@ -151,6 +172,8 @@ private:
 
     Response handleAssetCollection(const Request& request);
     Response handleAssetItem(const Request& request, const std::string& id);
+    Response handleScriptCollection(const Request& request);
+    Response handleScriptItem(const Request& request, const std::string& id);
 
     Response handleSettings(const Request& request);
     Response handleReboot(const Request& request);

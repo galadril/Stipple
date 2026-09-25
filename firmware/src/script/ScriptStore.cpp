@@ -20,19 +20,6 @@ bool validScriptId(std::string_view id) noexcept {
     return true;
 }
 
-const char* ScriptStore::describe(PutResult result) noexcept {
-    switch (result) {
-        case PutResult::Added: return "added";
-        case PutResult::Replaced: return "replaced";
-        case PutResult::InvalidId:
-            return "a script id may only contain lowercase letters, digits, dashes and underscores";
-        case PutResult::SourceTooLarge: return "the script is too long";
-        case PutResult::TooManyScripts: return "there is no room for another script";
-        case PutResult::DidNotCompile: return "saved, but it does not compile";
-    }
-    return "unknown";
-}
-
 ScriptStore::ScriptStore() = default;
 
 // Out of line because Entry holds a unique_ptr<ScriptHost> and ScriptHost is
@@ -59,12 +46,12 @@ void ScriptStore::refresh(Entry& entry) noexcept {
     entry.info.memoryBytes = entry.host->memoryBytes();
 }
 
-ScriptStore::PutResult ScriptStore::put(std::string id, std::string name, std::string source) {
+ScriptPutResult ScriptStore::put(std::string id, std::string name, std::string source) {
     if (!validScriptId(id)) {
-        return PutResult::InvalidId;
+        return ScriptPutResult::InvalidId;
     }
     if (source.size() > ScriptHost::kMaxSourceBytes) {
-        return PutResult::SourceTooLarge;
+        return ScriptPutResult::SourceTooLarge;
     }
     if (name.size() > kMaxNameBytes) {
         name.resize(kMaxNameBytes);
@@ -72,7 +59,7 @@ ScriptStore::PutResult ScriptStore::put(std::string id, std::string name, std::s
 
     Entry* existing = findEntry(id);
     if (existing == nullptr && count() >= kMaxScripts) {
-        return PutResult::TooManyScripts;
+        return ScriptPutResult::TooManyScripts;
     }
 
     // A fresh interpreter every time, including on a replacement. Reusing one
@@ -95,11 +82,11 @@ ScriptStore::PutResult ScriptStore::put(std::string id, std::string name, std::s
         // Position is kept deliberately: saving an edit must not shuffle the
         // carousel under the person who made it.
         *existing = std::move(entry);
-        return compiled ? PutResult::Replaced : PutResult::DidNotCompile;
+        return compiled ? ScriptPutResult::Replaced : ScriptPutResult::DidNotCompile;
     }
 
     entries_.push_back(std::move(entry));
-    return compiled ? PutResult::Added : PutResult::DidNotCompile;
+    return compiled ? ScriptPutResult::Added : ScriptPutResult::DidNotCompile;
 }
 
 bool ScriptStore::remove(std::string_view id) {
@@ -169,6 +156,10 @@ void ScriptStore::collectGarbage(std::string_view id) {
     if (Entry* entry = findEntry(id); entry != nullptr && entry->host != nullptr) {
         entry->info.memoryBytes = entry->host->collectGarbage();
     }
+}
+
+std::size_t ScriptStore::maxSourceBytes() const noexcept {
+    return ScriptHost::kMaxSourceBytes;
 }
 
 std::size_t ScriptStore::memoryBytes() const noexcept {
