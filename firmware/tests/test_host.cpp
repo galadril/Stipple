@@ -1221,7 +1221,7 @@ STIPPLE_TEST(Host, OneDetentMovesExactlyOneApp) {
     // clock + stopwatch + visualizer + battery. Read rather than asserted:
     // the claim under test is about detents, and pinning the number here
     // meant adding an app broke a test that has nothing to do with apps.
-    const std::size_t installed = host.apps().count();
+    const int installed = host.apps().count();
     STIPPLE_CHECK(installed >= 2);
 
     const stipple::app::App* first = host.carousel().active();
@@ -1247,7 +1247,7 @@ STIPPLE_TEST(Host, OneDetentMovesExactlyOneApp) {
     // The rest of a lap, all inside the 120 ms acceleration window so the
     // mapper reports a repeat above one. If acceleration leaked through, this
     // would overshoot and land somewhere else.
-    for (std::size_t i = 1; i < installed; ++i) {
+    for (int i = 1; i < installed; ++i) {
         detent();
     }
 
