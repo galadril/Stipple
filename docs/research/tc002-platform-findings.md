@@ -63,7 +63,7 @@ volatile.
 The device has **glibc 2.30**. Our Debian 12 toolchain emits binaries needing
 `GLIBC_2.34` purely for `__libc_start_main`. A dynamically linked build would
 have refused to start, with an error naming a symbol rather than the cause, and
-the obvious suspicion would have fallen on the adapter rather than the
+The obvious suspicion would have fallen on the adapter rather than the
 toolchain. The 605 KB static binary has no such dependency and fits the
 partition many times over.
 
@@ -88,7 +88,7 @@ hardware even do this" is answered, and the answer is yes.
 ### The input layout, settled
 
 Read from `getevent` with the controls actually pressed, in a known order. This
-is the answer ADR 0016 was guessing at, and the guess was right.
+is the answer the input-layout design was guessing at, and the guess was right.
 
 **Four keys on `soc:gpio_keys_1`** (`/dev/input/event67`), which is three
 buttons plus the knob's press:
@@ -102,7 +102,7 @@ buttons plus the knob's press:
 
 The codes are directional names doing duty as arbitrary identifiers — the
 vendor picked them, and they carry no meaning about where the buttons sit or
-what they should do. This is precisely why ADR 0016 refused to name our enum
+what they should do. This is precisely why the input-layout design refused to name our enum
 positionally: binding `KEY_LEFT` to "previous app" would be reasoning from the
 vendor's choice of constant rather than from the hardware.
 
@@ -136,7 +136,7 @@ translation is local to the device adapter and its acceleration logic is
 unaffected either way.
 
 So the count is **three buttons and a knob that presses and turns** — five
-controls, six event sources. The ADR 0016 amendment that restored the third
+controls, six event sources. The input-layout design amendment that restored the third
 button was correct, and `RawInput` already has the right shape.
 
 ### The platform map
@@ -214,7 +214,7 @@ So the adapter does **not** need to reverse-engineer an SPI wire format. `ledc_*
 is the panel interface, with SPI underneath it as transport. `IFrameBufferDisplay`
 maps almost directly:
 
-| STIPPLE | Vendor |
+| Stipple | Vendor |
 |---|---|
 | `present(framebuffer)` | `ledc_set_group` / `ledc_set_led` |
 | `setBrightness(0-255)` | `BrightnessHelper::setBrightness` |
@@ -223,7 +223,7 @@ maps almost directly:
 ### This changes how the device binary must be linked
 
 Static linking was the right call for the smoke test and remains so: it proved
-the core runs on ARMv7 with nothing to argue about.
+The core runs on ARMv7 with nothing to argue about.
 
 The real device build cannot be static. Calling `ledc_set_group` means linking
 `libzkhw.so`, and being loaded as `libzkgui.so` means being a shared object
@@ -379,7 +379,7 @@ unequal.
 
 ### GPIO 35 is the latch, and without it every frame is invisible
 
-**STIPPLE rendered on real hardware on 2026-09-20.** `demo::drawTestPattern`,
+**Stipple rendered on real hardware on 2026-09-20.** `demo::drawTestPattern`,
 through `Canvas` and the real `Framebuffer`, on the panel. The missing piece was
 not the frame format — that was already right — but a line nobody had looked at.
 
@@ -446,10 +446,10 @@ All four declared keys are wired, and the mapping is:
 The names are meaningless — the device tree picked four arrow keys for four
 GPIOs — so nothing should ever read intent from them. Only the mapping matters.
 
-**The third button is real.** ADR 0016 named it `KeyExtra` because one source
+**The third button is real.** The input-layout design named it `KeyExtra` because one source
 reported a middle button and another did not, and deliberately refused to guess
 at a purpose. It exists, it sits between − and +, and it is now `KeyMiddle`
-throughout. The enum shape ADR 0016 chose — two labelled buttons, a middle one,
+throughout. The enum shape the input-layout design chose — two labelled buttons, a middle one,
 a rotary press and two detent directions — turned out to be exactly right.
 
 **The knob reports `ABS_X` but is not an axis. The direction is the value pair.**
@@ -511,7 +511,7 @@ byte before them, headers included. It holds on every frame captured —
 `ff+55+11+00 = 0x0165` and the query ends `01 65`; `ff+55+02+01+01 = 0x0158`
 and `01 58`; `ff+55+03+03+5a+0c+43 = 0x0203` and `02 03`. It is verified rather
 than skipped, because a 1.5 Mbaud link with no flow control can drop a byte and
-the cost of not checking is a battery percentage assembled from whatever
+The cost of not checking is a battery percentage assembled from whatever
 followed a corrupted header.
 
 The version handshake is what makes the rest trustworthy: the MCU answered
@@ -565,14 +565,14 @@ switched on**, and the switch is command `0x04`:
 ```
 
 Both values of the switch were captured going out of the vendor application as
-its visualiser appeared and was navigated away from. The bytes STIPPLE sends are
+its visualiser appeared and was navigated away from. The bytes Stipple sends are
 that capture verbatim, and `Tc002Mcu` sends the off frame when it closes the
 port — the enable outlives the process, and leaving it on would mean a device
-that had once run STIPPLE kept streaming audio to whatever ran next.
+that had once run Stipple kept streaming audio to whatever ran next.
 
 **The switch is sticky.** The MCU keeps streaming until something turns it off
 or the device loses power. That is the entire history of this feature: the
-vendor application enabled it, STIPPLE inherited a microphone it had never asked
+vendor application enabled it, Stipple inherited a microphone it had never asked
 for, the visualiser worked for a while, and a reboot took it away with nothing
 in the code having changed.
 
@@ -582,7 +582,7 @@ Worth keeping, because the reasoning looked sound at every step and the
 conclusion was wrong.
 
 Three captures were taken looking for audio: a 19-second `LD_PRELOAD` trace of
-the vendor application, a 75-second listen with someone deliberately making
+The vendor application, a 75-second listen with someone deliberately making
 noise at the device, and the vendor application left alone on its clock face for
 35 seconds. All three contained command `0x02` and command `0x03` and nothing
 else, and in none of them did the vendor application write anything to the link
@@ -625,7 +625,7 @@ Confirmed end to end — `GET /api/v1/device` on the running firmware returns
 `"battery":{"known":true,"percent":90}`.
 
 **The one check still owed:** watch the value fall while running on battery with
-the charger out. Everything above is consistent with a discharging battery, but
+The charger out. Everything above is consistent with a discharging battery, but
 a deliberate discharge is what would make it certain.
 
 ### Audio is reachable, and not the way it looked
@@ -678,13 +678,13 @@ GPLv3 §1 excludes "System Libraries" — components that come with the operatin
 system the program runs on. `libzkmedia.so` and `libmi_ao.so` ship in this
 device's firmware image and are exactly that kind of platform component, which
 is the ordinary reading. It still deserves to be written down and decided
-deliberately rather than assumed, because it is the first time STIPPLE would
+deliberately rather than assumed, because it is the first time Stipple would
 link against anything it did not write.
 
 *A smaller third thing:* `SoundDevice` is a C++ class, so using it through
 `dlsym` means allocating storage for an object whose size we do not know.
 Over-allocating is the usual trick and it usually works; it is also precisely
-the sort of "usually works" this project has been avoiding. `ZKAudioPlayer::play`
+The sort of "usually works" this project has been avoiding. `ZKAudioPlayer::play`
 may sidestep it if a factory function can be reached instead of a constructor.
 
 ### Things that need design work
@@ -713,7 +713,7 @@ may sidestep it if a factory function can be reached instead of a constructor.
 
 ### Why the versions matter more than they look
 
-They are **exactly** the pair the third-party port states it was validated
+They are **exactly** The pair the third-party port states it was validated
 against: "Confirmed on TC002 stock app 1.1.1 / MCU V1.0.17."
 
 That changes how much weight the rest of this document can carry. Everything
@@ -729,7 +729,7 @@ It does not make them true. It makes them worth testing first.
 ### What else the stock firmware already tells us
 
 - **ADB is open on 5555 out of the box.** No unlocking, no developer mode, no
-  gesture. The deployment path ADR 0008 assumes is simply available.
+  gesture. The deployment path the installer design assumes is simply available.
 - **A web server runs on port 80**, serving `/settings/*` and a small API:
   `/getBase`, `/checkUpdate`, `/update`, `/resetConfig`. Only `/getBase` was
   called; the other three mutate or phone home.
@@ -742,9 +742,9 @@ It does not make them true. It makes them worth testing first.
   and submit a new SSID and password."
 
   That last one matters for the provisioning gap. It does not close it — this is
-  the *stock* web server, which STIPPLE replaces — but it proves the platform
+  the *stock* web server, which Stipple replaces — but it proves the platform
   exposes Wi-Fi reconfiguration to a userspace HTTP handler. Whatever mechanism
-  that page uses is one STIPPLE can use too, and it is a far better answer than
+  that page uses is one Stipple can use too, and it is a far better answer than
   hoping for AP mode. Finding out what it calls is now a probe question.
 
 ## A second source
@@ -761,13 +761,13 @@ BLE**, **one knob with press and rotate**, **three separate buttons**, a speaker
 with MP3 playback, **microphone volume reporting**, USB-C, and a
 **recovery/reset option**.
 
-### This contradicts ADR 0016, and ADR 0016 is the one that loses
+### This contradicts the input-layout design, and the input-layout design is the one that loses
 
 The port's documentation describes a knob and two buttons marked − and +. This
 owner counts a knob **and three buttons**. Both cannot be right about the count.
 
 The likeliest reconciliation is that both are accurate about different things:
-the port's README describes what *their firmware does with the controls*, not an
+The port's README describes what *their firmware does with the controls*, not an
 inventory of them, and a firmware that uses two of three buttons would read
 exactly like that.
 
@@ -779,7 +779,7 @@ clearly the higher count:
   nothing, and the owner reasonably concludes the firmware is broken.
 
 So the input model carries three buttons plus the knob again. See the amendment
-in [ADR 0016](../adr/0016-tc002-input-layout.md).
+in.
 
 ### What else it adds
 
@@ -787,7 +787,7 @@ in [ADR 0016](../adr/0016-tc002-input-layout.md).
   useful yet, but it is another provisioning route worth remembering given that
   first-time Wi-Fi setup is still unsolved.
 - **A recovery/reset option exists**, alongside USB-C. This is the first
-  independent support for ADR 0008's assumption that a hardware recovery path
+  independent support for the installer design's assumption that a hardware recovery path
   exists at all. What it actually restores is still unverified, and the installer
   gates do not relax until it is.
 - **A microphone reports volume**, matching the blueprint's `IMicrophone`.
@@ -806,7 +806,7 @@ that the stock TC002 needs "a local bridge or custom app to become really
 useful", and that a TC001 running AWTRIX is still the better Home Assistant
 device today.
 
-That is a fair description of the gap STIPPLE is aimed at, and it is worth
+That is a fair description of the gap Stipple is aimed at, and it is worth
 keeping in view: text, notifications and a predictable MQTT surface are the
 things an owner actually misses. All three already work in the emulator.
 
@@ -823,7 +823,7 @@ someone's head. A working third-party port is the strongest evidence available
 short of owning the device, so it is worth recording what it demonstrates —
 and, just as importantly, what it does not.
 
-**Nothing here is copied from that project.** ADR 0001 permits studying other
+**Nothing here is copied from that project.** The project's scope rules permits studying other
 products as a reference and forbids taking their source; these are facts about
 Ulanzi's hardware, not anyone's implementation. No code, markup or assets have
 been read into this repository.
@@ -841,7 +841,7 @@ was left alone, and should stay that way when someone revisits this at Phase 7.
 Cross-compiled for ARMv7 with the Arm GNU toolchain (they pin 9.2-2019.12),
 driven by CMake, producing stripped binaries. Headless, no FlyThings IDE.
 
-That is the approach ADR 0011 assumed and `docs/development/toolchain.md`
+That is the approach the simulator-first order assumed and `docs/development/toolchain.md`
 describes. It is no longer an assumption.
 
 ### An HTTP server runs on the device
@@ -889,7 +889,7 @@ is worth confirming before Phase 7 plans around it.
 
 They stop and replace the **`zkswe` launcher service**.
 
-Blueprint §7.1 describes STIPPLE loading "as `libzkgui.so` inside that host". The
+Blueprint §7.1 describes Stipple loading "as `libzkgui.so` inside that host". The
 evidence points at replacing the launcher process rather than injecting a library
 into it. If that holds, the §53 boundary is unaffected — our platform adapter
 still sits underneath everything — but the Phase 7 entry point is a `main()`
@@ -903,7 +903,7 @@ speaker volume by 5 percentage points on release", "Hold −/+ for 0.7 seconds t
 lower/raise brightness by 10."
 
 So the physical layout is a **rotary encoder and two labelled −/+ buttons**, and
-the natural mapping puts navigation on the knob, volume on a tap and brightness
+The natural mapping puts navigation on the knob, volume on a tap and brightness
 on a hold.
 
 `InputMapper` already models a rotary with acceleration, which is the part that
@@ -913,7 +913,7 @@ previous/next app, duplicating what the knob does.
 
 **Acted on.** `RawInput` is now `KeyMinus / KeyPlus / RotaryPress / RotaryLeft /
 RotaryRight`, with navigation on the knob, volume on a tap and brightness on a
-hold. See [ADR 0016](../adr/0016-tc002-input-layout.md), which records the
+hold. See, which records the
 reasoning, what it costs if this is wrong, and exactly which test should fail
 first. Volume was implemented at the same time, because a default binding to an
 unimplemented action is just a dead button.
@@ -932,7 +932,7 @@ supervise the application should expect that model.
 They ship "certificate-verified HTTPS with the bundled OpenSSL 3.5.8". So the
 device can do real TLS, at the cost of carrying the library.
 
-This does not threaten ADR 0012. TLS belongs to the platform adapter, below the
+This does not threaten the no-dependencies rule. TLS belongs to the platform adapter, below the
 §53 boundary; `stipple_core` stays dependency-free either way. It does mean the
 8 MiB res ceiling has to be budgeted against a bundled crypto library if we ever
 want HTTPS.
@@ -966,7 +966,7 @@ precisely the kind of quietly-lying control this project keeps refusing to build
 elsewhere. It has been removed.
 
 If a future device does have a sensor, the honest shape is an optional platform
-capability that reports its presence, exactly as ADR 0013 handles audio and
+capability that reports its presence, exactly as the capability model handles audio and
 network — not a config flag that hopes.
 
 Battery percentage *is* available from the MCU, and the microphone is documented
@@ -1010,14 +1010,14 @@ The same project has since published an end-to-end install path — a one-line
 `curl | sh` installer, a RAM-only trial runner, and a documented recovery
 procedure. Same provenance rule as above: **their README was read, their scripts
 were not.** What follows is the workflow they describe, because the *sequence* is
-the reusable insight; their implementation of it is theirs.
+The reusable insight; their implementation of it is theirs.
 
 Worth saying plainly, because it is easy to assume otherwise: this tooling is
-not AWTRIX NG's. It is TC002-specific work by that project's author, so ADR 0001
+not AWTRIX NG's. It is TC002-specific work by that project's author, so the project's scope rules
 does not speak to it. What does speak to it is licensing — GitHub reports the
 repository's licence as `NOASSERTION`, meaning no recognised licence could be
 identified. Compatibility with our GPL-3.0-or-later cannot be established from
-that, so their code stays out regardless of ADR 0001, and §42's dependency
+that, so their code stays out regardless of the project's scope rules, and §42's dependency
 register would have nothing valid to record. Reimplementing a documented
 workflow is unaffected.
 
@@ -1052,7 +1052,7 @@ powering on launches the vendor application, which brings back the stock UI,
 updater and ADB. Independently, three crashes in a row at start-up triggers a
 launcher fallback on the fourth boot. Both matter to us directly: the second one
 means *our* application must not crash-loop silently, because the platform will
-quietly stop running it — and a STIPPLE that has been fallen back from looks
+quietly stop running it — and a Stipple that has been fallen back from looks
 identical to one that was never installed. Phase 7 should expect to surface that
 state rather than let the user guess.
 
@@ -1067,7 +1067,7 @@ directory that is kept out of the repository, and the install path reads the
 clock's own partition. Nothing vendor-derived is redistributed.
 
 That is the answer to §46 Q5's redistribution half, and it is a constraint on our
-release process rather than an implementation detail: **STIPPLE must never publish
+release process rather than an implementation detail: **Stipple must never publish
 a `restore-stock.img` or any vendor-derived blob as a release asset.** The
 restore image is something the installer *produces locally* from the device in
 front of it. A release can ship our payload and the tool; it cannot ship
@@ -1096,7 +1096,7 @@ documented way back.
 4. The 180-second trial limit, the 8 MiB res ceiling and the green-flicker quirk
    are recorded here so Phase 7 does not rediscover them.
 5. `RawInput` and the default bindings were rewritten for a knob plus two
-   labelled buttons (ADR 0016), and `Action::VolumeUp` / `VolumeDown` were
+   labelled buttons, and `Action::VolumeUp` / `VolumeDown` were
    implemented so those bindings do something.
 6. Phase 7 test reports should record the stock-app and MCU versions, since a
    report without them cannot be compared against anything.
@@ -1130,7 +1130,7 @@ flags and SSID, after a header line naming those columns.
 **This matters for provisioning.** The alternative was editing
 `/data/misc/wifi/wpa_supplicant.conf` by hand — a persistent file, on the only
 path back to the device. The daemon owns that file, knows how to write it, and
-`ADD_NETWORK` / `SET_NETWORK` / `SAVE_CONFIG` let it do so. ADR 0018 takes that
+`ADD_NETWORK` / `SET_NETWORK` / `SAVE_CONFIG` let it do so. The provisioning design takes that
 route for exactly that reason.
 
 `/data/misc/wifi/hostapd.conf` also exists, already configured with a WPA2 PSK
@@ -1170,21 +1170,21 @@ address, which is what happened on the first live test: the access point
 disappeared, the station came back, and the device was unreachable until it was
 power-cycled. Restoring the network needs something to ask for an address.
 
-**STIPPLE does not hold its own lease.** It has been running on addresses
+**Stipple does not hold its own lease.** It has been running on addresses
 obtained by the vendor application before it started — every session so far
 began with `setprop ctl.stop zkswe` on a device that was already online. The
 address stays configured because nothing removes it, but nothing renews it
-either, so a STIPPLE device left alone will lose its network when the lease
+either, so a Stipple device left alone will lose its network when the lease
 expires. Nobody has seen it because no unit has run for a full lease period
 without being restarted.
 
-So a DHCP client is not a hotspot detail. It is a thing STIPPLE needs in order
+So a DHCP client is not a hotspot detail. It is a thing Stipple needs in order
 to be the application on this device at all, and it has to be written: there is
 nothing here to call.
 
 ### Confirmed while writing one
 
-STIPPLE now obtains and renews its own lease, and the live run settled three
+Stipple now obtains and renews its own lease, and the live run settled three
 things that were guesses beforehand.
 
 **`AF_PACKET` works on this kernel.** A `SOCK_DGRAM` packet socket binds and
@@ -1193,7 +1193,7 @@ receives; `/proc/net/packet` shows it with proto `0800` on `wlan0`, alongside
 from no address at all, which is what first boot needs.
 
 **The lease this device is issued is 86400 seconds.** That is the number
-behind the whole problem: a STIPPLE device left alone loses its network after a
+behind the whole problem: a Stipple device left alone loses its network after a
 day.
 
 **The router honours option 50.** Asking to keep the address already on the
@@ -1218,7 +1218,7 @@ mtd6, mounted rw. `/`, `/res` and `/config` are all read-only squashfs.
 
 **Nothing in init runs anything from `/data`.** `/etc/init.rc` lives on the
 read-only rootfs, and every service it declares points at `/bin` or `/res`.
-So a program in `/data` cannot be started at boot, which is why STIPPLE is
+So a program in `/data` cannot be started at boot, which is why Stipple is
 still a thing you run rather than a thing the device runs — and why
 persistence needs a write to mtd2 or mtd3.
 
@@ -1235,14 +1235,14 @@ it is also why that mode cannot be made to persist.
 ### The device can be flashed; it has no tool that does
 
 `/dev/mtd/mtd0` through `mtd7` exist as character devices, mode `crw-------`
-and owned by root, which STIPPLE runs as. The read-only aliases `mtdNro` are
+and owned by root, which Stipple runs as. The read-only aliases `mtdNro` are
 there too, which is what a restore-image capture should read from.
 
 So the missing piece is a program, not a capability: `MEMGETINFO`, then
 `MEMERASE` per eraseblock, then write, then read back and compare. On the
 order of a hundred and fifty lines.
 
-That resolves half of what [ADR 0008](../adr/0008-installer-helper.md) is
+That resolves half of what is
 waiting on. It does **not** resolve the other half — the ADR requires a
 restore path that has been *demonstrated*, not one that ought to work, and
 demonstrating it means writing the tool and then using it to put a captured
@@ -1250,7 +1250,7 @@ image back on a device that has been deliberately broken. The gates stand.
 
 ## The device already knows how to flash itself
 
-Found while working out how STIPPLE could persist, and it made writing a
+Found while working out how Stipple could persist, and it made writing a
 flasher unnecessary. All of this is first-hand: read off a real unit and
 proven by rebuilding a factory image byte for byte.
 
@@ -1290,7 +1290,7 @@ byte-identical. `tooling/imgtool/` does both.
 
 Large parts of the header from 0x60 onwards are not understood. There is a
 table of some kind with a regular four-byte cadence. Nothing here invents it:
-the tooling copies a known-good header and edits the five fields that must
+The tooling copies a known-good header and edits the five fields that must
 change.
 
 ### The shipped recovery image is not the firmware that is running
@@ -1306,7 +1306,7 @@ shipped udisk   payload              2 781 184     they differ
 one it has.** The third-party TC002 documentation reports the same on their
 unit, so it is not a one-off.
 
-That is the evidence behind [ADR 0008](../adr/0008-installer-helper.md)'s
+That is the evidence behind's
 insistence that a restore image be captured from the unit in front of you.
 `tooling/imgtool/capture.py` does it, reading through the kernel's read-only
 alias `/dev/mtd/mtd3ro` and verifying the result against the capture.
@@ -1349,9 +1349,9 @@ string anywhere, so the path is constructed at runtime rather than stored -
 most plausibly from the program name, which would make `/bin/zkgui` load
 `/res/lib/libzkgui.so` by convention. That is a guess and is flagged as one.
 
-Still unknown, and it is the thing that decides whether STIPPLE can persist as
+Still unknown, and it is the thing that decides whether Stipple can persist as
 a drop-in replacement: **which symbol is looked up after the library is
-opened.** Until that is known, building STIPPLE as `libzkgui.so` is not
+opened.** Until that is known, building Stipple as `libzkgui.so` is not
 something anyone can attempt.
 
 ## The stock firmware will flash an image for you, over HTTP, unauthenticated
@@ -1389,7 +1389,7 @@ and it installs it.
 
 It is also worth saying out loud that this is an unauthenticated remote
 firmware write, reachable by anything on the same network as a stock TC002.
-STIPPLE does not expose anything like it - `/api/v1/system/restore-image`
+Stipple does not expose anything like it - `/api/v1/system/restore-image`
 stages a file to the USB volume and cannot flash - and the difference is
 deliberate.
 
@@ -1403,10 +1403,10 @@ update. Applying one needs none of it.
 The vendor binary carries symbols namespaced `awtrix` - `awtrix::Updater`,
 `awtrix::ConfigWebServer`, and a path `../src/awtrix/ota/Updater.cpp`. Noted
 because it bears on licensing and on where the official Ulanzi sources sit,
-not because anything here derives from it. STIPPLE shares no code with it and
+not because anything here derives from it. Stipple shares no code with it and
 does not reference it in anything it ships.
 
-## Where STIPPLE could hook in, measured rather than guessed
+## Where Stipple could hook in, measured rather than guessed
 
 Two candidate hooks, both tested on hardware. One is ruled out, one is left
 standing, and the reason the standing one cannot be tested yet is the whole
@@ -1513,12 +1513,11 @@ over in its constructor never reaches them.
 
 Unmounting restored the original, and a power cycle would have done the same.
 Any future change to the startup path should be tried this way before it is
-written to flash. See
-[ADR 0021](../adr/0021-stipple-as-the-startup-library.md).
+written to flash. See.
 
 ## The application owns the Wi-Fi, all of it (2026-09-24)
 
-Measured after a flashed STIPPLE booted with no network *and* no setup
+Measured after a flashed Stipple booted with no network *and* no setup
 hotspot. Both symptoms have one cause, and it is not the one the earlier
 "there is no DHCP client on this device" section implies.
 
@@ -1582,11 +1581,11 @@ ls /sys/class/net/                lo  p2p0  wlan0
 
 The interface is **created by the module load**. Remove the driver and there
 is no `wlan0` to configure, to associate, or to hand to `hostapd` - which is
-why a STIPPLE that replaced the application had neither a network nor a setup
+why a Stipple that replaced the application had neither a network nor a setup
 hotspot. The hotspot was not failing to broadcast; it could not start, because
 its first step is `ifconfig wlan0 ...` on an interface that did not exist.
 
-### What STIPPLE has to do, and where
+### What Stipple has to do, and where
 
 `Tc002Hotspot::ensureRadio()` loads the pair if `/sys/class/net/wlan0` is
 absent, building the path from `uname()` rather than hard-coding `4.9.84`.
@@ -1600,14 +1599,14 @@ done it already - which is exactly how this went unnoticed for so long.
 The startup hook was proven by bind-mounting a modified `EasyUI.cfg` over the
 read-only one. A bind mount does not survive a reboot, so that test ran on a
 system where the stock application had already loaded the driver, brought up
-the interface and started the supplicant. **The test inherited the very thing
+The interface and started the supplicant. **The test inherited the very thing
 it should have been checking for**, and the lease it observed was real but
 told us nothing about a cold boot.
 
 The general lesson is worth more than the specific bug: a test that reuses a
 running system's state cannot tell you what happens without it.
 
-## zkdaemon will delete STIPPLE if STIPPLE does not announce itself (2026-09-24)
+## zkdaemon will delete Stipple if Stipple does not announce itself (2026-09-24)
 
 The most consequential thing on this device, and the explanation for a revert
 that had been blamed on a stale upgrade flag.
@@ -1643,9 +1642,9 @@ reinstall from `/mnt/storage/update.img`.
 
 ### What that meant for the first flashed build
 
-STIPPLE replaced the application and never set the property, so:
+Stipple replaced the application and never set the property, so:
 
-1. STIPPLE flashed, booted, and ran - the shim and the panel both worked.
+1. Stipple flashed, booted, and ran - the shim and the panel both worked.
 2. `zkdaemon` waited, saw no `running`, and called it a failed application.
 3. `rm -rf /data/*` deleted **`/data/stipple/libstipple.so`** and
    **`/data/misc/wifi/wpa_supplicant.conf`** in the same sweep.
@@ -1663,11 +1662,11 @@ It also reframes the earlier lockout. That was attributed to holding the reset
 button wiping `/data`; the button certainly does that, but auto recovery
 reaches the same `rm -rf /data/*` with nobody touching anything.
 
-### What STIPPLE has to do
+### What Stipple has to do
 
 `Tc002Platform::announceRunning()` sends `setprop sys.zkapp.state running`,
 and `stippleMain` calls it **before opening the panel, the MCU or the
-network** - none of which are worth losing STIPPLE over if they are slow or
+network** - none of which are worth losing Stipple over if they are slow or
 fail.
 
 ### The consequence for staging an image

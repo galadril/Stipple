@@ -149,7 +149,7 @@ flashing; this adds the obvious corollary that a restore *image* is not a restor
 *capability*, and the gate is not met until the writing half exists and has been
 demonstrated on a partition we can afford to lose.
 
-### 4. Run STIPPLE from `/tmp`
+### 4. Run Stipple from `/tmp`
 
 Tier 2 of ADR 0008. Volatile by construction — a power cycle brings the stock
 application straight back, which is what makes this the safe loop and the one to
@@ -196,7 +196,7 @@ Below that floor nothing is validated. If neither the vendor application nor ADB
 comes back, recovery needs the stock bootloader's update path or a serial
 connection — which is why rule 1 exists.
 
-STIPPLE's own anti-brick behaviour is separate and already built: three failed
+Stipple's own anti-brick behaviour is separate and already built: three failed
 boots put `ApplicationHost` into safe mode, which ignores stored configuration,
 loads no apps, starts no MQTT, and draws something legible. That protects
 against our own bad configuration. It does not protect against a bad flash,
@@ -208,12 +208,12 @@ because by then our code is what failed to start.
 
 **A flashed device has no documented way onto a new network.**
 
-The stock app does the Wi-Fi setup. Once STIPPLE replaces the launcher, that app
+The stock app does the Wi-Fi setup. Once Stipple replaces the launcher, that app
 is gone. If the device then moves house, or the router changes, there is
 currently no known route back other than recovery.
 
 This is the most important thing the probe can settle — hence the AP-capability
-check. If the platform can bring up an access point, STIPPLE can offer
+check. If the platform can bring up an access point, Stipple can offer
 first-boot provisioning and the gap closes. If it cannot, that is a real
 constraint on who should install this, and it belongs in the README rather than
 in a footnote.

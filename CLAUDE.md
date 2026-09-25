@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Phases 0–7 are done. STIPPLE runs on real TC002 hardware: it renders through the real `Canvas` and `Framebuffer` onto the panel, reads the buttons and knob, serves its web UI and API over HTTP, and talks to a broker over MQTT.
+Phases 0–7 are done. Stipple runs on real TC002 hardware: it renders through the real `Canvas` and `Framebuffer` onto the panel, reads the buttons and knob, serves its web UI and API over HTTP, and talks to a broker over MQTT.
 
 What exists: `stipple_core` (framebuffer, Canvas, font/text, scenes, icon store, app carousel, notifications, config, frame scheduler, ring log, `ApplicationHost`, the `/api/v1/*` server, the embedded device web UI and the MQTT bridge), `stipple_imageio` (dependency-free PNG encoder), **both** platform adapters — `simulator` and `tc002` (`Tc002Display`, `Tc002Input`, `Tc002Mcu`, `Tc002HttpServer`, `Tc002MqttClient`, `Tc002Platform`) — a host test suite with golden-image comparison, and a WebAssembly browser emulator that serves the real config page through the real router.
 
@@ -14,9 +14,9 @@ What exists: `stipple_core` (framebuffer, Canvas, font/text, scenes, icon store,
 
 **The panel needs GPIO 35 strobed.** Writing 3072 bytes to `/dev/spidev0.0` only fills the driver chips' shift registers; GPIO 35 low-before/high-after latches them onto the panel. Without the strobe every write succeeds, returns 3072 and lights nothing. That one fact explains most of the bring-up's confusing days.
 
-**Read `private/STIPPLE-PROJECT-BLUEPRINT.md` before any architectural work.** It is not in the public repository - it predates the hardware and is contradicted by the findings doc in enough places that publishing it would mislead people. It is the single source of truth for scope, staging and naming. Sections worth re-reading per task: §6 (repo layout), §7–§15 (runtime architecture), §19–§21 (API/MQTT/config), §37 (stage roadmap), §46 (open research questions), §53 (the core architectural boundary).
+**Read `private/Stipple-PROJECT-BLUEPRINT.md` before any architectural work.** It is not in the public repository - it predates the hardware and is contradicted by the findings doc in enough places that publishing it would mislead people. It is the single source of truth for scope, staging and naming. Sections worth re-reading per task: §6 (repo layout), §7–§15 (runtime architecture), §19–§21 (API/MQTT/config), §37 (stage roadmap), §46 (open research questions), §53 (the core architectural boundary).
 
-**The phase order was deliberately not the blueprint's stage order.** With no device to hand, the simulator moved to the front and bring-up to the back — see `docs/adr/0011-simulator-first-development-order.md`. That paid off: when hardware arrived, every layer above `IPlatformServices` already worked and had tests, so bring-up was writing one adapter rather than debugging a whole system through a 52×16 window.
+**The phase order was deliberately not the blueprint's stage order.** With no device to hand, the simulator moved to the front and bring-up to the back — see `private/adr/0011-simulator-first-development-order.md`. That paid off: when hardware arrived, every layer above `IPlatformServices` already worked and had tests, so bring-up was writing one adapter rather than debugging a whole system through a 52×16 window.
 
 | Phase | Content | Needs TC002 |
 |---|---|:--:|
@@ -29,9 +29,9 @@ What exists: `stipple_core` (framebuffer, Canvas, font/text, scenes, icon store,
 | 6 | MQTT and device web UI | no |
 | 7 | TC002 bring-up, device adapter | **yes** — done |
 
-## What STIPPLE is
+## What Stipple is
 
-Open-source replacement *user application* for the Ulanzi TC002 pixel clock (52×16 RGB matrix, 832 pixels). The device is a SigmaStar SSD21x / dual-core ARMv7 Cortex-A7 with 36 MB RAM and glibc 2.30, running a FlyThings / EasyUI runtime. **Confirmed on hardware:** `/bin/zkgui` (9.5 KB) is the EasyUI host and loads the application from `/res/lib/libzkgui.so` (7.14 MB) at runtime — so the STIPPLE application really does load as `libzkgui.so` inside that host, exactly as blueprint §7.1 says. The LED panel is reached through the vendor HAL (`ledc_set_led` / `ledc_set_group` in `libzkhw.so`), not by driving SPI directly. See `docs/research/tc002-platform-findings.md`. Stage 1 replaces the app experience only — **not** the bootloader, kernel or Linux platform services.
+Open-source replacement *user application* for the Ulanzi TC002 pixel clock (52×16 RGB matrix, 832 pixels). The device is a SigmaStar SSD21x / dual-core ARMv7 Cortex-A7 with 36 MB RAM and glibc 2.30, running a FlyThings / EasyUI runtime. **Confirmed on hardware:** `/bin/zkgui` (9.5 KB) is the EasyUI host and loads the application from `/res/lib/libzkgui.so` (7.14 MB) at runtime — so the Stipple application really does load as `libzkgui.so` inside that host, exactly as blueprint §7.1 says. The LED panel is reached through the vendor HAL (`ledc_set_led` / `ledc_set_group` in `libzkhw.so`), not by driving SPI directly. See `docs/research/tc002-platform-findings.md`. Stage 1 replaces the app experience only — **not** the bootloader, kernel or Linux platform services.
 
 It is not an ESP32 firmware, not a port of AWTRIX 3 or AWTRIX NG, and must not incorporate AWTRIX source. AWTRIX may be studied as a product/API/UX reference only; concepts (custom apps, notifications, rotation, indicators, MQTT) get reimplemented independently.
 
@@ -43,7 +43,7 @@ It is not an ESP32 firmware, not a port of AWTRIX 3 or AWTRIX NG, and must not i
 - The simulator must remain supported and must run the *same* scene parser, layout engine, font engine, animation engine and app scheduler as the device. Only the platform adapter differs.
 - No unbounded allocations or queues. Treat RAM as a hard constraint — bounded queues, bounded HTTP payloads, bounded notification count, bounded asset size, no duplicated framebuffers, no heap allocation during render.
 - No persistent flashing logic without an explicit task saying so. One now
-  exists and its design is [ADR 0008](docs/adr/0008-installer-helper.md): three
+  exists and its design is [ADR 0008](private/adr/0008-installer-helper.md): three
   tiers (emulator → volatile `/tmp` trial → gated flash), a restore image
   captured from the user's own device as a hard precondition, and no
   vendor-derived blob in any release. **The first gate is met** — `dev.ps1
@@ -52,17 +52,17 @@ It is not an ESP32 firmware, not a port of AWTRIX 3 or AWTRIX NG, and must not i
   byte for byte). **The second is not**: nobody has demonstrated a restore,
   so nothing gets flashed. Flashing will go through the vendor's own update
   path rather than a writer of ours — see
-  [ADR 0020](docs/adr/0020-persistence-through-the-vendor-update-path.md).
+  [ADR 0020](private/adr/0020-persistence-through-the-vendor-update-path.md).
 - Tests required for core behavior.
 - Do not hand-edit generated FlyThings files.
 - Document reversed/reverse-engineered platform behavior in `docs/`.
-- Create an ADR (`docs/adr/`) for significant architectural changes.
+- Create an ADR (`private/adr/`, not published) for significant architectural changes.
 - Keep GPL/third-party notices accurate. Project license is GPL-3.0-or-later (the official Ulanzi repo is GPL-3.0-or-later). Every imported dependency needs source, version, license, reason for inclusion, redistribution status.
 
 ## The architectural boundary that matters most
 
 ```
-                        STIPPLE CORE
+                        Stipple CORE
 ┌─────────────────────────────────────────────────────────┐
 │ Apps / Notifications / Scheduler / API / MQTT           │
 │                         ↓                               │
@@ -74,11 +74,11 @@ It is not an ESP32 firmware, not a port of AWTRIX 3 or AWTRIX NG, and must not i
       adapter                     adapter
 ```
 
-Render path: `Application → Scene → Renderer → 52×16 RGB framebuffer → TC002 display adapter → PageBase::sendLedData(...)`. STIPPLE owns the full framebuffer; do not depend on Ulanzi's DIY text/layout renderer for the core experience.
+Render path: `Application → Scene → Renderer → 52×16 RGB framebuffer → TC002 display adapter → PageBase::sendLedData(...)`. Stipple owns the full framebuffer; do not depend on Ulanzi's DIY text/layout renderer for the core experience.
 
 The public/native API is declarative **scenes** (JSON elements: pixel, line, rectangle, text, icon, bitmap, sprite, progress, graph, animation, group), not low-level internals.
 
-**One API surface: `/api/v1/*`.** There is no AWTRIX compatibility layer and none is planned — blueprint §19.2 and the compatibility half of §3.5 are withdrawn, and blueprint Stage 7 is dropped. See `docs/adr/0015-no-awtrix-compatibility-layer.md`. Any `/api/*` path outside `/api/v1/*` answers 404 saying so explicitly. If compatibility is ever wanted it belongs outside the firmware as a translating proxy, never as device routes.
+**One API surface: `/api/v1/*`.** There is no AWTRIX compatibility layer and none is planned — blueprint §19.2 and the compatibility half of §3.5 are withdrawn, and blueprint Stage 7 is dropped. See `private/adr/0015-no-awtrix-compatibility-layer.md`. Any `/api/*` path outside `/api/v1/*` answers 404 saying so explicitly. If compatibility is ever wanted it belongs outside the firmware as a translating proxy, never as device routes.
 
 MQTT namespace is `stipple/{deviceId}/...`, off by default. Commands are translated into `api::Request` objects and answered by the same `ApiServer` as HTTP, so the two surfaces cannot drift — see `docs/mqtt.md`. `Tc002MqttClient` implements the transport on hardware; the simulator has an in-memory broker for tests.
 
@@ -161,7 +161,7 @@ until someone sets it.
 
 **The device UI is compiled in.** `firmware/web/*.html|css|js` become a C++ asset table via `cmake/EmbedWebAssets.cmake`, served by `web::StaticFiles` for any path outside `/api/`. A device whose storage has failed is exactly when its config page is needed, so the page must not live on that storage. Assets must be text — the generator emits raw string literals, deliberately using no tool beyond CMake so the Phase 7 cross-toolchain stays dependency-free. Editing a file under `firmware/web/` triggers a reconfigure.
 
-**No external dependencies**, by decision — see `docs/adr/0012-dependency-free-core.md`. The test harness (`firmware/tests/support/`) and PNG encoder are in-tree for this reason. Do not add a dependency to the core without an ADR. JSON in Phase 4 is the one open case where a library may be the right answer, since it parses untrusted network input.
+**No external dependencies**, by decision — see `private/adr/0012-dependency-free-core.md`. The test harness (`firmware/tests/support/`) and PNG encoder are in-tree for this reason. Do not add a dependency to the core without an ADR. JSON in Phase 4 is the one open case where a library may be the right answer, since it parses untrusted network input.
 
 **Golden-image tests.** `STIPPLE_CHECK_GOLDEN(name, framebuffer)` compares against `firmware/tests/testdata/<name>.rgb`. A *missing* fixture is auto-created locally with a reviewable PNG; a *mismatch* always fails. `STIPPLE_STRICT_GOLDEN=1` (set in CI) makes missing fixtures fail too. Failures write 8× actual/expected PNGs to `testdata/_failed/`. Never regenerate a fixture without looking at the PNG — a blindly updated golden records the bug instead of catching it.
 

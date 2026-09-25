@@ -1,4 +1,4 @@
-# STIPPLE design
+# Stipple design
 
 How things look and move on a 52×16 panel, and why.
 

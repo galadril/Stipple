@@ -26,7 +26,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'image', 'panel', 'serve', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'image', 'usb', 'panel', 'serve', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -343,11 +343,9 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/stipple_device \
         # filesystem stores uid/gid 1000 and modes like 0770, and extracting
         # it onto a Windows bind mount flattens both to root/0777 - which
         # would silently change the ownership of every file on the partition.
-        $capture = Join-Path $repoRoot 'restore
-es-raw.bin'
+        $capture = Join-Path $repoRoot 'restore\res-raw.bin'
         if (-not (Test-Path $capture)) {
-            throw "no capture at restore
-es-raw.bin - run '.\dev.ps1 capture <target>' first"
+            throw "no capture at restore\res-raw.bin - run '.\dev.ps1 capture <target>' first"
         }
 
         $engine = (Get-Command podman -ErrorAction SilentlyContinue) ??
@@ -365,15 +363,34 @@ es-raw.bin - run '.\dev.ps1 capture <target>' first"
         $python = Get-Command python.exe -ErrorAction SilentlyContinue
         if (-not $python) { throw "python.exe not found on PATH." }
         & $python.Source (Join-Path $repoRoot 'tooling\imgtool\imgtool.py') pack `
-            (Join-Path $repoRoot 'restore
-otrix-res.squashfs') `
-            (Join-Path $repoRoot 'restore
-otrix-update.img') `
+            (Join-Path $repoRoot 'restore\stipple-res.squashfs') `
+            (Join-Path $repoRoot 'restore\stipple-update.img') `
             --template (Join-Path $repoRoot 'restore\shipped-update.img')
         if ($LASTEXITCODE -ne 0) { throw "could not wrap the image" }
 
         Write-Host "`nNothing has been flashed. ADR 0008 gates that on a" -ForegroundColor Yellow
         Write-Host "demonstrated restore, which has not happened." -ForegroundColor Yellow
+    }
+
+    'usb' {
+        # Prepare a stick the device will flash from.
+        #
+        # Wrapped rather than reimplemented: the script carries the guards,
+        # and this verb exists so nobody has to know that FAT32 needs 4 KB
+        # clusters or that a one-byte file called zkautoupgrade is what makes
+        # the loader look at external media at all.
+        $script = Join-Path $repoRoot 'tooling\installer\Prepare-UsbStick.ps1'
+        # A hashtable, not an array. Splatting an array passes its elements
+        # positionally, so @('-Drive', 'D:') bound '-Drive' to the first
+        # parameter and 'D:' to the second - which made 'dev.ps1 usb C:' try
+        # to validate C: as a firmware image.
+        $extra = @{}
+        if ($Rest -and $Rest[0]) { $extra['Drive'] = $Rest[0] }
+        & $script @extra
+        # No throw on top: the script has already said what went wrong, in
+        # more detail than a wrapper could, and a stack trace over it just
+        # buries the explanation.
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 
     'panel' {

@@ -472,7 +472,7 @@ int stippleMain(int argc, char** argv) {
                 platform.hotspot().setRevertMillis(
                     static_cast<std::uint64_t>(hotspotSeconds) * 1000u);
             }
-            if (platform.hotspot().start("STIPPLE-setup", now)) {
+            if (platform.hotspot().start("Stipple-setup", now)) {
                 hotspotStarted = true;
                 knobPending = false;
                 hotspotScanRequested = false;
@@ -480,7 +480,7 @@ int stippleMain(int argc, char** argv) {
                 // Said on the panel before anything else, because the panel
                 // is the only channel left once the radio changes job.
                 host.setNotice("STIPPLE",
-                               std::string("join STIPPLE-setup then open ") +
+                               std::string("join Stipple-setup then open ") +
                                    stipple::platform::tc002::Tc002Hotspot::kAddress);
             }
         }

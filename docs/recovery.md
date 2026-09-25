@@ -10,13 +10,13 @@ Written for the moment you need it, so it starts with the answer.
 
 **Unplug it and plug it back in.**
 
-STIPPLE runs from `/tmp`, which is tmpfs. A power cycle wipes it and the stock
-Ulanzi firmware comes straight back. This works for every problem STIPPLE can
+Stipple runs from `/tmp`, which is tmpfs. A power cycle wipes it and the stock
+Ulanzi firmware comes straight back. This works for every problem Stipple can
 currently cause, including the ones that look alarming: a frozen panel, a
 device that has vanished from the network, two copies fighting over the
 display, a hotspot that will not go away.
 
-Nothing STIPPLE does today touches flash. That is deliberate and it is the
+Nothing Stipple does today touches flash. That is deliberate and it is the
 reason the rest of this document is short.
 
 ---
@@ -25,16 +25,16 @@ reason the rest of this document is short.
 
 ### The panel is frozen, or showing nonsense
 
-Power cycle. If the stock clock comes back, STIPPLE was the problem and nothing
+Power cycle. If the stock clock comes back, Stipple was the problem and nothing
 is damaged.
 
 ### The device has disappeared from the network
 
 Usually the hotspot: one radio cannot be an access point and a station at the
-same time, so while STIPPLE hosts `STIPPLE-setup` it is not on your Wi-Fi at
+same time, so while Stipple hosts `Stipple-setup` it is not on your Wi-Fi at
 all. That is normal and it reverts on its own.
 
-1. Look for a Wi-Fi network called **`STIPPLE-setup`**. If it is there, join it
+1. Look for a Wi-Fi network called **`Stipple-setup`**. If it is there, join it
    and open <http://192.168.4.1/>.
 2. If it is not, wait two minutes — the hotspot reverts by itself and the
    device re-joins your network.
@@ -43,16 +43,16 @@ all. That is normal and it reverts on its own.
 ### It is on the network but you cannot log in
 
 Hold **− and + together for five seconds**. The panel counts down, and at zero
-the access password is cleared and the device starts its hotspot.
+The access password is cleared and the device starts its hotspot.
 
-It clears **only** the password. Apps, settings and arrangement are kept —
+It clears **only** The password. Apps, settings and arrangement are kept —
 somebody locked out of a clock wants their configuration to still be there
 when they get back in.
 
 ### You want to put it on a different Wi-Fi network
 
 **Hold the knob in for five seconds.** The panel counts down under `SETUP`,
-and at zero the device starts its hotspot: join `STIPPLE-setup` and open
+and at zero the device starts its hotspot: join `Stipple-setup` and open
 <http://192.168.4.1/>.
 
 This works whether or not the device is already online, which is the point -
@@ -78,7 +78,7 @@ Check the timezone under **System → Time**. The device has no timezone
 database, so zones are stored as POSIX rules; picking your city from the list
 sets the right one including daylight saving.
 
-### Two copies of STIPPLE are running
+### Two copies of Stipple are running
 
 Symptom: the panel flickers between two things, or looks doubled. This only
 happens during development, when a new build is started without stopping the
@@ -140,7 +140,7 @@ That is driven by a pending-upgrade flag in `/data`; a device with an unused
 ### What it does
 
 A full `res` reflash **and** a `/data` wipe. Stock application, stock
-configuration, and anything in `/data` — including STIPPLE and its settings —
+configuration, and anything in `/data` — including Stipple and its settings —
 is gone. That is a restore, not a repair.
 
 ### Honest note on what was tested
@@ -166,13 +166,13 @@ it depends on the application that is not running:
   enumerates on a computer, whatever cable is used.
 - Holding **reset** only helps if an image is sitting in `/mnt/storage` for
   the loader to install. If the last flash consumed it, reset does nothing -
-  and reset also wipes `/data`, which is where STIPPLE lives.
+  and reset also wipes `/data`, which is where Stipple lives.
 
 ### What still works
 
 **A USB flash drive plugged into the clock.** The port is a host, so it can
 read one. The boot-time update check runs inside `libeasyui` rather than in
-the application, so it still happens. Use a **small, plain USB stick, 8 GB or
+The application, so it still happens. Use a **small, plain USB stick, 8 GB or
 less, formatted FAT32** - not a card reader, and not a large volume with
 16 KB clusters. Put `update.img` at the root, and for good measure
 `extupdate.img`, `full_update.zk` and `zkimg/update.img`, which are the other
@@ -226,8 +226,8 @@ own USB volume.
 
 **That image is not necessarily the firmware your device is running.**
 
-On the unit STIPPLE was developed against, the shipped image is *older* than
-the installed partition. Holding reset there is a downgrade, not a restore.
+On the unit Stipple was developed against, the shipped image is *older* than
+The installed partition. Holding reset there is a downgrade, not a restore.
 The third-party TC002 project reports the same on their unit. Devices differ.
 
 So before relying on that button:
@@ -249,10 +249,9 @@ intend to flash anything.
 
 ---
 
-## What STIPPLE will not do to you
+## What Stipple will not do to you
 
-- **It does not write flash.** No release does, and none will until
-  [ADR 0008](adr/0008-installer-helper.md)'s gates are met: a verified restore
+- **It does not write flash.** No release does, and none will until's gates are met: a verified restore
   image *and* a restore path somebody has actually demonstrated.
 - **It does not change your Wi-Fi settings without being asked.** Joining a
   network appends a block and never replaces one, so a wrong password falls

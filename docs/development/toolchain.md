@@ -1,6 +1,6 @@
 # Toolchain setup
 
-STIPPLE core is portable C++17 with no external dependencies, so the host build
+Stipple core is portable C++17 with no external dependencies, so the host build
 needs only a compiler and CMake. The browser emulator additionally needs the
 Emscripten SDK. Nothing here requires a TC002 — device tooling arrives in
 Phase 7.

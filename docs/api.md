@@ -1,0 +1,143 @@
+# The Stipple API
+
+One surface, `/api/v1/*`, served by the device itself. No cloud, no account,
+no broker in the middle unless you want one.
+
+**Reference:** [`openapi.yaml`](openapi.yaml) — 21 routes, 33 operations,
+checked against the router in CI so it cannot quietly drift.
+
+```bash
+# Render it as browsable docs, no install:
+npx @redocly/cli preview-docs docs/openapi.yaml
+```
+
+## Five minutes
+
+```bash
+DEV=192.168.1.42
+
+curl $DEV/api/v1/device                       # everything, in one call
+curl $DEV/api/v1/health                       # is it alive
+curl $DEV/api/v1/apps                         # what is in the carousel
+
+# Say something
+curl -X POST $DEV/api/v1/notifications \
+     -H 'Content-Type: application/json' \
+     -d '{"text":"tea is ready","durationSeconds":10}'
+
+# A custom app
+curl -X PUT $DEV/api/v1/apps/weather \
+     -H 'Content-Type: application/json' \
+     -d '{
+           "name": "Weather",
+           "durationSeconds": 8,
+           "scene": {"elements":[
+             {"type":"text","text":"12°C","x":2,"y":4,"color":"#00c8ff"}
+           ]}
+         }'
+
+curl -X POST $DEV/api/v1/apps/weather/activate   # show it now
+```
+
+## How it is shaped
+
+**The device does not fetch anything.** Apps are pushed to it. There is no
+polling, no webhook, no cloud — if you want a weather app, something on your
+side reads the weather and `PUT`s a scene. That is a deliberate trade: it
+keeps the device simple and offline, and it means recurring data needs a
+cron job or a Home Assistant automation rather than a setting.
+
+**Scenes are declarative.** You describe what should be on the panel, not how
+to draw it. Elements: `pixel`, `line`, `rectangle`, `text`, `icon`, `bitmap`,
+`sprite`, `progress`, `graph`, `animation`, `group`.
+
+**Capabilities are explicit.** `battery.known` is `false` on a device that
+cannot measure one — which is a different thing from `0%`, and clients must
+tell them apart. The same holds for the radio, the microphone and audio. A
+missing capability is reported, never faked as an empty success.
+
+**Errors all have one shape**, so a client needs one branch:
+
+```json
+{ "error": { "code": "not_found", "message": "no app with that id" } }
+```
+
+## Authentication
+
+Off by default. A device that demanded a password before it would show a
+clock would be a worse first five minutes than the risk it removes.
+
+When you set one, HTTP Basic covers the API and the web UI alike — they are
+the same server, and two schemes would be two things to get wrong.
+
+```bash
+curl -u admin:secret $DEV/api/v1/device
+```
+
+It is sent in the clear over your network and stored in the clear on the
+device. It keeps the rest of the LAN out; it is not protection from somebody
+holding the device.
+
+**Locked out?** Hold **−** and **+** together for five seconds. That clears
+the password and nothing else — apps and settings are kept, because somebody
+locked out of a clock wants their configuration to still be there when they
+get back in.
+
+## The routes
+
+| | |
+|---|---|
+| `GET /device` | Everything in one call — the first call to make |
+| `GET /health` | Liveness, uptime, whether the clock is trustworthy |
+| `GET /version` | Firmware, API and config schema versions |
+| `GET /diagnostics` | Render, input and carousel counters |
+| `GET /logs` | The ring buffer |
+| `GET /display/frame` | The frame currently on the panel |
+| `POST /input` | Inject a button press |
+| `GET POST /apps` | List, add |
+| `GET PUT PATCH DELETE /apps/{id}` | One app |
+| `POST /apps/{id}/activate` | Show it now |
+| `GET POST DELETE /notifications` | List, raise, clear |
+| `DELETE /notifications/{id}` | Dismiss one |
+| `GET POST DELETE /assets` | Icons |
+| `GET DELETE /assets/{id}` | One icon |
+| `GET PATCH /settings` | Everything configurable |
+| `GET /network` | What it sees and what it is on |
+| `POST /network/scan` | Ask the radio to look |
+| `POST /network/join` | Join a network |
+| `GET POST DELETE /system/firmware` | Update, and roll back |
+| `POST /system/reset` | Configuration back to defaults |
+| `POST /system/reboot` | Restart |
+
+Anything under `/api/` that is not `/api/v1/` answers `404` saying so
+explicitly. There is no compatibility layer for other projects' APIs and none
+is planned; if you want one it belongs outside the firmware, as a translating
+proxy.
+
+## Over MQTT
+
+The same router answers both, so the two surfaces cannot drift — an MQTT
+command is turned into the same request object an HTTP call produces. Off by
+default; the namespace is `stipple/{deviceId}/...`.
+
+See [mqtt.md](mqtt.md).
+
+## Limits worth knowing
+
+This runs on a device with 36 MB of RAM, so nothing is unbounded:
+
+- **Request bodies are capped.** Ordinary requests have a small ceiling;
+  firmware and asset uploads have their own, larger one. Over it is `413`.
+- **The notification queue is bounded.** Full gets you `429`, not a device
+  that slowly eats itself.
+- **Icons have a byte budget**, not a count. Sixty-four static 8×8 glyphs and
+  eight eight-frame animations cost the same RAM, and a per-icon limit would
+  either forbid the first or permit far too much of the second.
+- **Apps have a maximum count**, and ordering is explicit — never inferred
+  from filesystem or map iteration, so it is stable across reboots.
+
+## Secrets
+
+The MQTT password and the access password are **write-only**. The device will
+take them and will not give them back, to anyone — including a settings
+backup, which is why restoring one asks you to type the MQTT password again.
