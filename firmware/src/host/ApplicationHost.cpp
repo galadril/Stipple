@@ -291,6 +291,50 @@ void ApplicationHost::loadIcons() {
     logger_.info(platform_.clock().monotonicMillis(), "icons loaded");
 }
 
+void ApplicationHost::publishScriptEnvironment() {
+    if (scripts_ == nullptr) {
+        return;
+    }
+
+    script::ScriptEnvironment environment;
+
+    const platform::ISystemClock& clock = platform_.clock();
+    environment.timeKnown = clock.wallClockValid();
+    if (environment.timeKnown) {
+        const std::int64_t local = clock.unixSeconds() + clock.utcOffsetSeconds();
+
+        // Floor division rather than truncation. Before 1970 a truncating
+        // divide lands on the wrong day - which nobody will ever see on this
+        // device, and which is still not a reason to write the subtly wrong
+        // one.
+        constexpr std::int64_t kSecondsPerDay = 86400;
+        std::int64_t secondsOfDay = local % kSecondsPerDay;
+        if (secondsOfDay < 0) {
+            secondsOfDay += kSecondsPerDay;
+        }
+        environment.hour = static_cast<int>(secondsOfDay / 3600);
+        environment.minute = static_cast<int>((secondsOfDay % 3600) / 60);
+        environment.second = static_cast<int>(secondsOfDay % 60);
+
+        // civilFromUnix works in UTC, so it gets the already-offset time -
+        // which is exactly the local civil date.
+        const timezone_::CivilDate date = timezone_::civilFromUnix(local);
+        environment.year = date.year;
+        environment.month = date.month;
+        environment.day = date.day;
+        environment.weekday = date.weekday;
+    }
+
+    if (platform::IPowerSource* power = platform_.power()) {
+        const platform::BatteryStatus battery = power->battery();
+        environment.batteryKnown = battery.known;
+        environment.batteryPercent = battery.percent;
+        environment.charging = battery.charging;
+    }
+
+    scripts_->setEnvironment(environment);
+}
+
 void ApplicationHost::setScriptRunner(script::IScriptRunner* runner) {
     scripts_ = runner;
 
@@ -1217,6 +1261,10 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
     }
 
     pumpInput(nowMillis);
+    // Before anything renders, so a script and the clock app beside it never
+    // disagree about what time it is within one frame.
+    publishScriptEnvironment();
+
     persistIconsIfChanged();
     persistScriptsIfChanged();
     persistAppOrderIfChanged();

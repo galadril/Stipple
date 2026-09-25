@@ -5,6 +5,8 @@
 #include <string>
 #include <string_view>
 
+#include "stipple/script/IScriptRunner.h"
+
 namespace stipple {
 
 class Canvas;
@@ -81,6 +83,10 @@ public:
     /// exactly as bad as a draw() that does, and arrives by the same route.
     EventResult button(std::string_view name, std::string& problem);
 
+    /// What this script sees of the device. Read by the time and battery
+    /// builtins; set by the host before each frame.
+    void setEnvironment(const ScriptEnvironment& environment) noexcept;
+
     /// Whether a script is loaded and has not failed.
     bool ready() const noexcept { return ready_; }
 
@@ -120,6 +126,7 @@ private:
     State* state_;
     bool ready_ = false;
     std::uint32_t lastInstructions_ = 0;
+    ScriptEnvironment environment_;
 };
 
 }  // namespace script

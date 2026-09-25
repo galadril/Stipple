@@ -76,6 +76,8 @@ ScriptPutResult ScriptStore::put(std::string id, std::string name, std::string s
     entry.info.source = std::move(source);
     entry.info.problem = problem;
     entry.host = std::move(host);
+    // A script saved between frames should not see 1970 on its first one.
+    entry.host->setEnvironment(environment_);
     refresh(entry);
 
     ++revision_;
@@ -171,6 +173,15 @@ bool ScriptStore::button(std::string_view id, std::string_view name) {
     }
     refresh(*entry);
     return result == ScriptHost::EventResult::Handled;
+}
+
+void ScriptStore::setEnvironment(const ScriptEnvironment& environment) noexcept {
+    environment_ = environment;
+    for (Entry& entry : entries_) {
+        if (entry.host != nullptr) {
+            entry.host->setEnvironment(environment);
+        }
+    }
 }
 
 void ScriptStore::collectGarbage(std::string_view id) {

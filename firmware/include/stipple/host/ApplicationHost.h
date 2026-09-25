@@ -279,6 +279,7 @@ private:
     /// tick(), so every mutation path is covered rather than just the API.
     void persistIconsIfChanged();
     void persistScriptsIfChanged();
+    void publishScriptEnvironment();
     void pumpInput(std::uint64_t nowMillis);
     void renderFrame(std::uint64_t nowMillis);
     void renderSafeMode();

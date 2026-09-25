@@ -747,3 +747,119 @@ STIPPLE_TEST(ScriptStore, ThePressReachesAScriptThroughTheWholeDevice) {
     // And the carousel was not paused by presses the script took.
     STIPPLE_CHECK(!host.carousel().paused());
 }
+
+// --- what a script can see ---------------------------------------------------
+
+STIPPLE_TEST(ScriptStore, ScriptsSeeTheClockAndTheBattery) {
+    ScriptStore store;
+    stipple::script::ScriptEnvironment environment;
+    environment.timeKnown = true;
+    environment.hour = 13;
+    environment.minute = 45;
+    environment.second = 7;
+    environment.weekday = 3;
+    environment.batteryKnown = true;
+    environment.batteryPercent = 62;
+    store.setEnvironment(environment);
+
+    STIPPLE_REQUIRE(store.put("probe", "Probe",
+                              "class App\n"
+                              "  def draw()\n"
+                              "    pixel(hour(), 0, rgb(1, 1, 1))\n"
+                              "    pixel(minute(), 1, rgb(1, 1, 1))\n"
+                              "    pixel(second(), 2, rgb(1, 1, 1))\n"
+                              "    pixel(weekday(), 3, rgb(1, 1, 1))\n"
+                              "    if time_known()\n"
+                              "      pixel(50, 4, rgb(1, 1, 1))\n"
+                              "    end\n"
+                              "    if battery_known()\n"
+                              "      pixel(battery() / 2, 5, rgb(1, 1, 1))\n"
+                              "    end\n"
+                              "  end\n"
+                              "end\n"
+                              "return App()\n") == stipple::script::ScriptPutResult::Added);
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    STIPPLE_REQUIRE(store.draw("probe", canvas, 0));
+
+    STIPPLE_CHECK(framebuffer.at(13, 0) != colors::kBlack);
+    STIPPLE_CHECK(framebuffer.at(45, 1) != colors::kBlack);
+    STIPPLE_CHECK(framebuffer.at(7, 2) != colors::kBlack);
+    STIPPLE_CHECK(framebuffer.at(3, 3) != colors::kBlack);
+    STIPPLE_CHECK(framebuffer.at(50, 4) != colors::kBlack);
+    STIPPLE_CHECK(framebuffer.at(31, 5) != colors::kBlack);
+}
+
+STIPPLE_TEST(ScriptStore, AbsentCapabilitiesAreVisibleNotPlausible) {
+    // The whole reason each value has a companion flag. A device with no
+    // battery reporting 0% and a device with a flat battery look identical to
+    // a script, and one of those is a lie. ADR 0013.
+    ScriptStore store;
+    // Default environment: nothing is known.
+    STIPPLE_REQUIRE(store.put("honest", "Honest",
+                              "class App\n"
+                              "  def draw()\n"
+                              "    if !time_known()\n"
+                              "      text(0, 0, 'no time', rgb(255, 0, 0))\n"
+                              "    end\n"
+                              "    if !battery_known()\n"
+                              "      text(0, 8, 'no batt', rgb(255, 0, 0))\n"
+                              "    end\n"
+                              "  end\n"
+                              "end\n"
+                              "return App()\n") == stipple::script::ScriptPutResult::Added);
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    STIPPLE_REQUIRE(store.draw("honest", canvas, 0));
+    STIPPLE_CHECK(countLit(framebuffer) > 0);
+}
+
+STIPPLE_TEST(ScriptStore, AScriptSavedBetweenFramesDoesNotSee1970) {
+    // The environment is held by the store as well as pushed to each host, so
+    // a script created after the last frame starts with a current clock.
+    ScriptStore store;
+    stipple::script::ScriptEnvironment environment;
+    environment.timeKnown = true;
+    environment.hour = 9;
+    store.setEnvironment(environment);
+
+    store.put("late", "Late",
+              "class App\n"
+              "  def draw()\n"
+              "    pixel(hour(), 0, rgb(1, 1, 1))\n"
+              "  end\n"
+              "end\n"
+              "return App()\n");
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    STIPPLE_REQUIRE(store.draw("late", canvas, 0));
+    STIPPLE_CHECK(framebuffer.at(9, 0) != colors::kBlack);
+    STIPPLE_CHECK(framebuffer.at(0, 0) == colors::kBlack);
+}
+
+STIPPLE_TEST(ScriptStore, TheHostPublishesTheEnvironmentEveryFrame) {
+    SimulatorPlatform platform;
+    // 2024-03-14 15:09:26 UTC, a Thursday.
+    platform.simulatedClock().setWallClock(1710428966);
+
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    ScriptStore store;
+    host.setScriptRunner(&store);
+
+    STIPPLE_REQUIRE(call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                         R"({"id":"seen","source":"class App\n def draw()\n)"
+                         R"(  if time_known()\n   pixel(hour(), 0, rgb(0,255,0))\n  end\n)"
+                         R"( end\nend\nreturn App()\n"})")
+                        .status == 201);
+
+    STIPPLE_REQUIRE(host.carousel().pin("seen", 1000));
+    host.tick(1000);
+
+    // Exactly one pixel, at whatever hour the device thinks it is - the point
+    // is that the script saw a real clock rather than a default.
+    STIPPLE_CHECK_EQ(countLit(platform.simulatedDisplay().lastFrame()), 1);
+}

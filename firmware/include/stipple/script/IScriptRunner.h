@@ -41,6 +41,40 @@ struct Script {
     std::size_t memoryBytes = 0;
 };
 
+/// What a script can see of the device around it.
+///
+/// Pushed in by the host before each frame rather than read out by the script,
+/// because the core owns the clock and the power source and a script must not
+/// reach past the interface to them.
+///
+/// Every value that can be absent says so. A device with no battery reporting
+/// 0% and a device with a flat battery look identical to a script, and one of
+/// those is a lie - so `batteryKnown` is false rather than `battery` being a
+/// plausible zero, and a script that cares can say "no battery" instead of
+/// drawing an empty gauge. Same for the wall clock before the first time
+/// sync. ADR 0013.
+struct ScriptEnvironment {
+    /// Local time. Only meaningful when timeKnown.
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+
+    int day = 1;
+    int month = 1;
+    int year = 1970;
+
+    /// 0 is Sunday, matching every other weekday convention on the device.
+    int weekday = 0;
+
+    /// False until the device has a wall clock it believes in. A script that
+    /// draws 00:00 on a device that does not know the time has invented it.
+    bool timeKnown = false;
+
+    int batteryPercent = 0;
+    bool batteryKnown = false;
+    bool charging = false;
+};
+
 enum class ScriptPutResult : std::uint8_t {
     Added,
     Replaced,
@@ -91,6 +125,14 @@ public:
     /// script you could not leave. The stopwatch made the same call for the
     /// same reason.
     virtual bool button(std::string_view id, std::string_view name) = 0;
+
+    /// Tell every script what the device currently knows.
+    ///
+    /// Set once per frame by the host, before anything draws. Cheap enough to
+    /// do unconditionally - it is a struct copy - and doing it unconditionally
+    /// means there is no path where a script reads a stale clock because
+    /// somebody forgot a call.
+    virtual void setEnvironment(const ScriptEnvironment& environment) noexcept = 0;
 
     /// Why a script is not running, or an empty view when it is fine.
     ///

@@ -67,6 +67,7 @@ public:
     bool draw(std::string_view id, Canvas& canvas, std::uint64_t elapsedMillis) override;
 
     bool button(std::string_view id, std::string_view name) override;
+    void setEnvironment(const ScriptEnvironment& environment) noexcept override;
     bool has(std::string_view id) const noexcept override;
     std::string_view problem(std::string_view id) const noexcept override;
 
@@ -94,6 +95,11 @@ private:
     /// that has never changed agree, and nothing is written on a boot where
     /// nothing happened.
     std::uint32_t revision_ = 0;
+
+    /// Held rather than pushed straight through, so a script added after the
+    /// host's last update still starts with a current clock rather than
+    /// 1970 until the next frame.
+    ScriptEnvironment environment_;
 
     Entry* findEntry(std::string_view id) noexcept;
     void refresh(Entry& entry) noexcept;

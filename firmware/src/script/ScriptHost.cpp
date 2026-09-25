@@ -27,6 +27,7 @@ struct Active {
     std::uint64_t elapsedMillis = 0;
     std::uint32_t heartbeats = 0;
     bool overBudget = false;
+    ScriptEnvironment environment;
 };
 
 Active g_active;
@@ -162,6 +163,70 @@ int b_text_width(bvm* vm) {
     be_return(vm);
 }
 
+/* --- what the device knows --------------------------------------------------
+ *
+ * Each of these has a companion that says whether the value means anything.
+ * A script that draws 00:00 on a device which has never synchronised its clock
+ * has invented the time, and one that draws an empty gauge on a device with no
+ * battery has invented the battery. ADR 0013: absence has to be visible, not
+ * dressed up as a plausible zero.
+ */
+
+int b_hour(bvm* vm) {
+    be_pushint(vm, g_active.environment.hour);
+    be_return(vm);
+}
+
+int b_minute(bvm* vm) {
+    be_pushint(vm, g_active.environment.minute);
+    be_return(vm);
+}
+
+int b_second(bvm* vm) {
+    be_pushint(vm, g_active.environment.second);
+    be_return(vm);
+}
+
+int b_weekday(bvm* vm) {
+    be_pushint(vm, g_active.environment.weekday);
+    be_return(vm);
+}
+
+int b_day(bvm* vm) {
+    be_pushint(vm, g_active.environment.day);
+    be_return(vm);
+}
+
+int b_month(bvm* vm) {
+    be_pushint(vm, g_active.environment.month);
+    be_return(vm);
+}
+
+int b_year(bvm* vm) {
+    be_pushint(vm, g_active.environment.year);
+    be_return(vm);
+}
+
+int b_time_known(bvm* vm) {
+    be_pushbool(vm, g_active.environment.timeKnown ? 1 : 0);
+    be_return(vm);
+}
+
+int b_battery(bvm* vm) {
+    be_pushint(vm, g_active.environment.batteryPercent);
+    be_return(vm);
+}
+
+int b_battery_known(bvm* vm) {
+    be_pushbool(vm, g_active.environment.batteryKnown ? 1 : 0);
+    be_return(vm);
+}
+
+int b_charging(bvm* vm) {
+    be_pushbool(vm, g_active.environment.charging ? 1 : 0);
+    be_return(vm);
+}
+
 int b_now_ms(bvm* vm) {
     be_pushint(vm, static_cast<bint>(g_active.elapsedMillis));
     be_return(vm);
@@ -180,6 +245,19 @@ void registerBuiltins(bvm* vm) {
     be_regfunc(vm, "text_width", b_text_width);
     be_regfunc(vm, "text_ink_width", b_text_width);
     be_regfunc(vm, "now_ms", b_now_ms);
+
+    be_regfunc(vm, "hour", b_hour);
+    be_regfunc(vm, "minute", b_minute);
+    be_regfunc(vm, "second", b_second);
+    be_regfunc(vm, "weekday", b_weekday);
+    be_regfunc(vm, "day", b_day);
+    be_regfunc(vm, "month", b_month);
+    be_regfunc(vm, "year", b_year);
+    be_regfunc(vm, "time_known", b_time_known);
+
+    be_regfunc(vm, "battery", b_battery);
+    be_regfunc(vm, "battery_known", b_battery_known);
+    be_regfunc(vm, "charging", b_charging);
 }
 
 /// The global the instance is stashed under.
@@ -268,6 +346,10 @@ bool ScriptHost::load(std::string_view source, std::string& problem) {
     return true;
 }
 
+void ScriptHost::setEnvironment(const ScriptEnvironment& environment) noexcept {
+    environment_ = environment;
+}
+
 std::size_t ScriptHost::memoryBytes() const noexcept {
     if (state_ == nullptr || state_->vm == nullptr) {
         return 0;
@@ -340,6 +422,7 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
 
     g_active.canvas = &canvas;
     g_active.elapsedMillis = elapsedMillis;
+    g_active.environment = environment_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -375,6 +458,7 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
     // handler that tries to draw quietly does nothing rather than writing
     // into whatever the last frame left behind.
     g_active.canvas = nullptr;
+    g_active.environment = environment_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
