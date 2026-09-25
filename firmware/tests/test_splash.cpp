@@ -49,7 +49,7 @@ STIPPLE_TEST(Splash, ANoticeIsStillATitleOverOneLine) {
     // Zero duration means a notice, which has no pages and must keep its
     // title - this is the hotspot instruction, and it is the only thing on
     // the panel when the radio has changed job.
-    renderSplash(canvas, "STIPPLE", "join STIPPLE-setup", 0, 0);
+    renderSplash(canvas, "STIPPLE", "join Stipple-setup", 0, 0);
 
     STIPPLE_CHECK_GOLDEN("splash-notice", framebuffer);
 }

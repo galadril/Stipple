@@ -1,122 +1,124 @@
-# STIPPLE
+# Stipple
 
 **Open pixel firmware for the Ulanzi TC002.**
 
-STIPPLE replaces the stock pixel-app experience on the Ulanzi TC002 with a
-renderer it owns end to end: a 52×16 framebuffer, deterministic custom apps,
-notifications, HTTP and MQTT APIs, sound, and a browser-based emulator.
-Local-first — no cloud, no account, no vendor app.
+Stipple replaces the stock application on the Ulanzi TC002 with a renderer it
+owns end to end: a 52×16 framebuffer, declarative custom apps, notifications,
+an HTTP and MQTT API, sound, and a browser emulator. Local-first — no cloud,
+no account, no vendor app.
 
-> **Status: runs on real hardware, and now survives a power cycle.**
+> **Status: runs on real hardware and survives a power cycle.**
 >
-> STIPPLE installs into the device's `res` partition alongside a small shim
-> that chooses what to run. A STIPPLE that will not load falls back to the
-> stock Ulanzi clock rather than to nothing, so the device stays reachable.
-> Updates after the first install are a file upload in the web UI — no
-> flashing. See [docs/install.md](docs/install.md).
+> Stipple installs into the device's `res` partition beside a small shim that
+> chooses what to run. A Stipple that will not load falls back to the stock
+> Ulanzi clock rather than to nothing, so the device stays reachable and
+> recovery is deleting one file. After the first install, updates are a file
+> upload in the web UI — no flashing, no USB stick.
+>
+> See [docs/install.md](docs/install.md).
 
 > ### ⚠️ Use entirely at your own risk
 >
-> **This software modifies firmware on a device it was not designed for.** It
-> can leave your clock unusable, and getting it back may need hardware access,
-> a USB recovery stick, or a device you are prepared to lose.
+> **This modifies firmware on a device the manufacturer did not intend to be
+> modified.** It can leave your clock unusable, and recovery may need a USB
+> stick, hardware access, or help from the vendor.
 >
-> That is not theoretical. During development this project bricked a device
-> badly enough to need a recovery procedure obtained from Ulanzi support.
+> That is not theoretical. This project bricked its own development device
+> badly enough to need a recovery procedure obtained from Ulanzi support. The
+> procedure is written down in [docs/recovery.md](docs/recovery.md) *because*
+> that happened.
 >
-> STIPPLE comes with **absolutely no warranty of any kind** — see sections 15,
-> 16 and 17 of the [GPL-3.0](LICENSE). Nobody involved is liable for damage to
-> your hardware, lost data, voided warranty, or anything else that follows
-> from using it. **If you are not willing to lose the device, do not install
-> this.**
+> Stipple comes with **no warranty and no liability of any kind** — GPL-3.0
+> sections 15 and 16. **Do not install it on a device you are not prepared to
+> lose.**
 
 ---
 
-## What works, on hardware
+## What it does
 
 **The panel.** 52×16 RGB through the vendor HAL, dirty rendering, a frame
-budget, overlays and configurable transitions between apps.
+budget, overlays and configurable transitions.
 
 **Apps and scenes.** A declarative scene model — pixel, line, rectangle, text,
 icon, bitmap, sprite, progress, graph, animation, group — with a carousel you
-can reorder, pin and configure per app.
+can reorder, pin and configure per app. Built-in clock, stopwatch, battery and
+microphone visualiser.
 
-**Controls.** One meaning per control: knob turns to move, press to act, −/+
-to adjust, middle to go back, hold the knob for settings
-([ADR 0017](docs/adr/0017-device-navigation-model.md)).
+**Controls.** One meaning per control: turn the knob to move, press to act,
+−/+ to adjust, middle to go back, hold the knob for settings. One control
+never means two things.
 
-**Sound.** Tones and notification chimes through the SigmaStar audio path, with
-volume on −/+. Plus a microphone-driven visualiser.
+**Networking, all its own.** The TC002 has no DHCP client and does not load
+its own Wi-Fi driver — the stock application does both. Stipple replaces that
+application, so it loads the driver, starts the supplicant, holds a DHCP
+lease, and sets the clock over SNTP. It scans and joins networks, and hosts a
+`Stipple-setup` access point on `192.168.4.1` when it cannot reach yours.
 
-**Networking.** Its own DHCP client, Wi-Fi scanning and joining, and a setup
-hotspot — the device hosts `STIPPLE-setup`, serves its configuration page on
-`192.168.4.1`, and hands the radio back when you are done
-([ADR 0018](docs/adr/0018-first-run-provisioning-and-access.md)).
+**One API surface.** `/api/v1/*`, served by the device and reachable over HTTP
+or MQTT — the same router answers both, so they cannot drift. The
+configuration page is compiled into the binary, because a device whose storage
+has failed is exactly when its configuration page is needed.
 
-**A web UI and an API.** One surface, `/api/v1/*`, served by the device itself
-and reachable over HTTP or MQTT. The configuration page is compiled into the
-binary, because a device whose storage has failed is exactly when its
-configuration page is needed.
-
-**Access control.** HTTP Basic over the page and the API alike, off by default,
-with a physical way back: hold − and + for five seconds.
+**Access control.** HTTP Basic over the page and the API alike, off by
+default, with a physical way back: hold − and + for five seconds.
 
 **A browser emulator.** The real renderer compiled to WebAssembly, serving the
 real configuration page through the real router. Not a mock.
 
-Roughly 840 tests, including golden-image comparison of rendered frames.
+905 tests, including golden-image comparison of rendered frames.
 
 ## Try it without a device
 
 ```powershell
 .\dev.ps1 doctor     # check your toolchain
 .\dev.ps1 test       # run the host test suite
-.\dev.ps1 preview    # render frames to PNG and open them - needs only a compiler
-.\dev.ps1 serve      # build the emulator and open http://localhost:8080/
+.\dev.ps1 preview    # render frames to PNG - needs only a compiler
+.\dev.ps1 serve      # build the emulator, open http://localhost:8080/
 ```
 
 `serve` needs the Emscripten SDK; see
 [`docs/development/toolchain.md`](docs/development/toolchain.md).
 
-## Try it on a device
+## Install it on a device
 
-**This does not modify your clock.** STIPPLE is pushed to `/tmp`, which is
-tmpfs. A power cycle restores the stock firmware, every time. That is the whole
-design of tier 2 in [ADR 0008](docs/adr/0008-installer-helper.md).
+Read [docs/install.md](docs/install.md) — it is short, and every warning in it
+is something that actually went wrong.
+
+The shape of it: **capture your own device's partition, build an image from
+it, flash once from a USB stick.** There is no image to download, because one
+would contain Ulanzi's firmware. The part that is ours, `libstipple.so`, ships
+with every release.
+
+Before that, you can run Stipple from `/tmp` without touching flash at all —
+a power cycle restores the stock firmware every time:
 
 ```powershell
 .\dev.ps1 capture 192.168.1.238:5555   # read a restore image off your device first
 .\dev.ps1 deploy  192.168.1.238:5555   # cross-build, push to /tmp, run
 ```
 
-`capture` comes first for a reason worth reading:
-[every TC002 ships a recovery image on its own USB volume, and it is not
-necessarily the firmware that unit is running](docs/research/tc002-platform-findings.md).
-On the unit this was developed against, holding the reset button installs an
-*older* image than the device has. Capture from your own device, and the
-physical recovery button becomes correct.
-
-Full runbook: [`docs/bring-up.md`](docs/bring-up.md).
+`capture` comes first for a reason: **every TC002 ships a recovery image on
+its own USB volume, and it is not necessarily the firmware that unit is
+running.** On the development unit, holding reset installs an *older* image.
+Capture from your own device and that button becomes correct.
 
 ## What is not done
 
-Stated plainly, because a status section that only lists wins is not a status
-section.
+Stated plainly, because a status section that only lists wins is not one.
 
-- **It does not persist.** Making it survive a reboot means writing the `res`
-  partition. The tooling to build and verify a flashable image exists and is
-  verified against a factory image
-  ([ADR 0020](docs/adr/0020-persistence-through-the-vendor-update-path.md)), and
-  **nothing has been flashed**. ADR 0008 requires a restore path that has been
-  *demonstrated*, not one that ought to work.
-- **STIPPLE has never been built as `libzkgui.so`.** Persisting means becoming
-  the shared library the vendor host loads, and nobody has tried it. That, not
-  the flashing, is the unproven part.
-- **No OTA updates.**
-- **No installable release.** Releases package the emulator and say so.
-- **Renewal of a DHCP lease is untested end to end.** The timing is tested on a
-  host, the wire format against a real server; twelve hours apart, they have
-  not yet met.
+- **Updating through the web UI is implemented but unproven.** The endpoint
+  validates, installs atomically and keeps the previous version for rollback,
+  and it has not yet been exercised end to end on hardware.
+- **No update checking.** Nothing polls for a new release; you upload the file.
+  The device also has no working DNS — see the findings document — so anything
+  that fetches by hostname needs that solved first.
+- **DHCP lease renewal is untested end to end.** The timing is tested on a
+  host and the wire format against a real server; twelve hours apart, they
+  have not yet met.
+- **Icons have a store but no library.** Upload, budget and rendering all
+  work; nothing ships with it, and there is no picker in the web UI.
+- **One device, one firmware revision.** Everything measured here comes from a
+  single unit. Hardware revisions are an open question.
 
 ## How it is built
 
@@ -136,15 +138,13 @@ Everything above that line is portable C++17 and host-testable. Only the
 adapter below it needs a device, and the simulator runs the *same* scene
 parser, layout engine, font engine and app scheduler as the hardware.
 
-That boundary is why the simulator was built first and bring-up came last
-([ADR 0011](docs/adr/0011-simulator-first-development-order.md)). It paid off:
-when hardware arrived, every layer above the boundary already worked and had
-tests, so bring-up was writing one adapter rather than debugging a whole system
-through a 52×16 window.
+That boundary is why the simulator was built first and bring-up came last,
+and it paid off: when hardware arrived, every layer above it already worked
+and had tests, so bring-up meant writing one adapter rather than debugging a
+whole system through a 52×16 window.
 
-**No external dependencies**, by decision
-([ADR 0012](docs/adr/0012-dependency-free-core.md)). The JSON parser, the PNG
-encoder, the test harness and the MQTT client are all in-tree.
+**No external dependencies**, by decision. The JSON parser, PNG encoder, test
+harness and MQTT client are all in-tree.
 
 ## Repository layout
 
@@ -152,31 +152,33 @@ encoder, the test harness and the MQTT client are all in-tree.
 firmware/      core renderer, platform adapters, host tests   (C++17)
 simulator/     browser emulator (Emscripten)
 tooling/       device probe, cross-toolchains, image tooling  (Python)
-docs/          architecture, ADRs, research, runbooks
+docs/          guides, reference, hardware research
 ```
 
-The device configuration page lives in `firmware/web/` and is compiled into the
-binary.
+The device configuration page lives in `firmware/web/` and is compiled into
+the binary.
 
 ## Documentation
 
-- [`STIPPLE-PROJECT-BLUEPRINT.md`](STIPPLE-PROJECT-BLUEPRINT.md) — the full design
-- [`docs/adr/`](docs/adr/) — every significant decision, and why
-- [`docs/research/tc002-platform-findings.md`](docs/research/tc002-platform-findings.md)
-  — what the hardware actually does, measured rather than assumed
-- [`docs/bring-up.md`](docs/bring-up.md) — day one with a new device
-- [`docs/mqtt.md`](docs/mqtt.md) — the MQTT surface
+| | |
+|---|---|
+| [docs/install.md](docs/install.md) | Getting Stipple onto a device |
+| [docs/recovery.md](docs/recovery.md) | Getting a device back |
+| [docs/api.md](docs/api.md) | The `/api/v1` surface |
+| [docs/mqtt.md](docs/mqtt.md) | The MQTT surface |
+| [docs/DESIGN.md](docs/DESIGN.md) | What the thing should feel like |
+| [docs/research/tc002-platform-findings.md](docs/research/tc002-platform-findings.md) | What the hardware actually does, measured |
+| [docs/bring-up.md](docs/bring-up.md) | Day one with a new device |
 
 ## Contributing
 
-Read the blueprint and the [ADRs](docs/adr/) before architectural work.
-Significant changes need an ADR of their own.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-House rules, from blueprint §44:
+House rules:
 
 - Reliability before feature count. A feature that works every time beats five
   that half-work.
-- **No AWTRIX source copying.** STIPPLE is an independent implementation.
+- **No AWTRIX source copying.** Stipple is an independent implementation.
 - All hardware behind interfaces; the simulator must stay supported.
 - No unbounded allocations or queues; nothing allocates in the render path.
 - Tests required for core behaviour.
@@ -186,39 +188,37 @@ House rules, from blueprint §44:
 
 **There is none. You carry all of it.**
 
-STIPPLE is licensed under the GPL-3.0-or-later, whose sections 15 and 16 say
-this in legal terms. In plain ones:
+Stipple is licensed GPL-3.0-or-later, whose sections 15 and 16 say this in
+legal terms. In plain ones:
 
-- **No warranty.** The software is provided "as is". Nobody promises it works,
-  is fit for any purpose, or will not damage your device.
+- **No warranty.** Provided "as is". Nobody promises it works, is fit for any
+  purpose, or will not damage your device.
 - **No liability.** No contributor is responsible for a bricked clock, lost
   configuration, a voided manufacturer warranty, time spent on recovery, or
-  any other loss — direct or indirect.
-- **No support obligation.** Issues and questions are welcome and answered
-  when someone has time. Nothing is owed to anyone.
-- **Installing this will probably void your manufacturer warranty**, and it
-  replaces the application your device shipped with.
+  any other loss.
+- **No support obligation.** Issues are welcome and answered when someone has
+  time. Nothing is owed to anyone.
+- **Installing this will probably void your manufacturer warranty.**
 
 This is a hobby project that modifies consumer hardware by methods the
-manufacturer did not document or intend. It has damaged a device before and
-it can damage yours. **Make the decision on the assumption that the device
-might not survive it.**
+manufacturer did not document or intend. It has damaged a device before and it
+can damage yours. **Decide on the assumption that the device might not survive
+it.**
 
-Nothing here is legal advice, and a disclaimer does not override rights you
-may have under local consumer law.
+Nothing here is legal advice, and a disclaimer does not override rights you may
+have under local consumer law.
 
 ## Licence
 
-[GPL-3.0-or-later](LICENSE). See
-[ADR 0002](docs/adr/0002-gpl-license.md) for the reasoning and
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for the dependency register.
+[GPL-3.0-or-later](LICENSE). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the dependency
+register.
 
 Restore images and partition captures are **not** redistributable — they are
-Ulanzi's firmware, and they are specific to one unit. They are gitignored for
-both reasons.
+Ulanzi's firmware and specific to one unit. They are gitignored for both
+reasons.
 
 ---
 
-STIPPLE is an independent open-source community project and is not affiliated
-with or endorsed by Ulanzi or AWTRIX. Ulanzi, U-Clock and other product names
-are trademarks of their respective owners.
+Stipple is an independent open-source project, not affiliated with or endorsed
+by Ulanzi or AWTRIX. Ulanzi, U-Clock and other product names are trademarks of
+their respective owners.

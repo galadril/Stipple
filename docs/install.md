@@ -1,4 +1,4 @@
-# Installing STIPPLE on a TC002
+# Installing Stipple on a TC002
 
 Written after doing it, badly, several times in one evening. Every warning
 here is something that actually went wrong.
@@ -14,7 +14,7 @@ here is something that actually went wrong.
 > recovery process obtained from Ulanzi support. It is written down here
 > *because* that happened.
 >
-> STIPPLE comes with **no warranty and no liability of any kind** (GPL-3.0
+> Stipple comes with **no warranty and no liability of any kind** (GPL-3.0
 > sections 15-16). **Do not install it on a device you are not prepared to
 > lose.**
 
@@ -23,7 +23,7 @@ here is something that actually went wrong.
 **You flash once, and update by file copy for ever after.**
 
 The flash puts two things in the device's read-only `res` partition: a small
-shim, and STIPPLE itself. It changes exactly one line of vendor
+shim, and Stipple itself. It changes exactly one line of vendor
 configuration — `startupLibPath` — so the framework loads the shim instead of
 the stock application. The shim then picks what to run:
 
@@ -33,7 +33,7 @@ the stock application. The shim then picks what to run:
 neither                              the stock Ulanzi clock    ->  run that
 ```
 
-That third line is the important one. **A STIPPLE that will not load leaves a
+That third line is the important one. **A Stipple that will not load leaves a
 working clock on your network**, not a device nobody can reach. Recovery is
 deleting one file.
 
@@ -43,7 +43,7 @@ USB stick, no reset button, no flash writes.
 ## Why there is no image to download
 
 `update.img` contains Ulanzi's `res` partition — their application, their
-fonts, their assets — with one line changed and STIPPLE added beside it.
+fonts, their assets — with one line changed and Stipple added beside it.
 Publishing it would be redistributing their firmware, so the build starts
 from **a capture of your own device**.
 
@@ -123,7 +123,7 @@ unattended. See the warning below.
 ## What the first boot looks like
 
 ```
-STIPPLE over a travelling wave          5 seconds
+Stipple over a travelling wave          5 seconds
 version over the IP address            5 seconds
 the clock
 ```
@@ -134,7 +134,7 @@ seconds after the address arrives. `__:__` means "I do not know yet", not a
 fault.
 
 **If it cannot reach your Wi-Fi**, it hosts an open network called
-`STIPPLE-setup` — after 60 seconds if it has never connected, or 5 minutes if
+`Stipple-setup` — after 60 seconds if it has never connected, or 5 minutes if
 it lost a network that was working. Join it and open <http://192.168.4.1/>.
 
 You can also ask for that at any time: **hold the knob for five seconds.** The
@@ -157,11 +157,11 @@ worst case is a reboot into the version you started with.
 the property `sys.zkapp.state` and, if the application has not declared itself
 `running` in time, performs *auto recovery*: it installs whatever is staged,
 with nobody pressing anything. A stock image left there as a "safety net"
-reverted a working STIPPLE within a minute of boot, twice, and looked like a
+reverted a working Stipple within a minute of boot, twice, and looked like a
 mysterious flash failure both times.
 
 **Do not hold reset to break a boot loop.** It wipes `/data`. If your only
-copy of STIPPLE is the override there, it goes with it — though since the flash
+copy of Stipple is the override there, it goes with it — though since the flash
 in step 4 puts a copy in `/res`, this is now survivable rather than fatal.
 
 ## Getting back to stock

@@ -41,7 +41,7 @@ std::uint64_t monotonicMillis() {
 }  // namespace
 
 int main(int argc, char** argv) {
-    const std::string ssid = argc > 1 ? argv[1] : "STIPPLE-setup";
+    const std::string ssid = argc > 1 ? argv[1] : "Stipple-setup";
     const int seconds = argc > 2 ? std::atoi(argv[2]) : 180;
 
     std::printf("starting '%s' for %ds; the network will drop and come back\n",
@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
     //
     // stdout is whatever the caller redirected it to, and the child keeps
     // that fd after the parent has gone. Run it as:
-    //   /tmp/stipple_hotspot_test STIPPLE-setup 180 > /tmp/hotspot.out 2>&1
+    //   /tmp/stipple_hotspot_test Stipple-setup 180 > /tmp/hotspot.out 2>&1
     const auto say = [](const char* what) {
         std::printf("[%llu] %s\n",
                     static_cast<unsigned long long>(monotonicMillis()), what);

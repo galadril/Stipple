@@ -343,11 +343,9 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/stipple_device \
         # filesystem stores uid/gid 1000 and modes like 0770, and extracting
         # it onto a Windows bind mount flattens both to root/0777 - which
         # would silently change the ownership of every file on the partition.
-        $capture = Join-Path $repoRoot 'restore
-es-raw.bin'
+        $capture = Join-Path $repoRoot 'restore\res-raw.bin'
         if (-not (Test-Path $capture)) {
-            throw "no capture at restore
-es-raw.bin - run '.\dev.ps1 capture <target>' first"
+            throw "no capture at restore\res-raw.bin - run '.\dev.ps1 capture <target>' first"
         }
 
         $engine = (Get-Command podman -ErrorAction SilentlyContinue) ??
@@ -365,10 +363,8 @@ es-raw.bin - run '.\dev.ps1 capture <target>' first"
         $python = Get-Command python.exe -ErrorAction SilentlyContinue
         if (-not $python) { throw "python.exe not found on PATH." }
         & $python.Source (Join-Path $repoRoot 'tooling\imgtool\imgtool.py') pack `
-            (Join-Path $repoRoot 'restore
-otrix-res.squashfs') `
-            (Join-Path $repoRoot 'restore
-otrix-update.img') `
+            (Join-Path $repoRoot 'restore\stipple-res.squashfs') `
+            (Join-Path $repoRoot 'restore\stipple-update.img') `
             --template (Join-Path $repoRoot 'restore\shipped-update.img')
         if ($LASTEXITCODE -ne 0) { throw "could not wrap the image" }
 

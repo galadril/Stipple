@@ -1,6 +1,6 @@
 # Third-party notices
 
-STIPPLE is licensed GPL-3.0-or-later. See [`LICENSE`](LICENSE).
+Stipple is licensed GPL-3.0-or-later. See [`LICENSE`](LICENSE).
 
 Blueprint §5 requires that every imported dependency record its source, version,
 licence, reason for inclusion and redistribution status. This file is the
@@ -11,8 +11,8 @@ register.
 **None.**
 
 `stipple_core` — the framebuffer, renderer, and everything that will sit above
-the platform boundary — has no external dependencies. This is a deliberate
-decision, recorded in [ADR 0012](docs/adr/0012-dependency-free-core.md).
+The platform boundary — has no external dependencies. This is a deliberate
+decision, recorded in.
 
 ## Build and test dependencies
 

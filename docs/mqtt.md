@@ -1,6 +1,6 @@
 # MQTT
 
-Optional, and off by default. A STIPPLE device is fully usable with no broker at
+Optional, and off by default. A Stipple device is fully usable with no broker at
 all, and fully usable from MQTT with no HTTP client (blueprint §20). It will
 never connect to a broker nobody configured.
 
