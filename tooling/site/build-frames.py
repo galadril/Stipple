@@ -40,18 +40,18 @@ EXPECTED = WIDTH * HEIGHT * 3
 # Naming them explicitly rather than globbing keeps a new test fixture from
 # silently appearing on the website.
 WANTED = [
+    # The hero plays the boot sequence, so these two are not specimens.
     ("splash-page-one", "The boot splash, over a travelling wave"),
     ("splash-page-two", "Then the address, so you know where to find it"),
+
+    # Four specimens, not ten. Each has to show something the others do not:
+    # telling the time, a built-in app, a custom app drawing data, and one
+    # drawing an icon and scrolling text. Variations on a clock face were
+    # repetition rather than range.
     ("clock-minimal", "The clock"),
-    ("clock-secondsbar", "A seconds bar, if you prefer"),
-    ("clock-calendar", "Date and weekday"),
-    ("stopwatch-running", "The stopwatch, counting"),
-    ("stopwatch-stopped", "Stopped, in a colour you can read across a room"),
-    ("scene-dashboard", "A custom app: a progress bar and a graph"),
-    ("scene-living-room", "Another: an icon, a temperature, scrolling text"),
-    ("icon-thermometer", "Icons are raw frames, converted in the browser"),
-    ("text-alphabet", "The whole 5x7 font"),
-    ("test-pattern-frame-025", "The test pattern, for checking a panel"),
+    ("stopwatch-running", "A stopwatch, one of the built-in apps"),
+    ("scene-dashboard", "A custom app: a progress bar and a live graph"),
+    ("scene-living-room", "Another: an icon, a temperature, and text that scrolls"),
 ]
 
 

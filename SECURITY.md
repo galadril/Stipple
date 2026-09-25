@@ -65,6 +65,31 @@ Stated plainly, because a security page that only lists wins is not one.
 **Do not put this on a network you do not control**, and do not treat the
 access password as protection from anything more determined than a housemate.
 
+## The browser emulator
+
+The emulator on the website runs the real firmware compiled to WebAssembly.
+
+**It stores nothing and sends nothing.** There is no `localStorage`, no
+cookie and no IndexedDB anywhere in it; the simulator's storage is a
+`std::map` in WASM heap memory that is gone on reload. MQTT is an in-memory
+broker of one, so no socket is opened to anything. The page makes no network
+request after it has loaded.
+
+**The device's configuration page is deliberately not embedded there.** It
+used to be, and it worked — but it is a faithful copy of a real settings
+screen, with fields for a Wi-Fi key, a broker password and an access
+password. Nothing it collected went anywhere, and that was never quite the
+point: a convincing form invites a real password, and real passwords end up
+in screenshots. The panel, the controls and the API are demonstrable without
+it.
+
+One rule follows, worth stating rather than leaving as a happy accident:
+**the emulator must never persist anything.** GitHub Pages user sites share a
+single origin — `galadril.github.io` is the same origin for every project
+published there — so anything written to browser storage by one page is
+readable by all of them. Nothing persists today, which is exactly why that is
+harmless. Adding storage would change it, quietly.
+
 ## Scope
 
 **In scope:** anything in this repository — the firmware, the web UI, the API,
