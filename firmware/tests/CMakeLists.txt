@@ -1,4 +1,4 @@
-add_executable(notrix_tests
+add_executable(stipple_tests
     support/TestFramework.cpp
     support/Golden.cpp
     test_geometry.cpp
@@ -45,25 +45,25 @@ add_executable(notrix_tests
     test_update_image.cpp
 )
 
-target_include_directories(notrix_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(stipple_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_link_libraries(notrix_tests PRIVATE
-    notrix_core
-    notrix_imageio
-    notrix_platform_simulator
-    notrix_warnings)
+target_link_libraries(stipple_tests PRIVATE
+    stipple_core
+    stipple_imageio
+    stipple_platform_simulator
+    stipple_warnings)
 
 # Golden fixtures are read from the source tree, not the build tree, so a failing
 # test can write its diff PNGs next to the fixture it disagrees with.
-target_compile_definitions(notrix_tests PRIVATE
-    NOTRIX_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/testdata")
+target_compile_definitions(stipple_tests PRIVATE
+    STIPPLE_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/testdata")
 
 if(MSVC)
-    # The golden harness reads NOTRIX_UPDATE_GOLDEN / NOTRIX_STRICT_GOLDEN with
+    # The golden harness reads STIPPLE_UPDATE_GOLDEN / STIPPLE_STRICT_GOLDEN with
     # std::getenv, which MSVC deprecates in favour of the non-portable
     # _dupenv_s. This is host-only test code reading its own env vars, so the
     # portable call stays and the warning is suppressed here rather than in core.
-    target_compile_definitions(notrix_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(stipple_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
-add_test(NAME notrix_tests COMMAND notrix_tests)
+add_test(NAME stipple_tests COMMAND stipple_tests)

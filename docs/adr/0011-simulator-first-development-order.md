@@ -11,10 +11,10 @@ on real hardware) → Stage 1 (minimal display runtime on the device) → Stage 
 the first day.
 
 It is not. The project is starting without the hardware, and buying one does not
-change the underlying question: how much of NOTRIX actually needs a device?
+change the underlying question: how much of STIPPLE actually needs a device?
 
 Reading §53, the answer is "very little". The architecture already places
-`IPlatformServices` as the boundary between NOTRIX core and the world. Above it
+`IPlatformServices` as the boundary between STIPPLE core and the world. Above it
 sit the framebuffer, canvas, font engine, scene model, layout, app scheduler,
 notification queue, configuration, HTTP API and MQTT client. All of that is
 portable logic with no hardware dependency. Below it sit the LED panel, MCU,

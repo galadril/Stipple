@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// NOTRIX rendering on a real TC002.
+// STIPPLE rendering on a real TC002.
 //
 // Not a test pattern written by hand against the wire - this is the actual
-// core: a Framebuffer NOTRIX owns, a Canvas drawing into it, and
+// core: a Framebuffer STIPPLE owns, a Canvas drawing into it, and
 // demo::drawTestPattern, which is the same code the browser emulator and the
 // golden-image tests run. Only IFrameBufferDisplay differs, which is the whole
 // point of the blueprint §53 boundary.
@@ -12,7 +12,7 @@
 // neither arbitrates, so the panel ends up alternating between two owners:
 //
 //     adb shell setprop ctl.stop zkswe      # take the panel
-//     adb shell /tmp/notrix_device_panel 20
+//     adb shell /tmp/stipple_device_panel 20
 //     adb shell setprop ctl.start zkswe     # give it back
 //
 // Nothing here is persistent. /tmp is tmpfs, so a power cycle restores the
@@ -24,15 +24,15 @@
 #include <cstring>
 #include <ctime>
 
-#include "notrix/demo/TestPattern.h"
-#include "notrix/graphics/Canvas.h"
-#include "notrix/graphics/Framebuffer.h"
-#include "notrix/platform/tc002/Tc002Display.h"
-#include "notrix/platform/tc002/Tc002Input.h"
+#include "stipple/demo/TestPattern.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/graphics/Framebuffer.h"
+#include "stipple/platform/tc002/Tc002Display.h"
+#include "stipple/platform/tc002/Tc002Input.h"
 
 namespace {
 
-notrix::platform::tc002::Tc002Display* g_display = nullptr;
+stipple::platform::tc002::Tc002Display* g_display = nullptr;
 
 // Blank on the way out, including on Ctrl-C. A clock left holding a half-drawn
 // frame looks broken in a way that has nothing to do with what went wrong.
@@ -43,8 +43,8 @@ extern "C" void onSignal(int) {
     std::_Exit(1);
 }
 
-notrix::platform::tc002::ChannelOrder parseOrder(const char* text) {
-    using notrix::platform::tc002::ChannelOrder;
+stipple::platform::tc002::ChannelOrder parseOrder(const char* text) {
+    using stipple::platform::tc002::ChannelOrder;
     if (std::strcmp(text, "grb") == 0) {
         return ChannelOrder::Grb;
     }
@@ -54,8 +54,8 @@ notrix::platform::tc002::ChannelOrder parseOrder(const char* text) {
     return ChannelOrder::Rgb;
 }
 
-const char* sourceName(notrix::platform::RawInput source) {
-    using notrix::platform::RawInput;
+const char* sourceName(stipple::platform::RawInput source) {
+    using stipple::platform::RawInput;
     switch (source) {
         case RawInput::KeyMinus: return "-";
         case RawInput::KeyMiddle: return "middle";
@@ -67,8 +67,8 @@ const char* sourceName(notrix::platform::RawInput source) {
     return "?";
 }
 
-const char* phaseName(notrix::platform::ButtonPhase phase) {
-    using notrix::platform::ButtonPhase;
+const char* phaseName(stipple::platform::ButtonPhase phase) {
+    using stipple::platform::ButtonPhase;
     switch (phase) {
         case ButtonPhase::Down: return "down";
         case ButtonPhase::Up: return "up";
@@ -92,9 +92,9 @@ int main(int argc, char** argv) {
     const int seconds = (argc > 1) ? std::atoi(argv[1]) : 20;
     const int brightness = (argc > 2) ? std::atoi(argv[2]) : 64;
     const auto order = (argc > 3) ? parseOrder(argv[3])
-                                  : notrix::platform::tc002::ChannelOrder::Rgb;
+                                  : stipple::platform::tc002::ChannelOrder::Rgb;
 
-    notrix::platform::tc002::Tc002Display display(order);
+    stipple::platform::tc002::Tc002Display display(order);
     g_display = &display;
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
@@ -110,11 +110,11 @@ int main(int argc, char** argv) {
     const int intervalMillis = display.minimumFrameIntervalMillis();
     const int frames = (seconds * 1000) / intervalMillis;
 
-    std::printf("NOTRIX on the panel\n");
+    std::printf("STIPPLE on the panel\n");
     std::printf("  framebuffer : %dx%d, addressed as %dx%d\n",
-                notrix::Framebuffer::kWidth, notrix::Framebuffer::kHeight,
-                notrix::platform::tc002::Tc002Display::kAddressedWidth,
-                notrix::Framebuffer::kHeight);
+                stipple::Framebuffer::kWidth, stipple::Framebuffer::kHeight,
+                stipple::platform::tc002::Tc002Display::kAddressedWidth,
+                stipple::Framebuffer::kHeight);
     std::printf("  brightness  : %d/255\n", brightness);
     std::printf("  channels    : %s\n",
                 (argc > 3) ? argv[3] : "rgb (assumed, unconfirmed)");
@@ -124,24 +124,24 @@ int main(int argc, char** argv) {
     // Input is optional here on purpose. The panel is the point of this tool,
     // and a device whose evdev nodes moved should still render rather than
     // refuse to start.
-    notrix::platform::tc002::Tc002Input input;
+    stipple::platform::tc002::Tc002Input input;
     const bool haveInput = input.open();
     std::printf("  input       : %s\n",
                 haveInput ? "event67 + event68" : "unavailable");
     std::printf("\nrendering - look at the panel, and press the controls\n");
 
-    notrix::Framebuffer framebuffer;
-    notrix::Canvas canvas(framebuffer);
+    stipple::Framebuffer framebuffer;
+    stipple::Canvas canvas(framebuffer);
 
     for (int frame = 0; frame < frames; ++frame) {
-        notrix::platform::InputEvent event;
+        stipple::platform::InputEvent event;
         while (haveInput && input.poll(event)) {
             std::printf("  input: %-11s %s\n", sourceName(event.source),
                         phaseName(event.phase));
             std::fflush(stdout);
         }
 
-        notrix::demo::drawTestPattern(canvas, frame);
+        stipple::demo::drawTestPattern(canvas, frame);
 
         // Unconditionally, every tick. The driver chips hold an image only
         // while being fed, so "nothing changed, skip the write" would make the

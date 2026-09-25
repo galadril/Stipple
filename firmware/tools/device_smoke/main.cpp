@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Proves notrix_core links and runs on the target architecture.
+// Proves stipple_core links and runs on the target architecture.
 //
 // Not the device binary. There is no TC002 platform adapter yet, so this drives
 // the core through the simulator adapter — which is enough to answer the only
@@ -19,21 +19,21 @@
 
 #include <cstdio>
 
-#include "notrix/core/Version.h"
-#include "notrix/host/ApplicationHost.h"
-#include "notrix/platform/simulator/SimulatorPlatform.h"
+#include "stipple/core/Version.h"
+#include "stipple/host/ApplicationHost.h"
+#include "stipple/platform/simulator/SimulatorPlatform.h"
 
 int main() {
-    std::printf("notrix %.*s smoke test\n", static_cast<int>(notrix::kVersion.size()),
-                notrix::kVersion.data());
+    std::printf("stipple %.*s smoke test\n", static_cast<int>(stipple::kVersion.size()),
+                stipple::kVersion.data());
 
-    notrix::platform::simulator::SimulatorPlatform platform;
+    stipple::platform::simulator::SimulatorPlatform platform;
     platform.simulatedClock().setWallClock(1700000000);
 
-    notrix::host::HostConfig config;
+    stipple::host::HostConfig config;
     config.splashMillis = 0;
 
-    notrix::host::ApplicationHost host(platform, config);
+    stipple::host::ApplicationHost host(platform, config);
     if (!host.initialize()) {
         std::printf("FAIL: initialize() returned false\n");
         return 1;
@@ -47,20 +47,20 @@ int main() {
     }
 
     int lit = 0;
-    for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
-        for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
-            if (host.frame().at(x, y) != notrix::colors::kBlack) {
+    for (int y = 0; y < stipple::Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < stipple::Framebuffer::kWidth; ++x) {
+            if (host.frame().at(x, y) != stipple::colors::kBlack) {
                 ++lit;
             }
         }
     }
 
-    std::printf("panel      : %dx%d\n", notrix::Framebuffer::kWidth,
-                notrix::Framebuffer::kHeight);
+    std::printf("panel      : %dx%d\n", stipple::Framebuffer::kWidth,
+                stipple::Framebuffer::kHeight);
     std::printf("lit pixels : %d\n", lit);
     std::printf("frames     : %u rendered, %u skipped\n", host.frameStats().rendered,
                 host.frameStats().skipped);
-    std::printf("boot       : %s\n", notrix::host::bootModeName(host.bootMode()));
+    std::printf("boot       : %s\n", stipple::host::bootModeName(host.bootMode()));
 
     // A clock that rendered nothing is a failure even though everything linked.
     if (lit == 0) {
@@ -69,10 +69,10 @@ int main() {
     }
 
     // And the API answers, which is the other half of what the device needs.
-    notrix::api::Request request;
-    request.method = notrix::api::Method::Get;
+    stipple::api::Request request;
+    request.method = stipple::api::Method::Get;
     request.path = "/api/v1/device";
-    const notrix::api::Response response = host.handle(request);
+    const stipple::api::Response response = host.handle(request);
     std::printf("api        : GET /api/v1/device -> %d, %zu bytes\n", response.status,
                 response.body.size());
     if (response.status != 200) {

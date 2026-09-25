@@ -18,8 +18,8 @@ import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const publicDir = join(here, '..', 'public');
-const loader = join(publicDir, 'notrix-core.js');
-const binary = join(publicDir, 'notrix-core.wasm');
+const loader = join(publicDir, 'stipple-core.js');
+const binary = join(publicDir, 'stipple-core.wasm');
 
 if (!existsSync(loader) || !existsSync(binary)) {
     console.error('No emulator build found. Run `.\\dev.ps1 emulator` first.');
@@ -33,18 +33,18 @@ const factory = require(loader);
 // Node has no origin for. Handing over the bytes keeps this headless.
 const core = await factory({ wasmBinary: readFileSync(binary) });
 
-core._notrix_init();
-core._notrix_set_wall_clock(1700000000, 0);
-core._notrix_render(0);
+core._stipple_init();
+core._stipple_set_wall_clock(1700000000, 0);
+core._stipple_render(0);
 
 function request(method, path, body) {
-    const status = core.ccall('notrix_http_request', 'number',
+    const status = core.ccall('stipple_http_request', 'number',
         ['string', 'string', 'string'], [method, path, body || '']);
     return {
         status,
-        body: core.UTF8ToString(core._notrix_http_body()),
-        contentType: core.UTF8ToString(core._notrix_http_content_type()),
-        length: core._notrix_http_body_length(),
+        body: core.UTF8ToString(core._stipple_http_body()),
+        contentType: core.UTF8ToString(core._stipple_http_content_type()),
+        length: core._stipple_http_body_length(),
     };
 }
 
@@ -77,7 +77,7 @@ check('css content type', css.contentType.includes('text/css'), css.contentType)
 
 const script = request('GET', '/app.js');
 check('GET /app.js is 200', script.status === 200, `got ${script.status}`);
-check('the page can find the emulator bridge', script.body.includes('NOTRIX_BRIDGE'));
+check('the page can find the emulator bridge', script.body.includes('STIPPLE_BRIDGE'));
 check('unknown pages 404', request('GET', '/nope').status === 404);
 
 group('the API answers through the same entry point');
@@ -104,10 +104,10 @@ check('the panel can be switched off',
               JSON.stringify({ display: { power: false } })).status === 200);
 
 // The real proof that settings reach the renderer, not just the config store.
-core._notrix_render(5000);
+core._stipple_render(5000);
 const pixels = core.HEAPU8.subarray(
-    core._notrix_framebuffer(),
-    core._notrix_framebuffer() + core._notrix_width() * core._notrix_height() * 3);
+    core._stipple_framebuffer(),
+    core._stipple_framebuffer() + core._stipple_width() * core._stipple_height() * 3);
 check('and the panel really went dark', pixels.every((byte) => byte === 0));
 
 group('diagnostics');

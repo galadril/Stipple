@@ -15,4 +15,4 @@
 *.wasm binary
 
 # Keep generated emulator output out of diffs.
-simulator/web/public/notrix-core.js linguist-generated=true
+simulator/web/public/stipple-core.js linguist-generated=true

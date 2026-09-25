@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/graphics/Canvas.h"
+#include "stipple/graphics/Canvas.h"
 
 #include <cstddef>
 
-namespace notrix {
+namespace stipple {
 namespace {
 
 constexpr int absInt(int v) noexcept {
@@ -145,4 +145,4 @@ void Canvas::blitKeyed(int x, int y, const BitmapView& bitmap, Rgb transparent) 
     }
 }
 
-}  // namespace notrix
+}  // namespace stipple

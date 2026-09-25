@@ -1,16 +1,16 @@
-# NOTRIX
+# STIPPLE
 
 **Open pixel firmware for the Ulanzi TC002.**
 
-NOTRIX replaces the stock pixel-app experience on the Ulanzi TC002 with a
+STIPPLE replaces the stock pixel-app experience on the Ulanzi TC002 with a
 renderer it owns end to end: a 52×16 framebuffer, deterministic custom apps,
 notifications, HTTP and MQTT APIs, sound, and a browser-based emulator.
 Local-first — no cloud, no account, no vendor app.
 
 > **Status: runs on real hardware, and now survives a power cycle.**
 >
-> NOTRIX installs into the device's `res` partition alongside a small shim
-> that chooses what to run. A NOTRIX that will not load falls back to the
+> STIPPLE installs into the device's `res` partition alongside a small shim
+> that chooses what to run. A STIPPLE that will not load falls back to the
 > stock Ulanzi clock rather than to nothing, so the device stays reachable.
 > Updates after the first install are a file upload in the web UI — no
 > flashing. See [docs/install.md](docs/install.md).
@@ -24,7 +24,7 @@ Local-first — no cloud, no account, no vendor app.
 > That is not theoretical. During development this project bricked a device
 > badly enough to need a recovery procedure obtained from Ulanzi support.
 >
-> NOTRIX comes with **absolutely no warranty of any kind** — see sections 15,
+> STIPPLE comes with **absolutely no warranty of any kind** — see sections 15,
 > 16 and 17 of the [GPL-3.0](LICENSE). Nobody involved is liable for damage to
 > your hardware, lost data, voided warranty, or anything else that follows
 > from using it. **If you are not willing to lose the device, do not install
@@ -49,7 +49,7 @@ to adjust, middle to go back, hold the knob for settings
 volume on −/+. Plus a microphone-driven visualiser.
 
 **Networking.** Its own DHCP client, Wi-Fi scanning and joining, and a setup
-hotspot — the device hosts `NOTRIX-setup`, serves its configuration page on
+hotspot — the device hosts `STIPPLE-setup`, serves its configuration page on
 `192.168.4.1`, and hands the radio back when you are done
 ([ADR 0018](docs/adr/0018-first-run-provisioning-and-access.md)).
 
@@ -80,7 +80,7 @@ Roughly 840 tests, including golden-image comparison of rendered frames.
 
 ## Try it on a device
 
-**This does not modify your clock.** NOTRIX is pushed to `/tmp`, which is
+**This does not modify your clock.** STIPPLE is pushed to `/tmp`, which is
 tmpfs. A power cycle restores the stock firmware, every time. That is the whole
 design of tier 2 in [ADR 0008](docs/adr/0008-installer-helper.md).
 
@@ -109,7 +109,7 @@ section.
   ([ADR 0020](docs/adr/0020-persistence-through-the-vendor-update-path.md)), and
   **nothing has been flashed**. ADR 0008 requires a restore path that has been
   *demonstrated*, not one that ought to work.
-- **NOTRIX has never been built as `libzkgui.so`.** Persisting means becoming
+- **STIPPLE has never been built as `libzkgui.so`.** Persisting means becoming
   the shared library the vendor host loads, and nobody has tried it. That, not
   the flashing, is the unproven part.
 - **No OTA updates.**
@@ -121,7 +121,7 @@ section.
 ## How it is built
 
 ```
-                        NOTRIX CORE
+                        STIPPLE CORE
 ┌─────────────────────────────────────────────────────────┐
 │ Apps / Notifications / Scheduler / API / MQTT           │
 │                         ↓                               │
@@ -160,7 +160,7 @@ binary.
 
 ## Documentation
 
-- [`NOTRIX-PROJECT-BLUEPRINT.md`](NOTRIX-PROJECT-BLUEPRINT.md) — the full design
+- [`STIPPLE-PROJECT-BLUEPRINT.md`](STIPPLE-PROJECT-BLUEPRINT.md) — the full design
 - [`docs/adr/`](docs/adr/) — every significant decision, and why
 - [`docs/research/tc002-platform-findings.md`](docs/research/tc002-platform-findings.md)
   — what the hardware actually does, measured rather than assumed
@@ -176,7 +176,7 @@ House rules, from blueprint §44:
 
 - Reliability before feature count. A feature that works every time beats five
   that half-work.
-- **No AWTRIX source copying.** NOTRIX is an independent implementation.
+- **No AWTRIX source copying.** STIPPLE is an independent implementation.
 - All hardware behind interfaces; the simulator must stay supported.
 - No unbounded allocations or queues; nothing allocates in the render path.
 - Tests required for core behaviour.
@@ -186,7 +186,7 @@ House rules, from blueprint §44:
 
 **There is none. You carry all of it.**
 
-NOTRIX is licensed under the GPL-3.0-or-later, whose sections 15 and 16 say
+STIPPLE is licensed under the GPL-3.0-or-later, whose sections 15 and 16 say
 this in legal terms. In plain ones:
 
 - **No warranty.** The software is provided "as is". Nobody promises it works,
@@ -219,6 +219,6 @@ both reasons.
 
 ---
 
-NOTRIX is an independent open-source community project and is not affiliated
+STIPPLE is an independent open-source community project and is not affiliated
 with or endorsed by Ulanzi or AWTRIX. Ulanzi, U-Clock and other product names
 are trademarks of their respective owners.

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/text/Text.h"
+#include "stipple/text/Text.h"
 
-#include "notrix/graphics/Canvas.h"
-#include "notrix/text/Utf8.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/text/Utf8.h"
 
-namespace notrix {
+namespace stipple {
 namespace text {
 namespace {
 
@@ -158,4 +158,4 @@ void draw(Canvas& canvas, std::string_view utf8, const Rect& box, const TextStyl
 }
 
 }  // namespace text
-}  // namespace notrix
+}  // namespace stipple

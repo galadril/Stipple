@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/api/Http.h"
+#include "stipple/api/Http.h"
 
 #include <vector>
 
-#include "notrix/api/JsonWriter.h"
+#include "stipple/api/JsonWriter.h"
 
-namespace notrix {
+namespace stipple {
 namespace api {
 namespace {
 
@@ -247,4 +247,4 @@ RouteMatch matchRoute(std::string_view path) {
 }
 
 }  // namespace api
-}  // namespace notrix
+}  // namespace stipple

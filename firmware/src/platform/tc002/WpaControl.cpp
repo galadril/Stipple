@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/platform/tc002/WpaControl.h"
+#include "stipple/platform/tc002/WpaControl.h"
 
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -9,7 +9,7 @@
 #include <cstdio>
 #include <cstring>
 
-namespace notrix {
+namespace stipple {
 namespace platform {
 namespace tc002 {
 namespace {
@@ -40,7 +40,7 @@ bool WpaControl::open(const char* serverPath) {
     local.sun_family = AF_UNIX;
 
     char path[sizeof(local.sun_path)];
-    std::snprintf(path, sizeof(path), "/tmp/notrix-wpa-%d", static_cast<int>(::getpid()));
+    std::snprintf(path, sizeof(path), "/tmp/stipple-wpa-%d", static_cast<int>(::getpid()));
     std::snprintf(local.sun_path, sizeof(local.sun_path), "%s", path);
 
     // A stale socket from a previous run would make bind fail, and the process
@@ -107,4 +107,4 @@ std::string WpaControl::ask(std::string_view command) {
 
 }  // namespace tc002
 }  // namespace platform
-}  // namespace notrix
+}  // namespace stipple

@@ -10,13 +10,13 @@ Written for the moment you need it, so it starts with the answer.
 
 **Unplug it and plug it back in.**
 
-NOTRIX runs from `/tmp`, which is tmpfs. A power cycle wipes it and the stock
-Ulanzi firmware comes straight back. This works for every problem NOTRIX can
+STIPPLE runs from `/tmp`, which is tmpfs. A power cycle wipes it and the stock
+Ulanzi firmware comes straight back. This works for every problem STIPPLE can
 currently cause, including the ones that look alarming: a frozen panel, a
 device that has vanished from the network, two copies fighting over the
 display, a hotspot that will not go away.
 
-Nothing NOTRIX does today touches flash. That is deliberate and it is the
+Nothing STIPPLE does today touches flash. That is deliberate and it is the
 reason the rest of this document is short.
 
 ---
@@ -25,16 +25,16 @@ reason the rest of this document is short.
 
 ### The panel is frozen, or showing nonsense
 
-Power cycle. If the stock clock comes back, NOTRIX was the problem and nothing
+Power cycle. If the stock clock comes back, STIPPLE was the problem and nothing
 is damaged.
 
 ### The device has disappeared from the network
 
 Usually the hotspot: one radio cannot be an access point and a station at the
-same time, so while NOTRIX hosts `NOTRIX-setup` it is not on your Wi-Fi at
+same time, so while STIPPLE hosts `STIPPLE-setup` it is not on your Wi-Fi at
 all. That is normal and it reverts on its own.
 
-1. Look for a Wi-Fi network called **`NOTRIX-setup`**. If it is there, join it
+1. Look for a Wi-Fi network called **`STIPPLE-setup`**. If it is there, join it
    and open <http://192.168.4.1/>.
 2. If it is not, wait two minutes — the hotspot reverts by itself and the
    device re-joins your network.
@@ -52,7 +52,7 @@ when they get back in.
 ### You want to put it on a different Wi-Fi network
 
 **Hold the knob in for five seconds.** The panel counts down under `SETUP`,
-and at zero the device starts its hotspot: join `NOTRIX-setup` and open
+and at zero the device starts its hotspot: join `STIPPLE-setup` and open
 <http://192.168.4.1/>.
 
 This works whether or not the device is already online, which is the point -
@@ -78,14 +78,14 @@ Check the timezone under **System → Time**. The device has no timezone
 database, so zones are stored as POSIX rules; picking your city from the list
 sets the right one including daylight saving.
 
-### Two copies of NOTRIX are running
+### Two copies of STIPPLE are running
 
 Symptom: the panel flickers between two things, or looks doubled. This only
 happens during development, when a new build is started without stopping the
 old one.
 
 ```powershell
-adb shell ps                       # find the /tmp/notrix_device entries
+adb shell ps                       # find the /tmp/stipple_device entries
 adb shell "kill -9 <pid>"          # stop each one
 ```
 
@@ -140,7 +140,7 @@ That is driven by a pending-upgrade flag in `/data`; a device with an unused
 ### What it does
 
 A full `res` reflash **and** a `/data` wipe. Stock application, stock
-configuration, and anything in `/data` — including NOTRIX and its settings —
+configuration, and anything in `/data` — including STIPPLE and its settings —
 is gone. That is a restore, not a repair.
 
 ### Honest note on what was tested
@@ -166,7 +166,7 @@ it depends on the application that is not running:
   enumerates on a computer, whatever cable is used.
 - Holding **reset** only helps if an image is sitting in `/mnt/storage` for
   the loader to install. If the last flash consumed it, reset does nothing -
-  and reset also wipes `/data`, which is where NOTRIX lives.
+  and reset also wipes `/data`, which is where STIPPLE lives.
 
 ### What still works
 
@@ -183,8 +183,8 @@ not documented for this board, so it means opening the case and finding
 TX/RX/GND. With a shell the fix is three lines and moves no files:
 
 ```sh
-mkdir -p /data/notrix
-ln -s /res/lib/libzkgui.so /data/notrix/libnotrix.so
+mkdir -p /data/stipple
+ln -s /res/lib/libzkgui.so /data/stipple/libstipple.so
 reboot
 ```
 
@@ -226,7 +226,7 @@ own USB volume.
 
 **That image is not necessarily the firmware your device is running.**
 
-On the unit NOTRIX was developed against, the shipped image is *older* than
+On the unit STIPPLE was developed against, the shipped image is *older* than
 the installed partition. Holding reset there is a downgrade, not a restore.
 The third-party TC002 project reports the same on their unit. Devices differ.
 
@@ -249,7 +249,7 @@ intend to flash anything.
 
 ---
 
-## What NOTRIX will not do to you
+## What STIPPLE will not do to you
 
 - **It does not write flash.** No release does, and none will until
   [ADR 0008](adr/0008-installer-helper.md)'s gates are met: a verified restore

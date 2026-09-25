@@ -17,7 +17,7 @@ glibc 2.30 and we need 2.28, so we are fine" is an inference. This is a lookup.
 Reads only, on both sides. Device libraries are pulled, never pushed.
 
 Usage:
-    python.exe tooling/probe/abi-check.py build/device-arm/firmware/libnotrix.so
+    python.exe tooling/probe/abi-check.py build/device-arm/firmware/libstipple.so
     python.exe tooling/probe/abi-check.py <artifact> --address 192.168.1.238
 """
 
@@ -40,7 +40,7 @@ DEVICE_LIBRARIES = (
     "/lib/libdl.so.2",
 )
 
-CONTAINER = "notrix-cross:bookworm"
+CONTAINER = "stipple-cross:bookworm"
 
 
 def container_engine() -> str:

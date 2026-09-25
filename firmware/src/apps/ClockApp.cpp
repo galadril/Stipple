@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/apps/ClockApp.h"
+#include "stipple/apps/ClockApp.h"
 
-#include "notrix/graphics/Canvas.h"
-#include "notrix/platform/Clock.h"
-#include "notrix/text/Text.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/platform/Clock.h"
+#include "stipple/text/Text.h"
 
-namespace notrix {
+namespace stipple {
 namespace apps {
 namespace {
 
@@ -485,4 +485,4 @@ bool clockChanged(const platform::ISystemClock& clock,
 }
 
 }  // namespace apps
-}  // namespace notrix
+}  // namespace stipple

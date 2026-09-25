@@ -1,4 +1,4 @@
-# Installing NOTRIX on a TC002
+# Installing STIPPLE on a TC002
 
 Written after doing it, badly, several times in one evening. Every warning
 here is something that actually went wrong.
@@ -14,7 +14,7 @@ here is something that actually went wrong.
 > recovery process obtained from Ulanzi support. It is written down here
 > *because* that happened.
 >
-> NOTRIX comes with **no warranty and no liability of any kind** (GPL-3.0
+> STIPPLE comes with **no warranty and no liability of any kind** (GPL-3.0
 > sections 15-16). **Do not install it on a device you are not prepared to
 > lose.**
 
@@ -23,17 +23,17 @@ here is something that actually went wrong.
 **You flash once, and update by file copy for ever after.**
 
 The flash puts two things in the device's read-only `res` partition: a small
-shim, and NOTRIX itself. It changes exactly one line of vendor
+shim, and STIPPLE itself. It changes exactly one line of vendor
 configuration — `startupLibPath` — so the framework loads the shim instead of
 the stock application. The shim then picks what to run:
 
 ```
-/data/notrix/libnotrix.so.override   an update you installed   ->  run it
-/res/lib/libnotrix.so                flashed with the shim     ->  run it
+/data/stipple/libstipple.so.override   an update you installed   ->  run it
+/res/lib/libstipple.so                flashed with the shim     ->  run it
 neither                              the stock Ulanzi clock    ->  run that
 ```
 
-That third line is the important one. **A NOTRIX that will not load leaves a
+That third line is the important one. **A STIPPLE that will not load leaves a
 working clock on your network**, not a device nobody can reach. Recovery is
 deleting one file.
 
@@ -43,11 +43,11 @@ USB stick, no reset button, no flash writes.
 ## Why there is no image to download
 
 `update.img` contains Ulanzi's `res` partition — their application, their
-fonts, their assets — with one line changed and NOTRIX added beside it.
+fonts, their assets — with one line changed and STIPPLE added beside it.
 Publishing it would be redistributing their firmware, so the build starts
 from **a capture of your own device**.
 
-The part that is ours, `libnotrix.so`, *is* published with every release.
+The part that is ours, `libstipple.so`, *is* published with every release.
 
 ## What you need
 
@@ -76,14 +76,14 @@ Keep it. It is also your route back to stock.
 ## 2. Build the image
 
 ```powershell
-podman run --rm -v "${PWD}:/src" notrix-cross:bullseye bash -c `
-  "cd /src && tooling/imgtool/buildres.sh restore/res-raw.bin restore/notrix-res.squashfs"
+podman run --rm -v "${PWD}:/src" stipple-cross:bullseye bash -c `
+  "cd /src && tooling/imgtool/buildres.sh restore/res-raw.bin restore/stipple-res.squashfs"
 
 python.exe tooling/imgtool/imgtool.py pack `
-  restore/notrix-res.squashfs restore/notrix-update.img `
+  restore/stipple-res.squashfs restore/stipple-update.img `
   --template restore/shipped-update.img
 
-python.exe tooling/imgtool/imgtool.py info restore/notrix-update.img
+python.exe tooling/imgtool/imgtool.py info restore/stipple-update.img
 ```
 
 The last command re-reads what was written and checks both checksums the
@@ -123,7 +123,7 @@ unattended. See the warning below.
 ## What the first boot looks like
 
 ```
-NOTRIX over a travelling wave          5 seconds
+STIPPLE over a travelling wave          5 seconds
 version over the IP address            5 seconds
 the clock
 ```
@@ -134,7 +134,7 @@ seconds after the address arrives. `__:__` means "I do not know yet", not a
 fault.
 
 **If it cannot reach your Wi-Fi**, it hosts an open network called
-`NOTRIX-setup` — after 60 seconds if it has never connected, or 5 minutes if
+`STIPPLE-setup` — after 60 seconds if it has never connected, or 5 minutes if
 it lost a network that was working. Join it and open <http://192.168.4.1/>.
 
 You can also ask for that at any time: **hold the knob for five seconds.** The
@@ -142,7 +142,7 @@ panel counts down under `SETUP`. It clears nothing and changes nothing.
 
 ## Updating, from then on
 
-Download `libnotrix-X.Y.Z.so` from a release and upload it in
+Download `libstipple-X.Y.Z.so` from a release and upload it in
 **Settings → Firmware**. It is checked before anything is written — it has to
 be a 32-bit ARM shared library, so a host build is refused rather than
 installed — then written beside the running copy and renamed into place.
@@ -157,11 +157,11 @@ worst case is a reboot into the version you started with.
 the property `sys.zkapp.state` and, if the application has not declared itself
 `running` in time, performs *auto recovery*: it installs whatever is staged,
 with nobody pressing anything. A stock image left there as a "safety net"
-reverted a working NOTRIX within a minute of boot, twice, and looked like a
+reverted a working STIPPLE within a minute of boot, twice, and looked like a
 mysterious flash failure both times.
 
 **Do not hold reset to break a boot loop.** It wipes `/data`. If your only
-copy of NOTRIX is the override there, it goes with it — though since the flash
+copy of STIPPLE is the override there, it goes with it — though since the flash
 in step 4 puts a copy in `/res`, this is now survivable rather than fatal.
 
 ## Getting back to stock

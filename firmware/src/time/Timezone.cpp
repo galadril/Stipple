@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/time/Timezone.h"
+#include "stipple/time/Timezone.h"
 
-namespace notrix {
+namespace stipple {
 namespace timezone_ {
 namespace {
 
@@ -283,4 +283,4 @@ int Timezone::offsetSeconds(std::int64_t unixSeconds) const noexcept {
 }
 
 }  // namespace timezone_
-}  // namespace notrix
+}  // namespace stipple

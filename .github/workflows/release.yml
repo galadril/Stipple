@@ -4,7 +4,7 @@ name: Release
 # emulator and nothing else: there is no ARM preset, no TC002 adapter and no
 # device binary, so this workflow deliberately publishes no installable
 # firmware and says so in the release notes. Device artifacts
-# (notrix-X.Y.Z-sideload.zip, notrix-X.Y.Z-update.img — blueprint §33) join the
+# (stipple-X.Y.Z-sideload.zip, stipple-X.Y.Z-update.img — blueprint §33) join the
 # `package` job in Phase 7; the shape here is meant to absorb them without a
 # rewrite.
 
@@ -21,7 +21,7 @@ on:
 # Distinct from ci.yml's group on purpose: a release must not cancel the CI run
 # it depends on, and a half-published release is worse than a slow one.
 concurrency:
-  group: notrix-release-${{ github.ref_name }}
+  group: stipple-release-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -56,7 +56,7 @@ jobs:
           fi
 
           cmake_version="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -1)"
-          header_version="$(sed -nE 's/.*kVersion[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' firmware/include/notrix/core/Version.h | head -1)"
+          header_version="$(sed -nE 's/.*kVersion[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' firmware/include/stipple/core/Version.h | head -1)"
 
           echo "tag              ${tag}"
           echo "CMakeLists.txt   ${cmake_version}"
@@ -103,14 +103,14 @@ jobs:
       - name: Stamp build commit
         run: |
           set -euo pipefail
-          header=firmware/include/notrix/core/Version.h
+          header=firmware/include/stipple/core/Version.h
           sed -i -E "s/(kBuildCommit[[:space:]]*=[[:space:]]*\")unknown(\")/\1${GITHUB_SHA}\2/" "$header"
           grep -q "${GITHUB_SHA}" "$header" || { echo "::error::failed to stamp kBuildCommit"; exit 1; }
 
       - name: Build emulator
         run: |
           emcmake cmake -S . -B build/emulator \
-            -DNOTRIX_BUILD_EMULATOR=ON -DNOTRIX_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
+            -DSTIPPLE_BUILD_EMULATOR=ON -DSTIPPLE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
           cmake --build build/emulator
 
       # The WASM module is loaded through Emscripten glue whose export list is
@@ -127,7 +127,7 @@ jobs:
       - name: Fetch the device library from CI
         uses: actions/download-artifact@v4
         with:
-          name: libnotrix-so
+          name: libstipple-so
           path: dist
 
       - name: Assemble artifacts
@@ -135,19 +135,19 @@ jobs:
           set -euo pipefail
           mkdir -p dist/emulator
 
-          for f in index.html styles.css app.js notrix-core.js notrix-core.wasm; do
+          for f in index.html styles.css app.js stipple-core.js stipple-core.wasm; do
             cp "simulator/web/public/$f" dist/emulator/
           done
 
-          zip -j -q "dist/notrix-emulator-${VERSION}.zip" dist/emulator/*
+          zip -j -q "dist/stipple-emulator-${VERSION}.zip" dist/emulator/*
 
           # Renamed so a downloaded file says what it is and which version it
           # is. The device does not care about the name: installing it is an
           # upload through Settings > Firmware, which writes it where the shim
           # looks.
-          mv dist/libnotrix.so "dist/libnotrix-${VERSION}.so"
+          mv dist/libstipple.so "dist/libstipple-${VERSION}.so"
 
-          api_version="$(sed -nE 's/.*kApiVersion[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' firmware/include/notrix/core/Version.h | head -1)"
+          api_version="$(sed -nE 's/.*kApiVersion[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' firmware/include/stipple/core/Version.h | head -1)"
 
           # Blueprint §28's manifest shape, with the honesty fields this stage
           # needs: nothing here installs onto hardware, and a manifest that
@@ -161,17 +161,17 @@ jobs:
             "apiVersion": ${api_version},
             "hardware": [],
             "installable": true,
-            "note": "Updates an existing NOTRIX device through Settings > Firmware. It does not install NOTRIX onto a stock device - that needs a res image built from your own device's capture, which cannot be published because it contains vendor firmware. See docs/install.md.",
+            "note": "Updates an existing STIPPLE device through Settings > Firmware. It does not install STIPPLE onto a stock device - that needs a res image built from your own device's capture, which cannot be published because it contains vendor firmware. See docs/install.md.",
             "artifacts": [
               {
-                "name": "notrix-emulator-${VERSION}.zip",
-                "sha256": "$(sha256sum "dist/notrix-emulator-${VERSION}.zip" | cut -d' ' -f1)",
-                "bytes": $(stat -c%s "dist/notrix-emulator-${VERSION}.zip")
+                "name": "stipple-emulator-${VERSION}.zip",
+                "sha256": "$(sha256sum "dist/stipple-emulator-${VERSION}.zip" | cut -d' ' -f1)",
+                "bytes": $(stat -c%s "dist/stipple-emulator-${VERSION}.zip")
               },
               {
-                "name": "libnotrix-${VERSION}.so",
-                "sha256": "$(sha256sum "dist/libnotrix-${VERSION}.so" | cut -d' ' -f1)",
-                "bytes": $(stat -c%s "dist/libnotrix-${VERSION}.so"),
+                "name": "libstipple-${VERSION}.so",
+                "sha256": "$(sha256sum "dist/libstipple-${VERSION}.so" | cut -d' ' -f1)",
+                "bytes": $(stat -c%s "dist/libstipple-${VERSION}.so"),
                 "target": "tc002"
               }
             ]
@@ -181,13 +181,13 @@ jobs:
           python3 -c "import json,sys; json.load(open('dist/manifest.json'))" \
             || { echo "::error::generated manifest.json is not valid JSON"; exit 1; }
 
-          ( cd dist && sha256sum "notrix-emulator-${VERSION}.zip" "libnotrix-${VERSION}.so" manifest.json > SHA256SUMS )
+          ( cd dist && sha256sum "stipple-emulator-${VERSION}.zip" "libstipple-${VERSION}.so" manifest.json > SHA256SUMS )
           cat dist/SHA256SUMS
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: notrix-release-${{ env.VERSION }}
+          name: stipple-release-${{ env.VERSION }}
           path: dist/
 
       - name: Upload Pages bundle
@@ -210,24 +210,24 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: notrix-release-${{ needs.guard.outputs.version }}
+          name: stipple-release-${{ needs.guard.outputs.version }}
           path: dist
 
       - name: Write release notes
         run: |
           set -euo pipefail
           cat > notes.md <<EOF
-          ## NOTRIX ${VERSION}
+          ## STIPPLE ${VERSION}
 
           Two things: a device update, and the browser emulator.
 
-          > **Use at your own risk.** NOTRIX replaces firmware on hardware it
+          > **Use at your own risk.** STIPPLE replaces firmware on hardware it
           > was not designed for. It can leave your device unusable and will
           > probably void your warranty. It comes with **no warranty and no
           > liability** (GPL-3.0 sections 15-16). Do not install it on a
           > device you are not prepared to lose.
 
-          ### \`libnotrix-${VERSION}.so\` — for a device already running NOTRIX
+          ### \`libstipple-${VERSION}.so\` — for a device already running STIPPLE
 
           Install it through **Settings → Firmware** in the device's web UI.
           It is written beside the running version and renamed into place, so
@@ -240,12 +240,12 @@ jobs:
           not published, because it would flash and verify perfectly and then
           fail at \`dlopen\` where only ADB can see it.
 
-          **This does not install NOTRIX onto a stock device.** That needs a
+          **This does not install STIPPLE onto a stock device.** That needs a
           \`res\` image built from a capture of your own device, which cannot
           be published — it contains Ulanzi's firmware. See
           [docs/install.md](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/install.md).
 
-          ### \`notrix-emulator-${VERSION}.zip\` — no hardware needed
+          ### \`stipple-emulator-${VERSION}.zip\` — no hardware needed
 
           The same framebuffer, font engine, scene renderer, app scheduler and
           \`/api/v1\` router the device runs. Only the platform adapter
@@ -254,7 +254,7 @@ jobs:
           ### Try it
 
           No hardware and no time limit. Unpack
-          \`notrix-emulator-${VERSION}.zip\` and serve the directory over HTTP:
+          \`stipple-emulator-${VERSION}.zip\` and serve the directory over HTTP:
 
           \`\`\`
           python -m http.server 8080
@@ -279,22 +279,22 @@ jobs:
           # 0.x is development, per blueprint §34 — and this one installs
           # nothing, so "latest stable" would be an outright lie.
           gh release create "${GITHUB_REF_NAME}" \
-            --title "NOTRIX ${VERSION}" \
+            --title "STIPPLE ${VERSION}" \
             --notes-file notes.md \
             --prerelease \
-            dist/notrix-emulator-${VERSION}.zip \
+            dist/stipple-emulator-${VERSION}.zip \
             dist/manifest.json \
             dist/SHA256SUMS
 
   # Opt-in, and deliberately so: this is the step that makes the emulator
   # public. Enable Pages for the repository (Settings -> Pages -> Source:
-  # GitHub Actions), then set the repository variable NOTRIX_PAGES to "true".
+  # GitHub Actions), then set the repository variable STIPPLE_PAGES to "true".
   # Until both are done the job is skipped rather than failed, so a release
   # does not go red over a publishing channel nobody asked for yet.
   pages:
     name: Deploy emulator to Pages
     needs: package
-    if: github.event_name == 'push' && vars.NOTRIX_PAGES == 'true'
+    if: github.event_name == 'push' && vars.STIPPLE_PAGES == 'true'
     runs-on: ubuntu-latest
     permissions:
       pages: write

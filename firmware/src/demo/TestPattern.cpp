@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/demo/TestPattern.h"
+#include "stipple/demo/TestPattern.h"
 
-#include "notrix/graphics/Canvas.h"
+#include "stipple/graphics/Canvas.h"
 
-namespace notrix {
+namespace stipple {
 namespace demo {
 namespace {
 
@@ -73,4 +73,4 @@ void drawTestPattern(Canvas& canvas, int frame) {
 }
 
 }  // namespace demo
-}  // namespace notrix
+}  // namespace stipple

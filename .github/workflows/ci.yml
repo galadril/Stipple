@@ -16,7 +16,7 @@ concurrency:
 env:
   # A golden fixture that is absent in CI was never committed. Locally the
   # harness creates missing fixtures; here that must be an error instead.
-  NOTRIX_STRICT_GOLDEN: "1"
+  STIPPLE_STRICT_GOLDEN: "1"
 
 jobs:
   host-tests:
@@ -89,7 +89,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: Configure
-        run: cmake --preset sanitize -DNOTRIX_WARNINGS_AS_ERRORS=ON
+        run: cmake --preset sanitize -DSTIPPLE_WARNINGS_AS_ERRORS=ON
 
       - name: Build
         run: cmake --build --preset sanitize
@@ -104,7 +104,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # The §53 boundary is a claim until something proves it. Cross-compiling
-      # notrix_core for the target and running it is that proof, and it costs a
+      # stipple_core for the target and running it is that proof, and it costs a
       # couple of minutes against the alternative of discovering a host-only
       # dependency with a device on the bench.
       - name: Install cross toolchain and ARM emulation
@@ -121,22 +121,22 @@ jobs:
       - name: Check what the binary depends on
         run: |
           cd build/device-arm/firmware
-          file notrix_device_smoke
+          file stipple_device_smoke
           # Static by design: a dynamically linked binary from a modern distro
           # needs GLIBC_2.34 just for __libc_start_main, which an embedded
           # SigmaStar device is unlikely to have. See firmware/CMakeLists.txt.
-          if readelf -d notrix_device_smoke | grep -q NEEDED; then
+          if readelf -d stipple_device_smoke | grep -q NEEDED; then
             echo "::error::the device binary gained a shared library dependency"
-            readelf -d notrix_device_smoke | grep NEEDED
+            readelf -d stipple_device_smoke | grep NEEDED
             exit 1
           fi
-          echo "stripped size: $(arm-linux-gnueabihf-strip -o /tmp/s notrix_device_smoke && stat -c %s /tmp/s) bytes"
+          echo "stripped size: $(arm-linux-gnueabihf-strip -o /tmp/s stipple_device_smoke && stat -c %s /tmp/s) bytes"
 
       - name: Run it on ARM
-        run: qemu-arm-static build/device-arm/firmware/notrix_device_smoke
+        run: qemu-arm-static build/device-arm/firmware/stipple_device_smoke
 
   device-library:
-    name: Device library (libnotrix.so)
+    name: Device library (libstipple.so)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -144,7 +144,7 @@ jobs:
       # Built in the pinned container and not with the runner's toolchain,
       # and this is not fussiness.
       #
-      # `libnotrix.so` is the artifact people install, so it has to load on a
+      # `libstipple.so` is the artifact people install, so it has to load on a
       # device running glibc 2.30 and libstdc++.so.6.0.26. Every modern distro
       # toolchain emits references that are newer than that - the job above
       # gets away with it only because its binary is static. A library built
@@ -152,28 +152,28 @@ jobs:
       # message only visible over ADB. That happened during bring-up and cost
       # two flashes.
       - name: Build the pinned cross toolchain
-        run: docker build -t notrix-cross:bullseye -f tooling/cross/Containerfile.bullseye tooling/cross
+        run: docker build -t stipple-cross:bullseye -f tooling/cross/Containerfile.bullseye tooling/cross
 
       - name: Build
         run: |
-          docker run --rm -v "$PWD:/src" notrix-cross:bullseye bash -c "
+          docker run --rm -v "$PWD:/src" stipple-cross:bullseye bash -c "
             cd /src &&
-            cmake -S . -B build/device-arm -G Ninja               -DCMAKE_TOOLCHAIN_FILE=/src/cmake/toolchains/arm-linux-gnueabihf.cmake               -DCMAKE_BUILD_TYPE=Release -DNOTRIX_BUILD_TESTS=OFF               -DNOTRIX_WARNINGS_AS_ERRORS=ON -DNOTRIX_DEVICE_BUILD=ON &&
-            cmake --build build/device-arm --target notrix_startup"
+            cmake -S . -B build/device-arm -G Ninja               -DCMAKE_TOOLCHAIN_FILE=/src/cmake/toolchains/arm-linux-gnueabihf.cmake               -DCMAKE_BUILD_TYPE=Release -DSTIPPLE_BUILD_TESTS=OFF               -DSTIPPLE_WARNINGS_AS_ERRORS=ON -DSTIPPLE_DEVICE_BUILD=ON &&
+            cmake --build build/device-arm --target stipple_startup"
 
       # The guard that would have caught the bring-up failure in seconds.
       - name: Check it can actually load on the device
         run: |
-          docker run --rm -v "$PWD:/src" notrix-cross:bullseye bash -c '
+          docker run --rm -v "$PWD:/src" stipple-cross:bullseye bash -c '
             cd /src
-            lib=build/device-arm/firmware/libnotrix.so
+            lib=build/device-arm/firmware/libstipple.so
             arm-linux-gnueabihf-readelf -d "$lib" | grep NEEDED
 
             # The device has libstdc++.so.6.0.26, whose newest symbol set is
             # GLIBCXX_3.4.26. Every container here is newer, so the C++
             # runtime is linked statically and none of it may appear.
             if arm-linux-gnueabihf-readelf -V "$lib" | grep -q GLIBCXX; then
-              echo "::error::libnotrix.so wants GLIBCXX symbols the device does not have"
+              echo "::error::libstipple.so wants GLIBCXX symbols the device does not have"
               arm-linux-gnueabihf-readelf -V "$lib" | grep -o "GLIBCXX_[0-9.]*" | sort -u
               exit 1
             fi
@@ -183,7 +183,7 @@ jobs:
             echo "highest glibc requirement: $worst"
             newest=$( { echo "$worst"; echo GLIBC_2.30; } | sort -V | tail -1 )
             if [ "$newest" != "GLIBC_2.30" ]; then
-              echo "::error::libnotrix.so needs $worst; the TC002 has GLIBC_2.30"
+              echo "::error::libstipple.so needs $worst; the TC002 has GLIBC_2.30"
               exit 1
             fi
 
@@ -193,8 +193,8 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: libnotrix-so
-          path: build/device-arm/firmware/libnotrix.so
+          name: libstipple-so
+          path: build/device-arm/firmware/libstipple.so
           if-no-files-found: error
 
   emulator:
@@ -210,7 +210,7 @@ jobs:
           version: 3.1.64
 
       - name: Configure
-        run: emcmake cmake -S . -B build/emulator -DNOTRIX_BUILD_EMULATOR=ON -DNOTRIX_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
+        run: emcmake cmake -S . -B build/emulator -DSTIPPLE_BUILD_EMULATOR=ON -DSTIPPLE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build/emulator
@@ -218,10 +218,10 @@ jobs:
       - name: Upload emulator
         uses: actions/upload-artifact@v4
         with:
-          name: notrix-emulator
+          name: stipple-emulator
           path: |
             simulator/web/public/index.html
             simulator/web/public/styles.css
             simulator/web/public/app.js
-            simulator/web/public/notrix-core.js
-            simulator/web/public/notrix-core.wasm
+            simulator/web/public/stipple-core.js
+            simulator/web/public/stipple-core.wasm

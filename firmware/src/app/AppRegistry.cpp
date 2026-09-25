@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/app/AppRegistry.h"
+#include "stipple/app/AppRegistry.h"
 
-namespace notrix {
+namespace stipple {
 namespace app {
 
 const char* appSourceName(AppSource source) noexcept {
@@ -186,4 +186,4 @@ int AppRegistry::expire(std::uint64_t nowMillis) {
 }
 
 }  // namespace app
-}  // namespace notrix
+}  // namespace stipple

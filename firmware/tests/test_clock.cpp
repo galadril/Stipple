@@ -1,32 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/apps/BatteryApp.h"
-#include "notrix/apps/VisualizerApp.h"
-#include "notrix/apps/ClockApp.h"
+#include "stipple/apps/BatteryApp.h"
+#include "stipple/apps/VisualizerApp.h"
+#include "stipple/apps/ClockApp.h"
 
 #include <string>
 
-#include "notrix/graphics/Canvas.h"
-#include "notrix/platform/simulator/SimulatorPlatform.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/platform/simulator/SimulatorPlatform.h"
 #include "support/Golden.h"
 #include "support/TestFramework.h"
 
-using notrix::Canvas;
-using notrix::Framebuffer;
-using notrix::Rect;
-using notrix::apps::CivilDate;
-using notrix::apps::civilFromDays;
-using notrix::apps::ClockStyle;
-using notrix::apps::ClockTheme;
-using notrix::apps::clockChanged;
-using notrix::apps::clockThemeAt;
-using notrix::apps::clockThemeFromName;
-using notrix::apps::clockThemeName;
-using notrix::apps::kClockThemeCount;
-using notrix::apps::renderClock;
-using notrix::apps::weekdayFromDays;
-using notrix::apps::weekdayName;
-using notrix::platform::simulator::SimulatorClock;
-namespace colors = notrix::colors;
+using stipple::Canvas;
+using stipple::Framebuffer;
+using stipple::Rect;
+using stipple::apps::CivilDate;
+using stipple::apps::civilFromDays;
+using stipple::apps::ClockStyle;
+using stipple::apps::ClockTheme;
+using stipple::apps::clockChanged;
+using stipple::apps::clockThemeAt;
+using stipple::apps::clockThemeFromName;
+using stipple::apps::clockThemeName;
+using stipple::apps::kClockThemeCount;
+using stipple::apps::renderClock;
+using stipple::apps::weekdayFromDays;
+using stipple::apps::weekdayName;
+using stipple::platform::simulator::SimulatorClock;
+namespace colors = stipple::colors;
 
 namespace {
 
@@ -85,40 +85,40 @@ ClockStyle styleFor(ClockTheme theme) {
 
 // --- calendar ----------------------------------------------------------------
 
-NOTRIX_TEST(Clock, ConvertsDaysToCivilDates) {
-    NOTRIX_CHECK_EQ(civilFromDays(0).year, 1970);
-    NOTRIX_CHECK_EQ(civilFromDays(0).month, 1);
-    NOTRIX_CHECK_EQ(civilFromDays(0).day, 1);
+STIPPLE_TEST(Clock, ConvertsDaysToCivilDates) {
+    STIPPLE_CHECK_EQ(civilFromDays(0).year, 1970);
+    STIPPLE_CHECK_EQ(civilFromDays(0).month, 1);
+    STIPPLE_CHECK_EQ(civilFromDays(0).day, 1);
 
     const CivilDate later = civilFromDays(unixTime(2026, 9, 11, 0, 0, 0) / 86400);
-    NOTRIX_CHECK_EQ(later.year, 2026);
-    NOTRIX_CHECK_EQ(later.month, 9);
-    NOTRIX_CHECK_EQ(later.day, 11);
+    STIPPLE_CHECK_EQ(later.year, 2026);
+    STIPPLE_CHECK_EQ(later.month, 9);
+    STIPPLE_CHECK_EQ(later.day, 11);
 }
 
-NOTRIX_TEST(Clock, HandlesLeapDays) {
+STIPPLE_TEST(Clock, HandlesLeapDays) {
     // The shifted-era trick exists precisely so February needs no special case.
     const CivilDate leap = civilFromDays(unixTime(2024, 2, 29, 0, 0, 0) / 86400);
-    NOTRIX_CHECK_EQ(leap.month, 2);
-    NOTRIX_CHECK_EQ(leap.day, 29);
+    STIPPLE_CHECK_EQ(leap.month, 2);
+    STIPPLE_CHECK_EQ(leap.day, 29);
 
     // 2000 was a leap year; 1900 was not.
-    NOTRIX_CHECK_EQ(civilFromDays(unixTime(2000, 2, 29, 0, 0, 0) / 86400).day, 29);
-    NOTRIX_CHECK_EQ(civilFromDays(unixTime(1900, 3, 1, 0, 0, 0) / 86400).month, 3);
+    STIPPLE_CHECK_EQ(civilFromDays(unixTime(2000, 2, 29, 0, 0, 0) / 86400).day, 29);
+    STIPPLE_CHECK_EQ(civilFromDays(unixTime(1900, 3, 1, 0, 0, 0) / 86400).month, 3);
 }
 
-NOTRIX_TEST(Clock, HandlesYearAndMonthBoundaries) {
+STIPPLE_TEST(Clock, HandlesYearAndMonthBoundaries) {
     const CivilDate newYear = civilFromDays(unixTime(2027, 1, 1, 0, 0, 0) / 86400);
-    NOTRIX_CHECK_EQ(newYear.year, 2027);
-    NOTRIX_CHECK_EQ(newYear.month, 1);
-    NOTRIX_CHECK_EQ(newYear.day, 1);
+    STIPPLE_CHECK_EQ(newYear.year, 2027);
+    STIPPLE_CHECK_EQ(newYear.month, 1);
+    STIPPLE_CHECK_EQ(newYear.day, 1);
 
     const CivilDate yearEnd = civilFromDays(unixTime(2026, 12, 31, 0, 0, 0) / 86400);
-    NOTRIX_CHECK_EQ(yearEnd.month, 12);
-    NOTRIX_CHECK_EQ(yearEnd.day, 31);
+    STIPPLE_CHECK_EQ(yearEnd.month, 12);
+    STIPPLE_CHECK_EQ(yearEnd.day, 31);
 }
 
-NOTRIX_TEST(Clock, RoundTripsEveryDayAcrossDecades) {
+STIPPLE_TEST(Clock, RoundTripsEveryDayAcrossDecades) {
     // Walk twenty years of days and confirm the date always advances by exactly
     // one, which catches any off-by-one at a month or year boundary.
     std::int64_t day = unixTime(2020, 1, 1, 0, 0, 0) / 86400;
@@ -129,34 +129,34 @@ NOTRIX_TEST(Clock, RoundTripsEveryDayAcrossDecades) {
 
         const bool sameMonth = current.year == previous.year && current.month == previous.month;
         if (sameMonth) {
-            NOTRIX_CHECK_EQ(current.day, previous.day + 1);
+            STIPPLE_CHECK_EQ(current.day, previous.day + 1);
         } else {
-            NOTRIX_CHECK_EQ(current.day, 1);
-            NOTRIX_CHECK(current.month >= 1 && current.month <= 12);
+            STIPPLE_CHECK_EQ(current.day, 1);
+            STIPPLE_CHECK(current.month >= 1 && current.month <= 12);
         }
         previous = current;
     }
 }
 
-NOTRIX_TEST(Clock, WeekdaysAreCorrect) {
+STIPPLE_TEST(Clock, WeekdaysAreCorrect) {
     // 1970-01-01 was a Thursday.
-    NOTRIX_CHECK_EQ(std::string(weekdayName(weekdayFromDays(0))), std::string("THU"));
-    NOTRIX_CHECK_EQ(std::string(weekdayName(weekdayFromDays(1))), std::string("FRI"));
-    NOTRIX_CHECK_EQ(std::string(weekdayName(weekdayFromDays(3))), std::string("SUN"));
+    STIPPLE_CHECK_EQ(std::string(weekdayName(weekdayFromDays(0))), std::string("THU"));
+    STIPPLE_CHECK_EQ(std::string(weekdayName(weekdayFromDays(1))), std::string("FRI"));
+    STIPPLE_CHECK_EQ(std::string(weekdayName(weekdayFromDays(3))), std::string("SUN"));
 
     // 2026-09-11 is a Friday.
     const std::int64_t days = unixTime(2026, 9, 11, 0, 0, 0) / 86400;
-    NOTRIX_CHECK_EQ(std::string(weekdayName(weekdayFromDays(days))), std::string("FRI"));
+    STIPPLE_CHECK_EQ(std::string(weekdayName(weekdayFromDays(days))), std::string("FRI"));
 }
 
-NOTRIX_TEST(Clock, WeekdayNameIsBounded) {
-    NOTRIX_CHECK_EQ(std::string(weekdayName(-1)), std::string("---"));
-    NOTRIX_CHECK_EQ(std::string(weekdayName(7)), std::string("---"));
+STIPPLE_TEST(Clock, WeekdayNameIsBounded) {
+    STIPPLE_CHECK_EQ(std::string(weekdayName(-1)), std::string("---"));
+    STIPPLE_CHECK_EQ(std::string(weekdayName(7)), std::string("---"));
 }
 
 // --- the colon must not move the digits --------------------------------------
 
-NOTRIX_TEST(Clock, BlinkingTheColonDoesNotShiftTheDigits) {
+STIPPLE_TEST(Clock, BlinkingTheColonDoesNotShiftTheDigits) {
     // The colon is one pixel wide and the space glyph is two, so blinking by
     // swapping characters moved the minutes sideways twice a second. The colon
     // now occupies a reserved slot whether lit or not.
@@ -171,7 +171,7 @@ NOTRIX_TEST(Clock, BlinkingTheColonDoesNotShiftTheDigits) {
     const Framebuffer withColon = render(lit, style);
     const Framebuffer withoutColon = render(dark, style);
 
-    NOTRIX_CHECK(withColon != withoutColon);  // the colon really did blink
+    STIPPLE_CHECK(withColon != withoutColon);  // the colon really did blink
 
     // Every lit pixel outside the colon's slot must be identical.
     for (int y = 0; y < Framebuffer::kHeight; ++y) {
@@ -180,12 +180,12 @@ NOTRIX_TEST(Clock, BlinkingTheColonDoesNotShiftTheDigits) {
             if (x == colonX) {
                 continue;  // the slot itself is allowed to differ
             }
-            NOTRIX_CHECK_EQ(withColon.at(x, y), withoutColon.at(x, y));
+            STIPPLE_CHECK_EQ(withColon.at(x, y), withoutColon.at(x, y));
         }
     }
 }
 
-NOTRIX_TEST(Clock, TheHourFieldNeverMovesTheMinutes) {
+STIPPLE_TEST(Clock, TheHourFieldNeverMovesTheMinutes) {
     // Comparing ink extents would be wrong: '0' lights column 0 of its cell and
     // '1' does not, so different digits legitimately have different bounds. The
     // property that matters is that the *slots* are fixed — whatever the hour
@@ -196,18 +196,18 @@ NOTRIX_TEST(Clock, TheHourFieldNeverMovesTheMinutes) {
     const Framebuffer early = render(clockAt(unixTime(2026, 9, 11, 8, 45, 0)), style);
     const Framebuffer late = render(clockAt(unixTime(2026, 9, 11, 19, 45, 0)), style);
 
-    NOTRIX_CHECK(early != late);  // the hours really did change
+    STIPPLE_CHECK(early != late);  // the hours really did change
 
     // Everything from the colon rightwards must be identical.
     const int colonX = (Framebuffer::kWidth - 25) / 2 + 12;
     for (int y = 0; y < Framebuffer::kHeight; ++y) {
         for (int x = colonX; x < Framebuffer::kWidth; ++x) {
-            NOTRIX_CHECK_EQ(early.at(x, y), late.at(x, y));
+            STIPPLE_CHECK_EQ(early.at(x, y), late.at(x, y));
         }
     }
 }
 
-NOTRIX_TEST(Clock, TheMinuteFieldNeverMovesTheHours) {
+STIPPLE_TEST(Clock, TheMinuteFieldNeverMovesTheHours) {
     ClockStyle style = styleFor(ClockTheme::Minimal);
     style.blinkPeriodMillis = 0;
 
@@ -217,12 +217,12 @@ NOTRIX_TEST(Clock, TheMinuteFieldNeverMovesTheHours) {
     const int colonX = (Framebuffer::kWidth - 25) / 2 + 12;
     for (int y = 0; y < Framebuffer::kHeight; ++y) {
         for (int x = 0; x < colonX; ++x) {
-            NOTRIX_CHECK_EQ(a.at(x, y), b.at(x, y));
+            STIPPLE_CHECK_EQ(a.at(x, y), b.at(x, y));
         }
     }
 }
 
-NOTRIX_TEST(Clock, TwelveHourModeDoesNotShiftAtTen) {
+STIPPLE_TEST(Clock, TwelveHourModeDoesNotShiftAtTen) {
     // A blanked leading zero must leave its slot empty rather than narrowing the
     // field, or the time slides sideways at 10 o'clock.
     ClockStyle style = styleFor(ClockTheme::Minimal);
@@ -233,21 +233,21 @@ NOTRIX_TEST(Clock, TwelveHourModeDoesNotShiftAtTen) {
     const Rect ten = litBounds(render(clockAt(unixTime(2026, 9, 11, 10, 30, 0)), style));
 
     // The minutes end in the same place; only the hours field differs.
-    NOTRIX_CHECK_EQ(nine.right(), ten.right());
+    STIPPLE_CHECK_EQ(nine.right(), ten.right());
 }
 
 // --- themes ------------------------------------------------------------------
 
-NOTRIX_TEST(Clock, ThemeNamesRoundTrip) {
+STIPPLE_TEST(Clock, ThemeNamesRoundTrip) {
     for (int i = 0; i < kClockThemeCount; ++i) {
         const ClockTheme theme = clockThemeAt(i);
-        NOTRIX_CHECK(clockThemeFromName(clockThemeName(theme)) == theme);
+        STIPPLE_CHECK(clockThemeFromName(clockThemeName(theme)) == theme);
     }
-    NOTRIX_CHECK(clockThemeFromName("nonsense") == ClockTheme::Minimal);
-    NOTRIX_CHECK(clockThemeFromName("") == ClockTheme::Minimal);
+    STIPPLE_CHECK(clockThemeFromName("nonsense") == ClockTheme::Minimal);
+    STIPPLE_CHECK(clockThemeFromName("") == ClockTheme::Minimal);
 }
 
-NOTRIX_TEST(Clock, EveryThemeDrawsAndStaysOnThePanel) {
+STIPPLE_TEST(Clock, EveryThemeDrawsAndStaysOnThePanel) {
     const SimulatorClock clock = clockAt(unixTime(2026, 9, 11, 14, 35, 42));
 
     for (int i = 0; i < kClockThemeCount; ++i) {
@@ -257,15 +257,15 @@ NOTRIX_TEST(Clock, EveryThemeDrawsAndStaysOnThePanel) {
         const Framebuffer frame = render(clock, style);
         const Rect lit = litBounds(frame);
 
-        NOTRIX_CHECK_FALSE(lit.empty());
-        NOTRIX_CHECK(lit.x >= 0);
-        NOTRIX_CHECK(lit.y >= 0);
-        NOTRIX_CHECK(lit.right() <= Framebuffer::kWidth);
-        NOTRIX_CHECK(lit.bottom() <= Framebuffer::kHeight);
+        STIPPLE_CHECK_FALSE(lit.empty());
+        STIPPLE_CHECK(lit.x >= 0);
+        STIPPLE_CHECK(lit.y >= 0);
+        STIPPLE_CHECK(lit.right() <= Framebuffer::kWidth);
+        STIPPLE_CHECK(lit.bottom() <= Framebuffer::kHeight);
     }
 }
 
-NOTRIX_TEST(Clock, ThemesDifferFromEachOther) {
+STIPPLE_TEST(Clock, ThemesDifferFromEachOther) {
     const SimulatorClock clock = clockAt(unixTime(2026, 9, 11, 14, 35, 42));
 
     ClockStyle minimal = styleFor(ClockTheme::Minimal);
@@ -274,11 +274,11 @@ NOTRIX_TEST(Clock, ThemesDifferFromEachOther) {
     for (int i = 1; i < kClockThemeCount; ++i) {
         ClockStyle other = styleFor(clockThemeAt(i));
         other.blinkPeriodMillis = 0;
-        NOTRIX_CHECK(render(clock, minimal) != render(clock, other));
+        STIPPLE_CHECK(render(clock, minimal) != render(clock, other));
     }
 }
 
-NOTRIX_TEST(Clock, TheStyleOffsetShiftsTheDisplayedTime) {
+STIPPLE_TEST(Clock, TheStyleOffsetShiftsTheDisplayedTime) {
     // Shifting the offset forward by an hour must look exactly like the clock
     // itself having advanced an hour. Exact rather than "the frames differ",
     // because a wrong-but-different offset would pass that.
@@ -290,10 +290,10 @@ NOTRIX_TEST(Clock, TheStyleOffsetShiftsTheDisplayedTime) {
     ClockStyle plain = styleFor(ClockTheme::Minimal);
     plain.utcOffsetSeconds = 0;
 
-    NOTRIX_CHECK(render(clockAt(noon), shifted) == render(clockAt(noon + 3600), plain));
+    STIPPLE_CHECK(render(clockAt(noon), shifted) == render(clockAt(noon + 3600), plain));
 }
 
-NOTRIX_TEST(Clock, AWholeDayOfOffsetLooksLikeNone) {
+STIPPLE_TEST(Clock, AWholeDayOfOffsetLooksLikeNone) {
     // Catches a sign error, which the hour test above cannot: negating the
     // offset still produces "some other time", but only a correctly applied
     // one wraps a full day back onto itself.
@@ -304,10 +304,10 @@ NOTRIX_TEST(Clock, AWholeDayOfOffsetLooksLikeNone) {
 
     ClockStyle plain = styleFor(ClockTheme::Seconds);
 
-    NOTRIX_CHECK(render(clockAt(noon), wrapped) == render(clockAt(noon), plain));
+    STIPPLE_CHECK(render(clockAt(noon), wrapped) == render(clockAt(noon), plain));
 }
 
-NOTRIX_TEST(Clock, TheSecondsBarFillsAndComesBackAfterTheMinute) {
+STIPPLE_TEST(Clock, TheSecondsBarFillsAndComesBackAfterTheMinute) {
     // Reported from hardware: the bar filled, vanished at the minute, and did
     // not come back. Walk an actual rollover rather than sampling one instant.
     ClockStyle style = styleFor(ClockTheme::SecondsBar);
@@ -327,25 +327,25 @@ NOTRIX_TEST(Clock, TheSecondsBarFillsAndComesBackAfterTheMinute) {
         return lit;
     };
 
-    NOTRIX_CHECK_EQ(barWidth(0), 0);                        // empty at the top
-    NOTRIX_CHECK_EQ(barWidth(59), Framebuffer::kWidth);      // full at the end
+    STIPPLE_CHECK_EQ(barWidth(0), 0);                        // empty at the top
+    STIPPLE_CHECK_EQ(barWidth(59), Framebuffer::kWidth);      // full at the end
 
     // Monotonic across the minute, never going backwards mid-way.
     int previous = 0;
     for (int second = 0; second < 60; ++second) {
         const int width = barWidth(second);
-        NOTRIX_CHECK(width >= previous);
+        STIPPLE_CHECK(width >= previous);
         previous = width;
     }
 
     // And the rollover: full, then empty, then growing again. "Did not come
     // back" is precisely this last assertion.
-    NOTRIX_CHECK_EQ(barWidth(59), Framebuffer::kWidth);
-    NOTRIX_CHECK_EQ(barWidth(60), 0);
-    NOTRIX_CHECK(barWidth(61) > 0);
+    STIPPLE_CHECK_EQ(barWidth(59), Framebuffer::kWidth);
+    STIPPLE_CHECK_EQ(barWidth(60), 0);
+    STIPPLE_CHECK(barWidth(61) > 0);
 }
 
-NOTRIX_TEST(Clock, TheSecondsBarAsksToBeRedrawnEverySecond) {
+STIPPLE_TEST(Clock, TheSecondsBarAsksToBeRedrawnEverySecond) {
     // The other half of the failure: a bar that renders correctly is still
     // frozen if dirty tracking never invalidates. On this device a skipped
     // frame is not a stale frame but a dark one, so a missed invalidate shows
@@ -354,43 +354,43 @@ NOTRIX_TEST(Clock, TheSecondsBarAsksToBeRedrawnEverySecond) {
     ClockStyle style = styleFor(ClockTheme::SecondsBar);
     style.blinkPeriodMillis = 0;
 
-    NOTRIX_CHECK(clockChanged(clock, style, 0, 1000));
-    NOTRIX_CHECK(clockChanged(clock, style, 59'000, 60'000));  // across the minute
-    NOTRIX_CHECK_FALSE(clockChanged(clock, style, 1000, 1200));  // same second
+    STIPPLE_CHECK(clockChanged(clock, style, 0, 1000));
+    STIPPLE_CHECK(clockChanged(clock, style, 59'000, 60'000));  // across the minute
+    STIPPLE_CHECK_FALSE(clockChanged(clock, style, 1000, 1200));  // same second
 }
 
-NOTRIX_TEST(Clock, UnsetWallClockShowsPlaceholderInEveryTheme) {
+STIPPLE_TEST(Clock, UnsetWallClockShowsPlaceholderInEveryTheme) {
     SimulatorClock unset;  // never set
     for (int i = 0; i < kClockThemeCount; ++i) {
         ClockStyle style = styleFor(clockThemeAt(i));
         const Framebuffer frame = render(unset, style);
-        NOTRIX_CHECK_FALSE(litBounds(frame).empty());  // "--:--", not a blank panel
+        STIPPLE_CHECK_FALSE(litBounds(frame).empty());  // "--:--", not a blank panel
     }
 }
 
 // --- redraw hints ------------------------------------------------------------
 
-NOTRIX_TEST(Clock, SecondsThemesRedrawEverySecond) {
+STIPPLE_TEST(Clock, SecondsThemesRedrawEverySecond) {
     SimulatorClock clock = clockAt(unixTime(2026, 9, 11, 14, 35, 0));
 
     ClockStyle seconds = styleFor(ClockTheme::Seconds);
     seconds.blinkPeriodMillis = 0;
-    NOTRIX_CHECK(clockChanged(clock, seconds, 0, 1000));
-    NOTRIX_CHECK_FALSE(clockChanged(clock, seconds, 100, 200));
+    STIPPLE_CHECK(clockChanged(clock, seconds, 0, 1000));
+    STIPPLE_CHECK_FALSE(clockChanged(clock, seconds, 100, 200));
 
     ClockStyle bar = styleFor(ClockTheme::SecondsBar);
     bar.blinkPeriodMillis = 0;
-    NOTRIX_CHECK(clockChanged(clock, bar, 0, 1000));
+    STIPPLE_CHECK(clockChanged(clock, bar, 0, 1000));
 }
 
-NOTRIX_TEST(Clock, AnUnsetClockNeverNeedsRedrawing) {
+STIPPLE_TEST(Clock, AnUnsetClockNeverNeedsRedrawing) {
     SimulatorClock unset;
-    NOTRIX_CHECK_FALSE(clockChanged(unset, styleFor(ClockTheme::Seconds), 0, 100000));
+    STIPPLE_CHECK_FALSE(clockChanged(unset, styleFor(ClockTheme::Seconds), 0, 100000));
 }
 
 // --- golden ------------------------------------------------------------------
 
-NOTRIX_TEST(Clock, ThemesMatchGolden) {
+STIPPLE_TEST(Clock, ThemesMatchGolden) {
     const SimulatorClock clock = clockAt(unixTime(2026, 9, 11, 14, 35, 42));
 
     const char* names[] = {"minimal", "seconds", "date", "weekday", "secondsbar", "calendar"};
@@ -398,94 +398,94 @@ NOTRIX_TEST(Clock, ThemesMatchGolden) {
         ClockStyle style = styleFor(clockThemeAt(i));
         style.blinkPeriodMillis = 0;  // deterministic: colon always lit
 
-        NOTRIX_CHECK_GOLDEN((std::string("clock-") + names[i]).c_str(), render(clock, style));
+        STIPPLE_CHECK_GOLDEN((std::string("clock-") + names[i]).c_str(), render(clock, style));
     }
 }
 
 // --- battery -----------------------------------------------------------------
 
-NOTRIX_TEST(Battery, AnUnknownChargeSaysSoRatherThanShowingZero) {
+STIPPLE_TEST(Battery, AnUnknownChargeSaysSoRatherThanShowingZero) {
     // The failure this guards against is a clock confidently reporting a flat
     // battery because nothing answered, which is indistinguishable to the user
     // from a real flat battery.
-    notrix::platform::BatteryStatus unknown;  // known == false
+    stipple::platform::BatteryStatus unknown;  // known == false
     Framebuffer frame;
     Canvas canvas(frame);
-    notrix::apps::renderBattery(canvas, unknown, notrix::apps::BatteryStyle{});
+    stipple::apps::renderBattery(canvas, unknown, stipple::apps::BatteryStyle{});
 
     const Framebuffer empty;
-    NOTRIX_CHECK(frame != empty);  // it drew *something*
+    STIPPLE_CHECK(frame != empty);  // it drew *something*
 
-    notrix::platform::BatteryStatus flat;
+    stipple::platform::BatteryStatus flat;
     flat.known = true;
     flat.percent = 0;
     Framebuffer flatFrame;
     Canvas flatCanvas(flatFrame);
-    notrix::apps::renderBattery(flatCanvas, flat, notrix::apps::BatteryStyle{});
+    stipple::apps::renderBattery(flatCanvas, flat, stipple::apps::BatteryStyle{});
 
     // And the two must not look the same.
-    NOTRIX_CHECK(frame != flatFrame);
+    STIPPLE_CHECK(frame != flatFrame);
 }
 
-NOTRIX_TEST(Battery, ChargeChangesWhatIsDrawn) {
+STIPPLE_TEST(Battery, ChargeChangesWhatIsDrawn) {
     auto render = [](int percent) {
-        notrix::platform::BatteryStatus status;
+        stipple::platform::BatteryStatus status;
         status.known = true;
         status.percent = percent;
         Framebuffer frame;
         Canvas canvas(frame);
-        notrix::apps::renderBattery(canvas, status, notrix::apps::BatteryStyle{});
+        stipple::apps::renderBattery(canvas, status, stipple::apps::BatteryStyle{});
         return frame;
     };
 
-    NOTRIX_CHECK(render(10) != render(90));
-    NOTRIX_CHECK(render(100) != render(50));
+    STIPPLE_CHECK(render(10) != render(90));
+    STIPPLE_CHECK(render(100) != render(50));
 
     // Any charge at all lights something: a battery at 3% must not be
     // pixel-identical to one at 0%.
-    NOTRIX_CHECK(render(3) != render(0));
+    STIPPLE_CHECK(render(3) != render(0));
 }
 
-NOTRIX_TEST(Battery, ChargingLooksDifferentFromDischargingAtTheSamePercent) {
+STIPPLE_TEST(Battery, ChargingLooksDifferentFromDischargingAtTheSamePercent) {
     // Measured on a TC002: the same cell reads ~3160 mV on the cable and
     // ~3115 mV off it, which moves the MCU's voltage-derived percentage by
     // several points. Without a charge indicator that looks like the gauge
     // inventing numbers; with one it reads as a battery under load, which is
     // what it is.
     auto render = [](bool chargingKnown, bool charging) {
-        notrix::platform::BatteryStatus status;
+        stipple::platform::BatteryStatus status;
         status.known = true;
         status.percent = 80;
         status.chargingKnown = chargingKnown;
         status.charging = charging;
         Framebuffer frame;
         Canvas canvas(frame);
-        notrix::apps::renderBattery(canvas, status, notrix::apps::BatteryStyle{});
+        stipple::apps::renderBattery(canvas, status, stipple::apps::BatteryStyle{});
         return frame;
     };
 
-    NOTRIX_CHECK(render(true, true) != render(true, false));
+    STIPPLE_CHECK(render(true, true) != render(true, false));
 
     // A platform that cannot tell must look like one that is not charging,
     // never like one that is: an invented bolt is the same class of lie as an
     // invented percentage.
-    NOTRIX_CHECK(render(false, false) == render(true, false));
-    NOTRIX_CHECK(render(false, true) == render(true, false));
+    STIPPLE_CHECK(render(false, false) == render(true, false));
+    STIPPLE_CHECK(render(false, true) == render(true, false));
 }
 
-NOTRIX_TEST(Battery, OutOfRangeChargeIsClampedNotWrapped) {
+STIPPLE_TEST(Battery, OutOfRangeChargeIsClampedNotWrapped) {
     auto render = [](int percent) {
-        notrix::platform::BatteryStatus status;
+        stipple::platform::BatteryStatus status;
         status.known = true;
         status.percent = percent;
         Framebuffer frame;
         Canvas canvas(frame);
-        notrix::apps::renderBattery(canvas, status, notrix::apps::BatteryStyle{});
+        stipple::apps::renderBattery(canvas, status, stipple::apps::BatteryStyle{});
         return frame;
     };
 
-    NOTRIX_CHECK(render(250) == render(100));
-    NOTRIX_CHECK(render(-20) == render(0));
+    STIPPLE_CHECK(render(250) == render(100));
+    STIPPLE_CHECK(render(-20) == render(0));
 }
 
 
@@ -499,21 +499,21 @@ namespace {
 /// assert things about a scrolling history - columns, ageing, the centre
 /// baseline - and none of them mean anything to a meter, so asking for the
 /// style explicitly keeps each test about one thing.
-notrix::Framebuffer renderViz(const notrix::apps::Visualizer& viz) {
-    notrix::apps::VisualizerStyle trace;
-    trace.kind = notrix::apps::VisualizerStyleKind::Trace;
+stipple::Framebuffer renderViz(const stipple::apps::Visualizer& viz) {
+    stipple::apps::VisualizerStyle trace;
+    trace.kind = stipple::apps::VisualizerStyleKind::Trace;
 
-    notrix::Framebuffer frame;
-    notrix::Canvas canvas(frame);
+    stipple::Framebuffer frame;
+    stipple::Canvas canvas(frame);
     viz.render(canvas, trace);
     return frame;
 }
 
-int litColumns(const notrix::Framebuffer& frame, notrix::Rgb baseline) {
+int litColumns(const stipple::Framebuffer& frame, stipple::Rgb baseline) {
     int columns = 0;
-    for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
-        for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
-            const notrix::Rgb pixel = frame.at(x, y);
+    for (int x = 0; x < stipple::Framebuffer::kWidth; ++x) {
+        for (int y = 0; y < stipple::Framebuffer::kHeight; ++y) {
+            const stipple::Rgb pixel = frame.at(x, y);
             if (pixel != colors::kBlack && pixel != baseline) {
                 ++columns;
                 break;
@@ -525,31 +525,31 @@ int litColumns(const notrix::Framebuffer& frame, notrix::Rgb baseline) {
 
 }  // namespace
 
-NOTRIX_TEST(Visualizer, SilenceStillShowsABaseline) {
+STIPPLE_TEST(Visualizer, SilenceStillShowsABaseline) {
     // A blank panel reads as broken rather than as quiet, so the centre line is
     // always drawn - even before a single sample has arrived.
-    notrix::apps::Visualizer viz;
-    const notrix::Framebuffer frame = renderViz(viz);
+    stipple::apps::Visualizer viz;
+    const stipple::Framebuffer frame = renderViz(viz);
 
-    const notrix::Framebuffer blank;
-    NOTRIX_CHECK(frame != blank);
+    const stipple::Framebuffer blank;
+    STIPPLE_CHECK(frame != blank);
 }
 
-NOTRIX_TEST(Visualizer, LouderSoundsFillMoreOfThePanel) {
+STIPPLE_TEST(Visualizer, LouderSoundsFillMoreOfThePanel) {
     // Varying, not steady. A constant reading is the definition of a noise
     // floor, and the visualiser now treats it as one - see
     // ASteadyToneBecomesTheNoiseFloorAndStopsAnimating below.
-    notrix::apps::Visualizer quiet;
-    notrix::apps::Visualizer loud;
+    stipple::apps::Visualizer quiet;
+    stipple::apps::Visualizer loud;
     for (int i = 0; i < 60; ++i) {
         quiet.push(300 + (i % 5) * 120);
         loud.push(12000 + (i % 5) * 4000);
     }
 
-    auto height = [](const notrix::Framebuffer& frame) {
+    auto height = [](const stipple::Framebuffer& frame) {
         int lit = 0;
-        for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
-            for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+        for (int y = 0; y < stipple::Framebuffer::kHeight; ++y) {
+            for (int x = 0; x < stipple::Framebuffer::kWidth; ++x) {
                 if (frame.at(x, y) != colors::kBlack) { ++lit; break; }
             }
         }
@@ -559,11 +559,11 @@ NOTRIX_TEST(Visualizer, LouderSoundsFillMoreOfThePanel) {
     // Auto-gain means a steady tone settles to a similar height whatever its
     // absolute level - which is the point - so this asserts both render
     // something rather than asserting one is taller.
-    NOTRIX_CHECK(height(renderViz(quiet)) > 2);
-    NOTRIX_CHECK(height(renderViz(loud)) > 2);
+    STIPPLE_CHECK(height(renderViz(quiet)) > 2);
+    STIPPLE_CHECK(height(renderViz(loud)) > 2);
 }
 
-NOTRIX_TEST(Visualizer, AutoGainOpensUpForAQuietRoom) {
+STIPPLE_TEST(Visualizer, AutoGainOpensUpForAQuietRoom) {
     // The whole reason gain lives in the app: a room that never exceeds 800
     // must still fill the panel, or the visualiser is a flat line in every
     // house that is not a nightclub.
@@ -571,24 +571,24 @@ NOTRIX_TEST(Visualizer, AutoGainOpensUpForAQuietRoom) {
     // Measured above the noise floor, so the room swings between 200 and 700
     // rather than sitting at 700. A reading that never changes carries no
     // information about the room no matter how large the number is.
-    notrix::apps::Visualizer viz;
+    stipple::apps::Visualizer viz;
     for (int i = 0; i < 200; ++i) {
         viz.push(200 + (i % 6) * 100);
     }
 
-    NOTRIX_CHECK(viz.ceiling() <= 800);
+    STIPPLE_CHECK(viz.ceiling() <= 800);
 
-    const notrix::Framebuffer frame = renderViz(viz);
+    const stipple::Framebuffer frame = renderViz(viz);
     int tallest = 0;
-    for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
-        for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+    for (int y = 0; y < stipple::Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < stipple::Framebuffer::kWidth; ++x) {
             if (frame.at(x, y) != colors::kBlack) { ++tallest; break; }
         }
     }
-    NOTRIX_CHECK(tallest > notrix::Framebuffer::kHeight / 2);
+    STIPPLE_CHECK(tallest > stipple::Framebuffer::kHeight / 2);
 }
 
-NOTRIX_TEST(Visualizer, ASuddenSoundIsDrawnAtOnceAndDoesNotFlattenTheRest) {
+STIPPLE_TEST(Visualizer, ASuddenSoundIsDrawnAtOnceAndDoesNotFlattenTheRest) {
     // Both halves of the fix, in one test.
     //
     // The spike must be drawn full height on the frame it arrives - "it should
@@ -598,7 +598,7 @@ NOTRIX_TEST(Visualizer, ASuddenSoundIsDrawnAtOnceAndDoesNotFlattenTheRest) {
     // And the columns already on screen must not change. Storing raw
     // amplitudes and rescaling the history at render time is what made a
     // finger snap look like the trace resetting.
-    notrix::apps::Visualizer viz;
+    stipple::apps::Visualizer viz;
     for (int i = 0; i < 40; ++i) { viz.push(600); }
 
     const Framebuffer before = renderViz(viz);
@@ -606,31 +606,31 @@ NOTRIX_TEST(Visualizer, ASuddenSoundIsDrawnAtOnceAndDoesNotFlattenTheRest) {
     const Framebuffer after = renderViz(viz);
 
     // The newest column is on the right and reaches the top.
-    NOTRIX_CHECK(after.at(Framebuffer::kWidth - 1, 0) != colors::kBlack);
+    STIPPLE_CHECK(after.at(Framebuffer::kWidth - 1, 0) != colors::kBlack);
 
     // Everything older is untouched: identical but for the one new column,
     // which has shifted the history left by exactly one.
     for (int x = 0; x < Framebuffer::kWidth - 1; ++x) {
         for (int y = 0; y < Framebuffer::kHeight; ++y) {
-            NOTRIX_CHECK_EQ(after.at(x, y), before.at(x + 1, y));
+            STIPPLE_CHECK_EQ(after.at(x, y), before.at(x + 1, y));
         }
     }
 
     // The window rises toward the peak without landing on it, so the next few
     // seconds of ordinary sound are still legible.
-    NOTRIX_CHECK(viz.ceiling() > 600);
-    NOTRIX_CHECK(viz.ceiling() < 32000);
+    STIPPLE_CHECK(viz.ceiling() > 600);
+    STIPPLE_CHECK(viz.ceiling() < 32000);
 }
 
-NOTRIX_TEST(Visualizer, HistoryScrollsAndIsBounded) {
+STIPPLE_TEST(Visualizer, HistoryScrollsAndIsBounded) {
     // 52 columns of history, newest at the right, and nothing unbounded.
-    notrix::apps::Visualizer viz;
-    NOTRIX_CHECK_FALSE(viz.hasSamples());
+    stipple::apps::Visualizer viz;
+    STIPPLE_CHECK_FALSE(viz.hasSamples());
 
     for (int i = 0; i < 500; ++i) {
         viz.push(1000 + (i % 7) * 900);
     }
-    NOTRIX_CHECK(viz.hasSamples());
+    STIPPLE_CHECK(viz.hasSamples());
 
     // Bounded: 500 samples in, at most 52 columns out, and the baseline spans
     // the panel however few of them carry a reading.
@@ -639,17 +639,17 @@ NOTRIX_TEST(Visualizer, HistoryScrollsAndIsBounded) {
     // floor is silence by definition and draws nothing above the baseline, so
     // any repeating input has dark columns wherever it revisits its quietest
     // value - which is correct, and was not true before the floor existed.
-    const notrix::Framebuffer frame = renderViz(viz);
-    const int lit = litColumns(frame, notrix::rgb(20, 28, 40));
-    NOTRIX_CHECK(lit > 0);
-    NOTRIX_CHECK(lit <= notrix::Framebuffer::kWidth);
+    const stipple::Framebuffer frame = renderViz(viz);
+    const int lit = litColumns(frame, stipple::rgb(20, 28, 40));
+    STIPPLE_CHECK(lit > 0);
+    STIPPLE_CHECK(lit <= stipple::Framebuffer::kWidth);
 
-    for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
-        NOTRIX_CHECK(frame.at(x, notrix::Framebuffer::kHeight / 2 - 1) != colors::kBlack);
+    for (int x = 0; x < stipple::Framebuffer::kWidth; ++x) {
+        STIPPLE_CHECK(frame.at(x, stipple::Framebuffer::kHeight / 2 - 1) != colors::kBlack);
     }
 }
 
-NOTRIX_TEST(Visualizer, ASteadyToneBecomesTheNoiseFloorAndStopsAnimating) {
+STIPPLE_TEST(Visualizer, ASteadyToneBecomesTheNoiseFloorAndStopsAnimating) {
     // The bug a person watching the device reported: "it starts with animation
     // while there is no sound, and after a handclap it resets to the correct
     // levels."
@@ -659,211 +659,211 @@ NOTRIX_TEST(Visualizer, ASteadyToneBecomesTheNoiseFloorAndStopsAnimating) {
     // animated constantly, and the first clap threw the window up where it
     // belonged, which looked like a reset and was actually the only moment the
     // display had been right.
-    notrix::apps::Visualizer viz;
+    stipple::apps::Visualizer viz;
     for (int i = 0; i < 100; ++i) {
         viz.push(420);
     }
 
     // Silence draws the baseline and nothing else.
-    const notrix::Framebuffer quiet = renderViz(viz);
+    const stipple::Framebuffer quiet = renderViz(viz);
     int lit = 0;
-    for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
-        for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+    for (int y = 0; y < stipple::Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < stipple::Framebuffer::kWidth; ++x) {
             if (quiet.at(x, y) != colors::kBlack) { ++lit; }
         }
     }
-    NOTRIX_CHECK_EQ(lit, notrix::Framebuffer::kWidth * 2);  // the baseline only
+    STIPPLE_CHECK_EQ(lit, stipple::Framebuffer::kWidth * 2);  // the baseline only
 
     // And a real sound still reads, immediately, against that floor.
     viz.push(9000);
-    const notrix::Framebuffer clap = renderViz(viz);
-    NOTRIX_CHECK(clap.at(notrix::Framebuffer::kWidth - 1, 0) != colors::kBlack);
+    const stipple::Framebuffer clap = renderViz(viz);
+    STIPPLE_CHECK(clap.at(stipple::Framebuffer::kWidth - 1, 0) != colors::kBlack);
 }
 
-NOTRIX_TEST(Visualizer, TheNoiseFloorFollowsARoomThatGetsQuieter) {
+STIPPLE_TEST(Visualizer, TheNoiseFloorFollowsARoomThatGetsQuieter) {
     // It must fall instantly: a floor that lagged would leave the panel dead
     // after a loud passage ended.
-    notrix::apps::Visualizer viz;
+    stipple::apps::Visualizer viz;
     for (int i = 0; i < 50; ++i) { viz.push(5000); }
     for (int i = 0; i < 50; ++i) { viz.push(300); }
 
     // 800 now sits well above the new floor and must register.
     viz.push(800);
-    const notrix::Framebuffer frame = renderViz(viz);
+    const stipple::Framebuffer frame = renderViz(viz);
     bool litAboveBaseline = false;
-    for (int y = 0; y < notrix::Framebuffer::kHeight / 2 - 1; ++y) {
-        if (frame.at(notrix::Framebuffer::kWidth - 1, y) != colors::kBlack) {
+    for (int y = 0; y < stipple::Framebuffer::kHeight / 2 - 1; ++y) {
+        if (frame.at(stipple::Framebuffer::kWidth - 1, y) != colors::kBlack) {
             litAboveBaseline = true;
         }
     }
-    NOTRIX_CHECK(litAboveBaseline);
+    STIPPLE_CHECK(litAboveBaseline);
 }
 
-NOTRIX_TEST(Visualizer, OutOfRangeSamplesAreClampedNotWrapped) {
-    notrix::apps::Visualizer viz;
+STIPPLE_TEST(Visualizer, OutOfRangeSamplesAreClampedNotWrapped) {
+    stipple::apps::Visualizer viz;
     viz.push(-5000);
     viz.push(999999);
     // Neither should have produced a nonsense window.
-    NOTRIX_CHECK(viz.ceiling() >= 400);
-    NOTRIX_CHECK(viz.ceiling() <= 32767);
+    STIPPLE_CHECK(viz.ceiling() >= 400);
+    STIPPLE_CHECK(viz.ceiling() <= 32767);
 }
 
-NOTRIX_TEST(Visualizer, NoMicrophoneSaysSoRatherThanDrawingSilence) {
-    notrix::Framebuffer frame;
-    notrix::Canvas canvas(frame);
-    notrix::apps::renderNoMicrophone(canvas, colors::kWhite);
+STIPPLE_TEST(Visualizer, NoMicrophoneSaysSoRatherThanDrawingSilence) {
+    stipple::Framebuffer frame;
+    stipple::Canvas canvas(frame);
+    stipple::apps::renderNoMicrophone(canvas, colors::kWhite);
 
-    const notrix::Framebuffer blank;
-    NOTRIX_CHECK(frame != blank);
+    const stipple::Framebuffer blank;
+    STIPPLE_CHECK(frame != blank);
 }
 
-NOTRIX_TEST(Visualizer, TheMeterRisesFromTheBottomAndDoesNotScroll) {
+STIPPLE_TEST(Visualizer, TheMeterRisesFromTheBottomAndDoesNotScroll) {
     // Asked for by the person living with the device: a clock on a shelf
     // should be still when the room is still, and the scrolling trace is in
     // motion whenever there is any sound at all.
-    notrix::apps::VisualizerStyle meter;
-    meter.kind = notrix::apps::VisualizerStyleKind::Meter;
+    stipple::apps::VisualizerStyle meter;
+    meter.kind = stipple::apps::VisualizerStyleKind::Meter;
 
-    notrix::apps::Visualizer viz;
+    stipple::apps::Visualizer viz;
     for (int i = 0; i < 40; ++i) { viz.push(400); }  // settle the floor
     viz.push(20000);
 
-    notrix::Framebuffer frame;
-    notrix::Canvas canvas(frame);
+    stipple::Framebuffer frame;
+    stipple::Canvas canvas(frame);
     viz.render(canvas, meter);
 
     // Lit at the bottom, and every column of a lit row is lit: the width
     // carries no information, so the block is solid rather than split into
     // bands this hardware cannot measure.
-    const int bottom = notrix::Framebuffer::kHeight - 1;
-    for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
-        NOTRIX_CHECK(frame.at(x, bottom) != colors::kBlack);
-        NOTRIX_CHECK_EQ(frame.at(x, bottom), frame.at(0, bottom));
+    const int bottom = stipple::Framebuffer::kHeight - 1;
+    for (int x = 0; x < stipple::Framebuffer::kWidth; ++x) {
+        STIPPLE_CHECK(frame.at(x, bottom) != colors::kBlack);
+        STIPPLE_CHECK_EQ(frame.at(x, bottom), frame.at(0, bottom));
     }
 
     // A loud sound reaches the top.
-    NOTRIX_CHECK(frame.at(0, 0) != colors::kBlack);
+    STIPPLE_CHECK(frame.at(0, 0) != colors::kBlack);
 }
 
-NOTRIX_TEST(Visualizer, TheMeterIsStillWhenTheRoomIs) {
+STIPPLE_TEST(Visualizer, TheMeterIsStillWhenTheRoomIs) {
     // The complaint the meter answers: a steady reading must not animate.
-    notrix::apps::VisualizerStyle meter;
-    meter.kind = notrix::apps::VisualizerStyleKind::Meter;
+    stipple::apps::VisualizerStyle meter;
+    meter.kind = stipple::apps::VisualizerStyleKind::Meter;
 
-    notrix::apps::Visualizer viz;
+    stipple::apps::Visualizer viz;
     for (int i = 0; i < 60; ++i) { viz.push(420); }
 
-    notrix::Framebuffer first;
-    notrix::Canvas firstCanvas(first);
+    stipple::Framebuffer first;
+    stipple::Canvas firstCanvas(first);
     viz.render(firstCanvas, meter);
 
     for (int i = 0; i < 20; ++i) { viz.push(420); }
 
-    notrix::Framebuffer second;
-    notrix::Canvas secondCanvas(second);
+    stipple::Framebuffer second;
+    stipple::Canvas secondCanvas(second);
     viz.render(secondCanvas, meter);
 
-    NOTRIX_CHECK(first == second);
+    STIPPLE_CHECK(first == second);
 }
 
-NOTRIX_TEST(Visualizer, TheMeterHoldsAPeakAndLetsItFall) {
-    notrix::apps::VisualizerStyle meter;
-    meter.kind = notrix::apps::VisualizerStyleKind::Meter;
+STIPPLE_TEST(Visualizer, TheMeterHoldsAPeakAndLetsItFall) {
+    stipple::apps::VisualizerStyle meter;
+    meter.kind = stipple::apps::VisualizerStyleKind::Meter;
 
-    notrix::apps::Visualizer viz;
+    stipple::apps::Visualizer viz;
     for (int i = 0; i < 40; ++i) { viz.push(400); }
     viz.push(30000);
     const int afterPeak = viz.peakPermille();
-    NOTRIX_CHECK(afterPeak > 0);
+    STIPPLE_CHECK(afterPeak > 0);
 
     // Quiet again: the marker falls rather than pinning at the loudest thing
     // that ever happened, and rather than vanishing on the next frame.
     viz.push(400);
-    NOTRIX_CHECK(viz.peakPermille() < afterPeak);
-    NOTRIX_CHECK(viz.peakPermille() > viz.currentPermille());
+    STIPPLE_CHECK(viz.peakPermille() < afterPeak);
+    STIPPLE_CHECK(viz.peakPermille() > viz.currentPermille());
 }
 
-NOTRIX_TEST(Visualizer, AnUnknownStyleNameFallsBackRatherThanFailing) {
-    using notrix::apps::visualizerStyleFromName;
-    using notrix::apps::visualizerStyleName;
-    using notrix::apps::VisualizerStyleKind;
+STIPPLE_TEST(Visualizer, AnUnknownStyleNameFallsBackRatherThanFailing) {
+    using stipple::apps::visualizerStyleFromName;
+    using stipple::apps::visualizerStyleName;
+    using stipple::apps::VisualizerStyleKind;
 
-    NOTRIX_CHECK(visualizerStyleFromName("trace") == VisualizerStyleKind::Trace);
-    NOTRIX_CHECK(visualizerStyleFromName("meter") == VisualizerStyleKind::Meter);
-    NOTRIX_CHECK(visualizerStyleFromName("wave") == VisualizerStyleKind::Wave);
+    STIPPLE_CHECK(visualizerStyleFromName("trace") == VisualizerStyleKind::Trace);
+    STIPPLE_CHECK(visualizerStyleFromName("meter") == VisualizerStyleKind::Meter);
+    STIPPLE_CHECK(visualizerStyleFromName("wave") == VisualizerStyleKind::Wave);
     // A config written by a newer build must still load, landing on whatever
     // the current default is rather than failing.
-    NOTRIX_CHECK(visualizerStyleFromName("spectrum") == VisualizerStyleKind::Wave);
+    STIPPLE_CHECK(visualizerStyleFromName("spectrum") == VisualizerStyleKind::Wave);
 
-    NOTRIX_CHECK_EQ(std::string(visualizerStyleName(VisualizerStyleKind::Trace)), std::string("trace"));
-    NOTRIX_CHECK_EQ(std::string(visualizerStyleName(VisualizerStyleKind::Meter)), std::string("meter"));
-    NOTRIX_CHECK_EQ(std::string(visualizerStyleName(VisualizerStyleKind::Wave)), std::string("wave"));
+    STIPPLE_CHECK_EQ(std::string(visualizerStyleName(VisualizerStyleKind::Trace)), std::string("trace"));
+    STIPPLE_CHECK_EQ(std::string(visualizerStyleName(VisualizerStyleKind::Meter)), std::string("meter"));
+    STIPPLE_CHECK_EQ(std::string(visualizerStyleName(VisualizerStyleKind::Wave)), std::string("wave"));
 }
 
-NOTRIX_TEST(Visualizer, TheWaveTravelsOverTime) {
-    notrix::apps::VisualizerStyle wave;  // the default
+STIPPLE_TEST(Visualizer, TheWaveTravelsOverTime) {
+    stipple::apps::VisualizerStyle wave;  // the default
 
-    notrix::apps::Visualizer viz;
+    stipple::apps::Visualizer viz;
     for (int i = 0; i < 40; ++i) { viz.push(400); }
     viz.push(8000);
 
-    notrix::Framebuffer first;
-    notrix::Canvas firstCanvas(first);
+    stipple::Framebuffer first;
+    stipple::Canvas firstCanvas(first);
     viz.render(firstCanvas, wave, 0);
 
-    notrix::Framebuffer later;
-    notrix::Canvas laterCanvas(later);
+    stipple::Framebuffer later;
+    stipple::Canvas laterCanvas(later);
     viz.render(laterCanvas, wave, 650);
 
-    NOTRIX_CHECK(first != later);
+    STIPPLE_CHECK(first != later);
 }
 
-NOTRIX_TEST(Visualizer, TheWaveRipplesInSilenceButGoesFlatWithNoMicrophone) {
+STIPPLE_TEST(Visualizer, TheWaveRipplesInSilenceButGoesFlatWithNoMicrophone) {
     // The two states must not look the same. A device that cannot hear draws
     // NO MIC; a quiet room draws a shallow wave, because an app that looks
     // switched off whenever nobody is talking reads as broken.
-    notrix::apps::VisualizerStyle wave;
+    stipple::apps::VisualizerStyle wave;
 
-    notrix::apps::Visualizer viz;
+    stipple::apps::Visualizer viz;
     for (int i = 0; i < 60; ++i) { viz.push(420); }
 
-    notrix::Framebuffer frame;
-    notrix::Canvas canvas(frame);
+    stipple::Framebuffer frame;
+    stipple::Canvas canvas(frame);
     viz.render(canvas, wave, 0);
 
     int lit = 0;
-    for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
-        for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+    for (int y = 0; y < stipple::Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < stipple::Framebuffer::kWidth; ++x) {
             if (frame.at(x, y) != colors::kBlack) { ++lit; }
         }
     }
-    NOTRIX_CHECK(lit > 0);
+    STIPPLE_CHECK(lit > 0);
 
     // And it still moves when the room is quiet, so the panel looks awake.
-    notrix::Framebuffer later;
-    notrix::Canvas laterCanvas(later);
+    stipple::Framebuffer later;
+    stipple::Canvas laterCanvas(later);
     viz.render(laterCanvas, wave, 900);
-    NOTRIX_CHECK(frame != later);
+    STIPPLE_CHECK(frame != later);
 }
 
-NOTRIX_TEST(Visualizer, ALouderRoomMakesATallerWave) {
-    notrix::apps::VisualizerStyle wave;
+STIPPLE_TEST(Visualizer, ALouderRoomMakesATallerWave) {
+    stipple::apps::VisualizerStyle wave;
 
     // Against silence rather than against a second loud value: auto-gain
     // deliberately brings any sustained level up to full height, so two loud
     // rooms look alike and that is the feature, not a bug.
     auto reach = [&](int loudness) {
-        notrix::apps::Visualizer viz;
+        stipple::apps::Visualizer viz;
         for (int i = 0; i < 40; ++i) { viz.push(400); }
         for (int i = 0; i < 4; ++i) { viz.push(400 + loudness); }
 
-        notrix::Framebuffer frame;
-        notrix::Canvas canvas(frame);
+        stipple::Framebuffer frame;
+        stipple::Canvas canvas(frame);
         viz.render(canvas, wave, 0);
 
-        int top = notrix::Framebuffer::kHeight;
-        for (int y = 0; y < notrix::Framebuffer::kHeight; ++y) {
-            for (int x = 0; x < notrix::Framebuffer::kWidth; ++x) {
+        int top = stipple::Framebuffer::kHeight;
+        for (int y = 0; y < stipple::Framebuffer::kHeight; ++y) {
+            for (int x = 0; x < stipple::Framebuffer::kWidth; ++x) {
                 if (frame.at(x, y) != colors::kBlack && y < top) { top = y; }
             }
         }
@@ -871,24 +871,24 @@ NOTRIX_TEST(Visualizer, ALouderRoomMakesATallerWave) {
     };
 
     // A taller wave reaches a smaller row number.
-    NOTRIX_CHECK(reach(20000) < reach(0));
+    STIPPLE_CHECK(reach(20000) < reach(0));
 }
 
-NOTRIX_TEST(Visualizer, TheWaveStaysOnThePanel) {
+STIPPLE_TEST(Visualizer, TheWaveStaysOnThePanel) {
     // Integer trig and a mirror below the centre: the crest and the trough
     // both have to land inside 16 rows at every amplitude and every phase.
-    notrix::apps::VisualizerStyle wave;
+    stipple::apps::VisualizerStyle wave;
 
-    notrix::apps::Visualizer viz;
+    stipple::apps::Visualizer viz;
     for (int i = 0; i < 40; ++i) { viz.push(0); }
 
     for (int loudness = 0; loudness <= 32000; loudness += 4000) {
         viz.push(loudness);
         for (std::uint64_t t = 0; t < 3000; t += 137) {
-            notrix::Framebuffer frame;
-            notrix::Canvas canvas(frame);
+            stipple::Framebuffer frame;
+            stipple::Canvas canvas(frame);
             viz.render(canvas, wave, t);  // Canvas clips, so this asserts no crash
-            NOTRIX_CHECK(frame.at(0, 0) == frame.at(0, 0));
+            STIPPLE_CHECK(frame.at(0, 0) == frame.at(0, 0));
         }
     }
 }

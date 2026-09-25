@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/input/Rescue.h"
+#include "stipple/input/Rescue.h"
 
-namespace notrix {
+namespace stipple {
 namespace input {
 
 void Rescue::handle(const platform::InputEvent& event) noexcept {
@@ -75,4 +75,4 @@ void Rescue::reset() noexcept {
 }
 
 }  // namespace input
-}  // namespace notrix
+}  // namespace stipple

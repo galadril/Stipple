@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/platform/tc002/Tc002Sntp.h"
+#include "stipple/platform/tc002/Tc002Sntp.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -13,7 +13,7 @@
 #include <thread>
 #include <utility>
 
-namespace notrix {
+namespace stipple {
 namespace platform {
 namespace tc002 {
 namespace {
@@ -235,4 +235,4 @@ void Tc002Sntp::tick(std::uint64_t nowMillis, bool networkUp) {
 
 }  // namespace tc002
 }  // namespace platform
-}  // namespace notrix
+}  // namespace stipple

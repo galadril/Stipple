@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/core/Log.h"
+#include "stipple/core/Log.h"
 
-namespace notrix {
+namespace stipple {
 namespace log {
 
 const char* levelName(Level level) noexcept {
@@ -62,4 +62,4 @@ void RingLog::clear() noexcept {
 }
 
 }  // namespace log
-}  // namespace notrix
+}  // namespace stipple

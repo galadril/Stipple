@@ -10,10 +10,10 @@ come out of a box has no network, no password, and nobody standing in front of
 it who knows what it is for.
 
 **There is no way to join a network.** Wi-Fi credentials are whatever the stock
-firmware was left holding. Every NOTRIX device therefore depends on the vendor
+firmware was left holding. Every STIPPLE device therefore depends on the vendor
 application having been configured first, which is not a product — it is a
 development shortcut that has not been noticed because every unit so far was
-already on a network when NOTRIX first ran on it.
+already on a network when STIPPLE first ran on it.
 
 **There is no way to keep anyone out.** `ApiOptions::authToken` exists and is
 never set from configuration, so in practice the API is open to everything on
@@ -194,13 +194,13 @@ out to make impossible.
 The cause is the same for both, and it is not in this code: **there is no DHCP
 client on the device.** Not in `/bin`, not as a busybox applet — busybox here
 has no applets at all. The vendor application obtains the lease itself, which
-is why every NOTRIX session so far has had an address: each one began by
+is why every STIPPLE session so far has had an address: each one began by
 stopping a vendor application that had already got one.
 
 That makes a DHCP client a prerequisite rather than a detail, and it is larger
 than the hotspot:
 
-**NOTRIX does not hold its own lease today.** It inherits one and never renews
+**STIPPLE does not hold its own lease today.** It inherits one and never renews
 it. A device left running long enough will lose its network, and no unit has
 been up for a full lease period without a restart, so nobody has seen it.
 
@@ -209,8 +209,8 @@ been up for a full lease period without a restart, so nobody has seen it.
 1. ~~Physical escape hatch~~ — done.
 2. ~~Scanning~~ — done.
 3. ~~A DHCP client~~ — done, and running on hardware. See
-   [ADR 0019](0019-notrix-speaks-dhcp.md). It turned out to be needed by
-   NOTRIX as the application on this device regardless of provisioning: the
+   [ADR 0019](0019-stipple-speaks-dhcp.md). It turned out to be needed by
+   STIPPLE as the application on this device regardless of provisioning: the
    lease this device is issued is 86400 seconds, and nothing was renewing it.
 4. Hotspot — reverts by restoring the station *and asking for an address*.
 5. ~~Joining~~ — done, and proven live: hotspot, configuration page, network

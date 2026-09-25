@@ -5,7 +5,7 @@
 
 ## Context
 
-`notrix_core` must compile for three targets: the host test runner (MSVC, GCC,
+`stipple_core` must compile for three targets: the host test runner (MSVC, GCC,
 Clang), the Emscripten emulator, and eventually `arm-linux-gnueabihf` inside the
 FlyThings environment. Blueprint §32 demands reproducible builds with pinned
 dependencies and no silent downloads; §38 treats memory as a hard constraint;
@@ -26,7 +26,7 @@ the reflex are handled in-tree instead:
 2. **PNG encoding** — `firmware/imageio/` writes valid PNGs using stored
    (uncompressed) deflate blocks, rather than linking zlib or libpng. For a
    52×16 panel the size penalty is irrelevant, and it is kept out of
-   `notrix_core` so it can never reach the device build.
+   `stipple_core` so it can never reach the device build.
 3. **JSON** (Phase 4, ahead) — to be decided in its own ADR. The scene and
    configuration parsers face untrusted input over the network, so this one is
    not automatically in-house; it is the case where a hardened library may well
@@ -46,8 +46,8 @@ the reflex are handled in-tree instead:
 **Bad**
 
 - The test harness lacks parameterised tests, mocking, tags and sharding. If the
-  suite outgrows it, replacement is confined behind the `NOTRIX_TEST` and
-  `NOTRIX_CHECK_*` macros.
+  suite outgrows it, replacement is confined behind the `STIPPLE_TEST` and
+  `STIPPLE_CHECK_*` macros.
 - The PNG encoder produces files several times larger than a compressed encoder
   would. They are debug artefacts, so this does not matter.
 - Hand-written infrastructure is code we own and must maintain. Accepted only

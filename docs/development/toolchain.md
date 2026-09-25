@@ -1,6 +1,6 @@
 # Toolchain setup
 
-NOTRIX core is portable C++17 with no external dependencies, so the host build
+STIPPLE core is portable C++17 with no external dependencies, so the host build
 needs only a compiler and CMake. The browser emulator additionally needs the
 Emscripten SDK. Nothing here requires a TC002 — device tooling arrives in
 Phase 7.
@@ -116,13 +116,13 @@ When a test fails, actual and expected frames are written to
 `firmware/tests/testdata/_failed/` as 8× PNGs. CI uploads that directory as a
 build artefact.
 
-In CI, `NOTRIX_STRICT_GOLDEN=1` turns a missing fixture into a failure, since
+In CI, `STIPPLE_STRICT_GOLDEN=1` turns a missing fixture into a failure, since
 there it means the file was never committed.
 
 ## Warnings
 
 `-Wall -Wextra -Wpedantic` (or `/W4`) everywhere; CI builds with
-`NOTRIX_WARNINGS_AS_ERRORS=ON`. To reproduce a CI warning failure locally:
+`STIPPLE_WARNINGS_AS_ERRORS=ON`. To reproduce a CI warning failure locally:
 
 ```powershell
 cmake --preset ci

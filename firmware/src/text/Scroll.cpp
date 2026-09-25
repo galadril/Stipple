@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/text/Scroll.h"
+#include "stipple/text/Scroll.h"
 
-#include "notrix/graphics/Canvas.h"
+#include "stipple/graphics/Canvas.h"
 
-namespace notrix {
+namespace stipple {
 namespace text {
 namespace {
 
@@ -183,4 +183,4 @@ void drawScrolling(Canvas& canvas,
 }
 
 }  // namespace text
-}  // namespace notrix
+}  // namespace stipple

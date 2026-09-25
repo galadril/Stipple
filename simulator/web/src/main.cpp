@@ -15,15 +15,15 @@
 #include <memory>
 #include <string>
 
-#include "notrix/host/ApplicationHost.h"
-#include "notrix/platform/simulator/SimulatorPlatform.h"
+#include "stipple/host/ApplicationHost.h"
+#include "stipple/platform/simulator/SimulatorPlatform.h"
 
 namespace {
 
-using notrix::app::App;
-using notrix::app::AppSource;
-using notrix::app::Builtin;
-using notrix::Framebuffer;
+using stipple::app::App;
+using stipple::app::AppSource;
+using stipple::app::Builtin;
+using stipple::Framebuffer;
 
 /// Demo apps, in the public scene format. Nothing here is privileged: anything
 /// the HTTP API accepts could produce the same screens.
@@ -66,12 +66,12 @@ constexpr DemoApp kDemoApps[] = {
 
 /// A small thermometer, drawn here rather than uploaded so the weather demo has
 /// a real icon out of the box. Nine rows, which centres at y=3 on a 16-row panel.
-notrix::asset::Icon builtInThermometer() {
-    const notrix::Rgb T = notrix::colors::kMagenta;   // colour key: transparent
-    const notrix::Rgb G = notrix::rgb(170, 175, 190); // glass
-    const notrix::Rgb M = notrix::rgb(255, 60, 40);   // mercury
+stipple::asset::Icon builtInThermometer() {
+    const stipple::Rgb T = stipple::colors::kMagenta;   // colour key: transparent
+    const stipple::Rgb G = stipple::rgb(170, 175, 190); // glass
+    const stipple::Rgb M = stipple::rgb(255, 60, 40);   // mercury
 
-    static const notrix::Rgb kPixels[45] = {
+    static const stipple::Rgb kPixels[45] = {
         T, G, G, G, T,
         T, G, T, G, T,
         T, G, M, G, T,
@@ -83,7 +83,7 @@ notrix::asset::Icon builtInThermometer() {
         T, G, G, G, T,
     };
 
-    notrix::asset::Icon icon;
+    stipple::asset::Icon icon;
     icon.id = "thermometer";
     icon.width = 5;
     icon.height = 9;
@@ -95,20 +95,20 @@ notrix::asset::Icon builtInThermometer() {
 }
 
 struct Emulator {
-    notrix::platform::simulator::SimulatorPlatform platform;
-    /// Rebuilt by notrix_init, so initialising twice gives a genuinely fresh
+    stipple::platform::simulator::SimulatorPlatform platform;
+    /// Rebuilt by stipple_init, so initialising twice gives a genuinely fresh
     /// device rather than a half-reset one. ApplicationHost has no reset of its
     /// own by design — a device reboots, it does not re-initialise in place.
-    std::unique_ptr<notrix::host::ApplicationHost> host;
+    std::unique_ptr<stipple::host::ApplicationHost> host;
     int notifySequence = 0;
     std::string logLine;
 
     /// Last HTTP response, kept alive so JS can read it after the call returns.
     /// One slot rather than a queue: requests are synchronous here, so a second
     /// one cannot be in flight while the first is still being read.
-    notrix::api::Response httpResponse;
+    stipple::api::Response httpResponse;
 
-    notrix::host::ApplicationHost& device() { return *host; }
+    stipple::host::ApplicationHost& device() { return *host; }
 };
 
 Emulator& emulator() {
@@ -128,7 +128,7 @@ void syncClock(Emulator& state, std::uint64_t nowMillis) {
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE void notrix_init() {
+EMSCRIPTEN_KEEPALIVE void stipple_init() {
     Emulator& state = emulator();
 
     // Power-cycle the simulated device: clear persistent storage and any queued
@@ -137,14 +137,14 @@ EMSCRIPTEN_KEEPALIVE void notrix_init() {
     state.platform.simulatedStorage().clear();
     state.platform.simulatedInput().clear();
     state.notifySequence = 0;
-    state.host = std::make_unique<notrix::host::ApplicationHost>(state.platform);
+    state.host = std::make_unique<stipple::host::ApplicationHost>(state.platform);
 
     // A simulated address, so the boot splash has something to show. It is
     // clearly fictional: the browser has no network interface to report.
-    notrix::platform::NetworkStatus network;
+    stipple::platform::NetworkStatus network;
     network.connected = true;
     network.ipv4 = "192.168.1.42";
-    network.hostname = "notrix-a1b2.local";
+    network.hostname = "stipple-a1b2.local";
     network.rssiDbm = -52;
     state.platform.simulatedNetwork().setStatus(network);
 
@@ -174,12 +174,12 @@ EMSCRIPTEN_KEEPALIVE void notrix_init() {
 
 /// Hand the host a real wall-clock time so the built-in clock shows something
 /// meaningful. Without this it correctly renders "--:--".
-EMSCRIPTEN_KEEPALIVE void notrix_set_wall_clock(double unixSeconds, int utcOffsetSeconds) {
+EMSCRIPTEN_KEEPALIVE void stipple_set_wall_clock(double unixSeconds, int utcOffsetSeconds) {
     emulator().platform.simulatedClock().setWallClock(static_cast<std::int64_t>(unixSeconds),
                                                       utcOffsetSeconds);
 }
 
-EMSCRIPTEN_KEEPALIVE void notrix_set_brightness(int value) {
+EMSCRIPTEN_KEEPALIVE void stipple_set_brightness(int value) {
     if (value < 0) {
         value = 0;
     }
@@ -192,7 +192,7 @@ EMSCRIPTEN_KEEPALIVE void notrix_set_brightness(int value) {
     state.device().scheduler().invalidate();
 }
 
-EMSCRIPTEN_KEEPALIVE void notrix_render(int nowMillis) {
+EMSCRIPTEN_KEEPALIVE void stipple_render(int nowMillis) {
     Emulator& state = emulator();
     const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
     syncClock(state, now);
@@ -200,10 +200,10 @@ EMSCRIPTEN_KEEPALIVE void notrix_render(int nowMillis) {
 }
 
 /// Feed one raw hardware event; the core decides what it means.
-EMSCRIPTEN_KEEPALIVE void notrix_input(int source, int phase, int nowMillis) {
-    using notrix::platform::ButtonPhase;
-    using notrix::platform::InputEvent;
-    using notrix::platform::RawInput;
+EMSCRIPTEN_KEEPALIVE void stipple_input(int source, int phase, int nowMillis) {
+    using stipple::platform::ButtonPhase;
+    using stipple::platform::InputEvent;
+    using stipple::platform::RawInput;
 
     if (source < 0 || source > static_cast<int>(RawInput::RotaryRight)) {
         return;
@@ -227,27 +227,27 @@ EMSCRIPTEN_KEEPALIVE void notrix_input(int source, int phase, int nowMillis) {
     state.device().tick(now);
 }
 
-EMSCRIPTEN_KEEPALIVE void notrix_notify(int priority, int durationSeconds, int nowMillis) {
+EMSCRIPTEN_KEEPALIVE void stipple_notify(int priority, int durationSeconds, int nowMillis) {
     Emulator& state = emulator();
     const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
 
-    notrix::notify::Notification notification;
-    notification.priority = notrix::notify::priorityFromInt(priority);
+    stipple::notify::Notification notification;
+    notification.priority = stipple::notify::priorityFromInt(priority);
     notification.durationSeconds = durationSeconds > 0 ? durationSeconds : 4;
     notification.id = "demo" + std::to_string(++state.notifySequence);
 
     switch (notification.priority) {
-        case notrix::notify::Priority::Urgent:
+        case stipple::notify::Priority::Urgent:
             notification.text = "URGENT · door open";
-            notification.color = notrix::rgb(255, 60, 40);
+            notification.color = stipple::rgb(255, 60, 40);
             break;
-        case notrix::notify::Priority::Important:
+        case stipple::notify::Priority::Important:
             notification.text = "Washing machine finished";
-            notification.color = notrix::rgb(255, 170, 40);
+            notification.color = stipple::rgb(255, 170, 40);
             break;
         default:
             notification.text = "Doorbell at the front door";
-            notification.color = notrix::rgb(120, 200, 255);
+            notification.color = stipple::rgb(120, 200, 255);
             break;
     }
 
@@ -255,7 +255,7 @@ EMSCRIPTEN_KEEPALIVE void notrix_notify(int priority, int durationSeconds, int n
     state.device().scheduler().invalidate();
 }
 
-EMSCRIPTEN_KEEPALIVE const unsigned char* notrix_framebuffer() {
+EMSCRIPTEN_KEEPALIVE const unsigned char* stipple_framebuffer() {
     return emulator().platform.simulatedDisplay().lastFrame().bytes();
 }
 
@@ -264,23 +264,23 @@ EMSCRIPTEN_KEEPALIVE const unsigned char* notrix_framebuffer() {
 /// These shifted twice while the input model was being corrected, and both times
 /// the emulator's buttons silently started sending the wrong events - a browser
 /// has no way to notice. Asking the core removes the duplicate entirely.
-EMSCRIPTEN_KEEPALIVE int notrix_input_source(const char* name) {
+EMSCRIPTEN_KEEPALIVE int stipple_input_source(const char* name) {
     const std::string wanted = name != nullptr ? name : "";
-    if (wanted == "minus") return static_cast<int>(notrix::platform::RawInput::KeyMinus);
-    if (wanted == "plus") return static_cast<int>(notrix::platform::RawInput::KeyPlus);
-    if (wanted == "middle") return static_cast<int>(notrix::platform::RawInput::KeyMiddle);
-    if (wanted == "rotaryPress") return static_cast<int>(notrix::platform::RawInput::RotaryPress);
-    if (wanted == "rotaryLeft") return static_cast<int>(notrix::platform::RawInput::RotaryLeft);
-    if (wanted == "rotaryRight") return static_cast<int>(notrix::platform::RawInput::RotaryRight);
+    if (wanted == "minus") return static_cast<int>(stipple::platform::RawInput::KeyMinus);
+    if (wanted == "plus") return static_cast<int>(stipple::platform::RawInput::KeyPlus);
+    if (wanted == "middle") return static_cast<int>(stipple::platform::RawInput::KeyMiddle);
+    if (wanted == "rotaryPress") return static_cast<int>(stipple::platform::RawInput::RotaryPress);
+    if (wanted == "rotaryLeft") return static_cast<int>(stipple::platform::RawInput::RotaryLeft);
+    if (wanted == "rotaryRight") return static_cast<int>(stipple::platform::RawInput::RotaryRight);
     return -1;
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_width() { return Framebuffer::kWidth; }
-EMSCRIPTEN_KEEPALIVE int notrix_height() { return Framebuffer::kHeight; }
+EMSCRIPTEN_KEEPALIVE int stipple_width() { return Framebuffer::kWidth; }
+EMSCRIPTEN_KEEPALIVE int stipple_height() { return Framebuffer::kHeight; }
 
-EMSCRIPTEN_KEEPALIVE int notrix_app_count() { return emulator().device().apps().count(); }
+EMSCRIPTEN_KEEPALIVE int stipple_app_count() { return emulator().device().apps().count(); }
 
-EMSCRIPTEN_KEEPALIVE const char* notrix_active_name() {
+EMSCRIPTEN_KEEPALIVE const char* stipple_active_name() {
     Emulator& state = emulator();
     if (state.device().showingSplash()) {
         return "Starting";
@@ -289,42 +289,42 @@ EMSCRIPTEN_KEEPALIVE const char* notrix_active_name() {
     return active != nullptr ? active->name.c_str() : "";
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_active_duration_seconds() {
+EMSCRIPTEN_KEEPALIVE int stipple_active_duration_seconds() {
     return emulator().device().carousel().activeDurationSeconds();
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_dwell_millis(int nowMillis) {
+EMSCRIPTEN_KEEPALIVE int stipple_dwell_millis(int nowMillis) {
     const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
     return static_cast<int>(emulator().device().carousel().dwellMillis(now));
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_is_paused() {
+EMSCRIPTEN_KEEPALIVE int stipple_is_paused() {
     return emulator().device().carousel().paused() ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_showing_splash() {
+EMSCRIPTEN_KEEPALIVE int stipple_showing_splash() {
     return emulator().device().showingSplash() ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_is_healthy() {
+EMSCRIPTEN_KEEPALIVE int stipple_is_healthy() {
     return emulator().device().healthy() ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_notification_count() {
+EMSCRIPTEN_KEEPALIVE int stipple_notification_count() {
     return emulator().device().notifications().size();
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_notification_pending() {
+EMSCRIPTEN_KEEPALIVE int stipple_notification_pending() {
     return emulator().device().notifications().pending();
 }
 
 // Frame scheduler counters, which make dirty rendering visible: a static screen
 // should skip far more frames than it draws.
-EMSCRIPTEN_KEEPALIVE int notrix_frames_rendered() {
+EMSCRIPTEN_KEEPALIVE int stipple_frames_rendered() {
     return static_cast<int>(emulator().device().frameStats().rendered);
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_frames_skipped() {
+EMSCRIPTEN_KEEPALIVE int stipple_frames_skipped() {
     return static_cast<int>(emulator().device().frameStats().skipped);
 }
 
@@ -340,28 +340,28 @@ EMSCRIPTEN_KEEPALIVE int notrix_frames_skipped() {
 namespace {
 /// Sized to the store's whole budget, since that is the largest any single icon
 /// could ever be.
-std::uint8_t g_iconStaging[notrix::asset::IconStore::kMaxTotalBytes];
-char g_iconId[notrix::asset::IconStore::kMaxIdBytes + 1];
+std::uint8_t g_iconStaging[stipple::asset::IconStore::kMaxTotalBytes];
+char g_iconId[stipple::asset::IconStore::kMaxIdBytes + 1];
 }  // namespace
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE unsigned char* notrix_icon_staging() { return g_iconStaging; }
-EMSCRIPTEN_KEEPALIVE int notrix_icon_staging_capacity() {
+EMSCRIPTEN_KEEPALIVE unsigned char* stipple_icon_staging() { return g_iconStaging; }
+EMSCRIPTEN_KEEPALIVE int stipple_icon_staging_capacity() {
     return static_cast<int>(sizeof(g_iconStaging));
 }
-EMSCRIPTEN_KEEPALIVE char* notrix_icon_id_buffer() { return g_iconId; }
-EMSCRIPTEN_KEEPALIVE int notrix_icon_id_capacity() {
+EMSCRIPTEN_KEEPALIVE char* stipple_icon_id_buffer() { return g_iconId; }
+EMSCRIPTEN_KEEPALIVE int stipple_icon_id_capacity() {
     return static_cast<int>(sizeof(g_iconId) - 1);
 }
 
 /// Commit whatever is in the staging buffer. Returns 0 on success, or a
 /// negative IconStore::PutResult so the UI can say why it failed.
-EMSCRIPTEN_KEEPALIVE int notrix_icon_commit(int width, int height, int frames,
+EMSCRIPTEN_KEEPALIVE int stipple_icon_commit(int width, int height, int frames,
                                             int frameMillis, int transparent) {
     Emulator& state = emulator();
 
-    notrix::asset::Icon icon;
+    stipple::asset::Icon icon;
     g_iconId[sizeof(g_iconId) - 1] = '\0';
     icon.id = g_iconId;
     icon.width = width;
@@ -371,7 +371,7 @@ EMSCRIPTEN_KEEPALIVE int notrix_icon_commit(int width, int height, int frames,
 
     if (transparent >= 0 && transparent <= 0xFFFFFF) {
         icon.hasTransparency = true;
-        icon.transparent = notrix::fromPacked(static_cast<std::uint32_t>(transparent));
+        icon.transparent = stipple::fromPacked(static_cast<std::uint32_t>(transparent));
     }
 
     const std::size_t count = static_cast<std::size_t>(width) *
@@ -383,24 +383,24 @@ EMSCRIPTEN_KEEPALIVE int notrix_icon_commit(int width, int height, int frames,
 
     icon.pixels.reserve(count);
     for (std::size_t i = 0; i < count; ++i) {
-        icon.pixels.push_back(notrix::Rgb{g_iconStaging[i * 3u], g_iconStaging[i * 3u + 1u],
+        icon.pixels.push_back(stipple::Rgb{g_iconStaging[i * 3u], g_iconStaging[i * 3u + 1u],
                                           g_iconStaging[i * 3u + 2u]});
     }
 
     const auto result = state.device().icons().put(std::move(icon));
-    if (result == notrix::asset::IconStore::PutResult::Added ||
-        result == notrix::asset::IconStore::PutResult::Replaced) {
+    if (result == stipple::asset::IconStore::PutResult::Added ||
+        result == stipple::asset::IconStore::PutResult::Replaced) {
         state.device().scheduler().invalidate();
         return 0;
     }
     return -static_cast<int>(result);
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_icon_count() {
+EMSCRIPTEN_KEEPALIVE int stipple_icon_count() {
     return emulator().device().icons().count();
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_icon_bytes_used() {
+EMSCRIPTEN_KEEPALIVE int stipple_icon_bytes_used() {
     return static_cast<int>(emulator().device().icons().bytesUsed());
 }
 
@@ -410,14 +410,14 @@ EMSCRIPTEN_KEEPALIVE int notrix_icon_bytes_used() {
 /// The layout is computed from the icon's actual size rather than hardcoded: an
 /// uploaded image can be anything from 4x4 to 16x16, and a fixed offset leaves
 /// small ones floating and clips tall ones off the bottom.
-EMSCRIPTEN_KEEPALIVE void notrix_show_icon_app(int nowMillis) {
+EMSCRIPTEN_KEEPALIVE void stipple_show_icon_app(int nowMillis) {
     Emulator& state = emulator();
     const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
 
     g_iconId[sizeof(g_iconId) - 1] = '\0';
     const std::string id(g_iconId);
 
-    const notrix::asset::Icon* icon = state.device().icons().find(id);
+    const stipple::asset::Icon* icon = state.device().icons().find(id);
     if (icon == nullptr) {
         return;
     }
@@ -463,20 +463,20 @@ extern "C" {
 
 // --- clock themes ----------------------------------------------------------
 
-EMSCRIPTEN_KEEPALIVE int notrix_clock_theme_count() {
-    return notrix::apps::kClockThemeCount;
+EMSCRIPTEN_KEEPALIVE int stipple_clock_theme_count() {
+    return stipple::apps::kClockThemeCount;
 }
 
-EMSCRIPTEN_KEEPALIVE const char* notrix_clock_theme_name(int index) {
-    return notrix::apps::clockThemeName(notrix::apps::clockThemeAt(index));
+EMSCRIPTEN_KEEPALIVE const char* stipple_clock_theme_name(int index) {
+    return stipple::apps::clockThemeName(stipple::apps::clockThemeAt(index));
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_clock_theme() {
+EMSCRIPTEN_KEEPALIVE int stipple_clock_theme() {
     Emulator& state = emulator();
-    const notrix::apps::ClockTheme theme =
-        notrix::apps::clockThemeFromName(state.device().settings().clock.theme);
-    for (int i = 0; i < notrix::apps::kClockThemeCount; ++i) {
-        if (notrix::apps::clockThemeAt(i) == theme) {
+    const stipple::apps::ClockTheme theme =
+        stipple::apps::clockThemeFromName(state.device().settings().clock.theme);
+    for (int i = 0; i < stipple::apps::kClockThemeCount; ++i) {
+        if (stipple::apps::clockThemeAt(i) == theme) {
             return i;
         }
     }
@@ -485,12 +485,12 @@ EMSCRIPTEN_KEEPALIVE int notrix_clock_theme() {
 
 /// Set the clock face and jump to the clock app so the change is visible at
 /// once, rather than whenever the carousel next comes round.
-EMSCRIPTEN_KEEPALIVE void notrix_set_clock_theme(int index, int nowMillis) {
+EMSCRIPTEN_KEEPALIVE void stipple_set_clock_theme(int index, int nowMillis) {
     Emulator& state = emulator();
     const std::uint64_t now = nowMillis < 0 ? 0u : static_cast<std::uint64_t>(nowMillis);
 
     state.device().settings().clock.theme =
-        notrix::apps::clockThemeName(notrix::apps::clockThemeAt(index));
+        stipple::apps::clockThemeName(stipple::apps::clockThemeAt(index));
     state.device().carousel().activate("clock", now);
     state.device().scheduler().invalidate();
 }
@@ -506,12 +506,12 @@ EMSCRIPTEN_KEEPALIVE void notrix_set_clock_theme(int index, int nowMillis) {
 /// Performs a request and returns its status. The body and content type are
 /// read afterwards, which avoids having to JSON-escape a page of HTML just to
 /// hand it across the boundary.
-EMSCRIPTEN_KEEPALIVE int notrix_http_request(const char* method, const char* path,
+EMSCRIPTEN_KEEPALIVE int stipple_http_request(const char* method, const char* path,
                                              const char* body) {
     Emulator& state = emulator();
 
-    notrix::api::Request request;
-    request.method = notrix::api::methodFromName(method != nullptr ? method : "GET");
+    stipple::api::Request request;
+    request.method = stipple::api::methodFromName(method != nullptr ? method : "GET");
     request.path = path != nullptr ? path : "/";
     if (body != nullptr) {
         request.body = body;
@@ -529,28 +529,28 @@ EMSCRIPTEN_KEEPALIVE int notrix_http_request(const char* method, const char* pat
     return state.httpResponse.status;
 }
 
-/// Valid until the next notrix_http_request.
-EMSCRIPTEN_KEEPALIVE const char* notrix_http_body() {
+/// Valid until the next stipple_http_request.
+EMSCRIPTEN_KEEPALIVE const char* stipple_http_body() {
     return emulator().httpResponse.body.c_str();
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_http_body_length() {
+EMSCRIPTEN_KEEPALIVE int stipple_http_body_length() {
     return static_cast<int>(emulator().httpResponse.body.size());
 }
 
-EMSCRIPTEN_KEEPALIVE const char* notrix_http_content_type() {
+EMSCRIPTEN_KEEPALIVE const char* stipple_http_content_type() {
     return emulator().httpResponse.contentType.c_str();
 }
 
-EMSCRIPTEN_KEEPALIVE int notrix_log_count() {
+EMSCRIPTEN_KEEPALIVE int stipple_log_count() {
     return emulator().device().logger().count();
 }
 
 /// Returns a pointer valid until the next call.
-EMSCRIPTEN_KEEPALIVE const char* notrix_log_line(int index) {
+EMSCRIPTEN_KEEPALIVE const char* stipple_log_line(int index) {
     Emulator& state = emulator();
-    const notrix::log::RingLog::Entry& entry = state.device().logger().at(index);
-    state.logLine = std::string(notrix::log::levelName(entry.level)) + "  " + entry.message;
+    const stipple::log::RingLog::Entry& entry = state.device().logger().at(index);
+    state.logLine = std::string(stipple::log::levelName(entry.level)) + "  " + entry.message;
     return state.logLine.c_str();
 }
 

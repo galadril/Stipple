@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/core/Base64.h"
+#include "stipple/core/Base64.h"
 
-namespace notrix {
+namespace stipple {
 namespace base64 {
 namespace {
 
@@ -144,4 +144,4 @@ bool decode(std::string_view text, std::string& out, std::size_t maxBytes) {
 }
 
 }  // namespace base64
-}  // namespace notrix
+}  // namespace stipple

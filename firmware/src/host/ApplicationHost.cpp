@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/host/ApplicationHost.h"
+#include "stipple/host/ApplicationHost.h"
 
-#include "notrix/api/BasicAuth.h"
+#include "stipple/api/BasicAuth.h"
 
-#include "notrix/apps/BatteryApp.h"
-#include "notrix/apps/StopwatchApp.h"
-#include "notrix/render/Overlay.h"
-#include "notrix/apps/VisualizerApp.h"
+#include "stipple/apps/BatteryApp.h"
+#include "stipple/apps/StopwatchApp.h"
+#include "stipple/render/Overlay.h"
+#include "stipple/apps/VisualizerApp.h"
 
-#include "notrix/api/JsonWriter.h"
-#include "notrix/core/Version.h"
-#include "notrix/demo/TestPattern.h"
-#include "notrix/graphics/Canvas.h"
-#include "notrix/text/Text.h"
+#include "stipple/api/JsonWriter.h"
+#include "stipple/core/Version.h"
+#include "stipple/demo/TestPattern.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/text/Text.h"
 
-namespace notrix {
+namespace stipple {
 namespace host {
 
 const char* bootModeName(BootMode mode) noexcept {
@@ -112,7 +112,7 @@ bool ApplicationHost::initialize() {
     const std::uint64_t startedAt = platform_.clock().monotonicMillis();
 
     // 1. Logging first, so everything that follows can be recorded.
-    logger_.info(startedAt, "NOTRIX starting");
+    logger_.info(startedAt, "STIPPLE starting");
 
     // 2. Boot state, before anything that could crash.
     BootRecord record = readBootRecord();
@@ -1636,7 +1636,7 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
     }
 
     if (splashActive_) {
-        apps::renderSplash(canvas, "NOTRIX", kVersion, nowMillis - firstTickMillis_,
+        apps::renderSplash(canvas, "STIPPLE", kVersion, nowMillis - firstTickMillis_,
                            config_.splashMillis, config_.splash, splashAddress_);
         return;
     }
@@ -1757,7 +1757,7 @@ api::Response ApplicationHost::handle(const api::Request& request) {
         api::Response denied = api::error(401, "unauthorized", "authentication required");
         // Without this a browser shows a bare error page and the person has
         // no way to supply what is missing.
-        denied.wwwAuthenticate = "Basic realm=\"NOTRIX\", charset=\"UTF-8\"";
+        denied.wwwAuthenticate = "Basic realm=\"STIPPLE\", charset=\"UTF-8\"";
         return denied;
     }
 
@@ -1821,4 +1821,4 @@ api::Response ApplicationHost::handle(const api::Request& request) {
 }
 
 }  // namespace host
-}  // namespace notrix
+}  // namespace stipple

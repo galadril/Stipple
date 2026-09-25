@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/web/StaticFiles.h"
+#include "stipple/web/StaticFiles.h"
 
-#include "notrix/web/WebAssets.h"
+#include "stipple/web/WebAssets.h"
 
-namespace notrix {
+namespace stipple {
 namespace web {
 
 using api::Method;
@@ -59,4 +59,4 @@ bool StaticFiles::tryHandle(const Request& request, Response& out) const {
 }
 
 }  // namespace web
-}  // namespace notrix
+}  // namespace stipple

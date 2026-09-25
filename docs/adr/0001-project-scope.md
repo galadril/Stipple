@@ -15,9 +15,9 @@ replace the Linux platform itself.
 
 ## Decision
 
-NOTRIX replaces the **user application** on the TC002 and nothing below it.
+STIPPLE replaces the **user application** on the TC002 and nothing below it.
 
-In scope: a renderer NOTRIX owns end to end, a font and text engine, a scene
+In scope: a renderer STIPPLE owns end to end, a font and text engine, a scene
 model, an app carousel, notifications, HTTP and MQTT APIs, a device web UI, a
 simulator, an installer, and documentation.
 
@@ -40,7 +40,7 @@ protocols.
   remove. `libzkgui.so` is the delivery format.
 - ~~Compatibility with AWTRIX integrations is a deliberate, tested subset under
   `/api/*`~~ — **withdrawn by [ADR 0015](0015-no-awtrix-compatibility-layer.md)**.
-  NOTRIX serves `/api/v1/*` only; integrations target the native API.
+  STIPPLE serves `/api/v1/*` only; integrations target the native API.
 - Contributors who arrive wanting to port AWTRIX have a document to be pointed
   at.
 - "Reliability before feature count" (§3.1) is the tie-breaker whenever scope is

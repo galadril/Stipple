@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NOTRIX</title>
+<title>STIPPLE</title>
 <link rel="stylesheet" href="/app.css">
 <!-- Declared, so the browser stops asking for /favicon.ico. A browser that is
      not told where the icon is guesses that path and logs a 404 on the device
@@ -14,7 +14,7 @@
 <body>
 
 <header class="topbar">
-    <h1>NOTRIX</h1>
+    <h1>STIPPLE</h1>
     <div class="identity">
         <span id="device-name">&hellip;</span>
         <span class="muted" id="device-version"></span>
@@ -282,7 +282,7 @@
             <p class="help warn-note">
                 This page is served over plain HTTP, so this password crosses
                 your LAN unencrypted. The device also stores it unencrypted.
-                Use a broker account that only NOTRIX uses.
+                Use a broker account that only STIPPLE uses.
             </p>
         </div>
     </div>
@@ -387,7 +387,7 @@
          This replaced a "stage a recovery image" control that wrote
          update.img to the USB volume. That turned out to be actively
          dangerous: the vendor's own zkdaemon installs whatever sits there on
-         unattended recovery, and it reverted a working NOTRIX on real
+         unattended recovery, and it reverted a working STIPPLE on real
          hardware. A staged image is an armed revert, not a safety net. -->
     <p class="help" id="firmware-state">Checking&hellip;</p>
     <div class="row">
@@ -396,7 +396,7 @@
         <button class="btn" id="firmware-rollback" type="button" hidden>Go back</button>
     </div>
     <p class="help">
-        Upload <code>libnotrix.so</code> from a release. It is checked here
+        Upload <code>libstipple.so</code> from a release. It is checked here
         first &mdash; it has to be a 32-bit ARM shared library, so a host build
         is refused rather than installed &mdash; then written beside the
         running one and renamed into place, so a failed upload changes

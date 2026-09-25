@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/net/DhcpClient.h"
+#include "stipple/net/DhcpClient.h"
 
-namespace notrix {
+namespace stipple {
 namespace net {
 namespace dhcp {
 namespace {
@@ -342,4 +342,4 @@ std::uint32_t DhcpClient::remainingSeconds(std::uint64_t nowMillis) const noexce
 
 }  // namespace dhcp
 }  // namespace net
-}  // namespace notrix
+}  // namespace stipple

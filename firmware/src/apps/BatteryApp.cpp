@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/apps/BatteryApp.h"
+#include "stipple/apps/BatteryApp.h"
 
-#include "notrix/graphics/Canvas.h"
-#include "notrix/graphics/Framebuffer.h"
-#include "notrix/text/Text.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/graphics/Framebuffer.h"
+#include "stipple/text/Text.h"
 
 #include <cstdint>
 
-namespace notrix {
+namespace stipple {
 namespace apps {
 namespace {
 
@@ -129,4 +129,4 @@ void renderBattery(Canvas& canvas,
 }
 
 }  // namespace apps
-}  // namespace notrix
+}  // namespace stipple

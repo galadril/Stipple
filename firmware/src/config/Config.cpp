@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/config/Config.h"
+#include "stipple/config/Config.h"
 
-#include "notrix/core/Checksum.h"
-#include "notrix/core/Rgb.h"
-#include "notrix/json/Json.h"
+#include "stipple/core/Checksum.h"
+#include "stipple/core/Rgb.h"
+#include "stipple/json/Json.h"
 
-namespace notrix {
+namespace stipple {
 namespace config {
 namespace {
 
@@ -369,7 +369,7 @@ bool ConfigStore::deserialize(std::string_view payload,
     // An empty base topic would publish to "/{deviceId}/status" - a leading
     // slash is legal MQTT but a well-known source of confusion, so fall back.
     if (parsed.mqtt.baseTopic.empty()) {
-        parsed.mqtt.baseTopic = "notrix";
+        parsed.mqtt.baseTopic = "stipple";
     }
 
     const json::Value apps = body["apps"];
@@ -522,4 +522,4 @@ bool ConfigStore::save(const Config& config) {
 }
 
 }  // namespace config
-}  // namespace notrix
+}  // namespace stipple

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/render/FrameScheduler.h"
+#include "stipple/render/FrameScheduler.h"
 
-namespace notrix {
+namespace stipple {
 namespace render {
 namespace {
 
@@ -80,4 +80,4 @@ std::uint64_t FrameScheduler::nextDueMillis(std::uint64_t nowMillis) const noexc
 }
 
 }  // namespace render
-}  // namespace notrix
+}  // namespace stipple

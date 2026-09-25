@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/text/Utf8.h"
+#include "stipple/text/Utf8.h"
 
 #include <string>
 
 #include "support/TestFramework.h"
 
-using notrix::text::countCodepoints;
-using notrix::text::DecodedChar;
-using notrix::text::decodeUtf8;
-using notrix::text::kReplacementChar;
+using stipple::text::countCodepoints;
+using stipple::text::DecodedChar;
+using stipple::text::decodeUtf8;
+using stipple::text::kReplacementChar;
 
 namespace {
 
@@ -27,100 +27,100 @@ std::u32string decodeAll(std::string_view text) {
 
 }  // namespace
 
-NOTRIX_TEST(Utf8, DecodesAscii) {
+STIPPLE_TEST(Utf8, DecodesAscii) {
     const DecodedChar decoded = decodeUtf8("A", 0);
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decoded.codepoint), 0x41u);
-    NOTRIX_CHECK_EQ(decoded.size, std::size_t(1));
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decoded.codepoint), 0x41u);
+    STIPPLE_CHECK_EQ(decoded.size, std::size_t(1));
 }
 
-NOTRIX_TEST(Utf8, DecodesTwoByteSequence) {
+STIPPLE_TEST(Utf8, DecodesTwoByteSequence) {
     // U+00B0 DEGREE SIGN — the one non-ASCII character the blueprint calls out
     // by name, because a clock without it cannot show a temperature.
     const DecodedChar decoded = decodeUtf8("\xC2\xB0", 0);
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decoded.codepoint), 0xB0u);
-    NOTRIX_CHECK_EQ(decoded.size, std::size_t(2));
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decoded.codepoint), 0xB0u);
+    STIPPLE_CHECK_EQ(decoded.size, std::size_t(2));
 }
 
-NOTRIX_TEST(Utf8, DecodesThreeByteSequence) {
+STIPPLE_TEST(Utf8, DecodesThreeByteSequence) {
     const DecodedChar decoded = decodeUtf8("\xE2\x82\xAC", 0);  // U+20AC EURO SIGN
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decoded.codepoint), 0x20ACu);
-    NOTRIX_CHECK_EQ(decoded.size, std::size_t(3));
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decoded.codepoint), 0x20ACu);
+    STIPPLE_CHECK_EQ(decoded.size, std::size_t(3));
 }
 
-NOTRIX_TEST(Utf8, DecodesFourByteSequence) {
+STIPPLE_TEST(Utf8, DecodesFourByteSequence) {
     const DecodedChar decoded = decodeUtf8("\xF0\x9F\x98\x80", 0);  // U+1F600
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decoded.codepoint), 0x1F600u);
-    NOTRIX_CHECK_EQ(decoded.size, std::size_t(4));
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decoded.codepoint), 0x1F600u);
+    STIPPLE_CHECK_EQ(decoded.size, std::size_t(4));
 }
 
-NOTRIX_TEST(Utf8, RejectsOverlongEncodings) {
+STIPPLE_TEST(Utf8, RejectsOverlongEncodings) {
     // 0xC0 0x80 is a two-byte encoding of NUL — the classic way to smuggle a
     // character past a naive filter.
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xC0\x80", 0).codepoint),
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xC0\x80", 0).codepoint),
                     static_cast<std::uint32_t>(kReplacementChar));
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xE0\x80\xAF", 0).codepoint),
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xE0\x80\xAF", 0).codepoint),
                     static_cast<std::uint32_t>(kReplacementChar));
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xF0\x80\x80\xAF", 0).codepoint),
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xF0\x80\x80\xAF", 0).codepoint),
                     static_cast<std::uint32_t>(kReplacementChar));
 }
 
-NOTRIX_TEST(Utf8, RejectsLoneSurrogates) {
+STIPPLE_TEST(Utf8, RejectsLoneSurrogates) {
     // U+D800 encoded as UTF-8 (CESU-8 style) is not valid UTF-8.
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xED\xA0\x80", 0).codepoint),
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xED\xA0\x80", 0).codepoint),
                     static_cast<std::uint32_t>(kReplacementChar));
 }
 
-NOTRIX_TEST(Utf8, RejectsCodepointsAboveUnicodeRange) {
+STIPPLE_TEST(Utf8, RejectsCodepointsAboveUnicodeRange) {
     // U+110000, one past the top of the range.
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xF4\x90\x80\x80", 0).codepoint),
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xF4\x90\x80\x80", 0).codepoint),
                     static_cast<std::uint32_t>(kReplacementChar));
 }
 
-NOTRIX_TEST(Utf8, RejectsTruncatedSequences) {
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xC2", 0).codepoint),
+STIPPLE_TEST(Utf8, RejectsTruncatedSequences) {
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xC2", 0).codepoint),
                     static_cast<std::uint32_t>(kReplacementChar));
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xE2\x82", 0).codepoint),
-                    static_cast<std::uint32_t>(kReplacementChar));
-}
-
-NOTRIX_TEST(Utf8, RejectsStrayContinuationByte) {
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\x80", 0).codepoint),
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\xE2\x82", 0).codepoint),
                     static_cast<std::uint32_t>(kReplacementChar));
 }
 
-NOTRIX_TEST(Utf8, MalformedInputConsumesExactlyOneByte) {
+STIPPLE_TEST(Utf8, RejectsStrayContinuationByte) {
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decodeUtf8("\x80", 0).codepoint),
+                    static_cast<std::uint32_t>(kReplacementChar));
+}
+
+STIPPLE_TEST(Utf8, MalformedInputConsumesExactlyOneByte) {
     // Forward progress is the property that keeps a bad byte from hanging the
     // render loop or eating the rest of the string.
-    NOTRIX_CHECK_EQ(decodeUtf8("\xFF", 0).size, std::size_t(1));
-    NOTRIX_CHECK_EQ(decodeUtf8("\x80", 0).size, std::size_t(1));
-    NOTRIX_CHECK_EQ(decodeUtf8("\xC0\x80", 0).size, std::size_t(1));
+    STIPPLE_CHECK_EQ(decodeUtf8("\xFF", 0).size, std::size_t(1));
+    STIPPLE_CHECK_EQ(decodeUtf8("\x80", 0).size, std::size_t(1));
+    STIPPLE_CHECK_EQ(decodeUtf8("\xC0\x80", 0).size, std::size_t(1));
 }
 
-NOTRIX_TEST(Utf8, RecoversAfterAMalformedByte) {
+STIPPLE_TEST(Utf8, RecoversAfterAMalformedByte) {
     // A bad byte costs one replacement character, not the rest of the text.
     const std::u32string decoded = decodeAll("A\xFF" "B");
-    NOTRIX_CHECK_EQ(decoded.size(), std::size_t(3));
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decoded[0]), 0x41u);
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decoded[1]), static_cast<std::uint32_t>(kReplacementChar));
-    NOTRIX_CHECK_EQ(static_cast<std::uint32_t>(decoded[2]), 0x42u);
+    STIPPLE_CHECK_EQ(decoded.size(), std::size_t(3));
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decoded[0]), 0x41u);
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decoded[1]), static_cast<std::uint32_t>(kReplacementChar));
+    STIPPLE_CHECK_EQ(static_cast<std::uint32_t>(decoded[2]), 0x42u);
 }
 
-NOTRIX_TEST(Utf8, NeverStallsOnAnyByteValue) {
+STIPPLE_TEST(Utf8, NeverStallsOnAnyByteValue) {
     // Every possible single byte must still advance the cursor.
     for (int value = 0; value < 256; ++value) {
         const std::string input(1, static_cast<char>(value));
-        NOTRIX_CHECK(decodeUtf8(input, 0).size >= 1);
+        STIPPLE_CHECK(decodeUtf8(input, 0).size >= 1);
     }
 }
 
-NOTRIX_TEST(Utf8, CountsCodepointsNotBytes) {
-    NOTRIX_CHECK_EQ(countCodepoints(""), std::size_t(0));
-    NOTRIX_CHECK_EQ(countCodepoints("abc"), std::size_t(3));
+STIPPLE_TEST(Utf8, CountsCodepointsNotBytes) {
+    STIPPLE_CHECK_EQ(countCodepoints(""), std::size_t(0));
+    STIPPLE_CHECK_EQ(countCodepoints("abc"), std::size_t(3));
     // "21.4°C" is 7 bytes but 6 codepoints — the degree sign takes two bytes.
-    NOTRIX_CHECK_EQ(countCodepoints("21.4\xC2\xB0" "C"), std::size_t(6));
+    STIPPLE_CHECK_EQ(countCodepoints("21.4\xC2\xB0" "C"), std::size_t(6));
 }
 
-NOTRIX_TEST(Utf8, OffsetPastEndIsSafe) {
-    NOTRIX_CHECK_EQ(decodeUtf8("abc", 99).size, std::size_t(1));
-    NOTRIX_CHECK_EQ(decodeUtf8("", 0).size, std::size_t(1));
+STIPPLE_TEST(Utf8, OffsetPastEndIsSafe) {
+    STIPPLE_CHECK_EQ(decodeUtf8("abc", 99).size, std::size_t(1));
+    STIPPLE_CHECK_EQ(decodeUtf8("", 0).size, std::size_t(1));
 }

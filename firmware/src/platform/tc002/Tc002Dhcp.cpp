@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/platform/tc002/Tc002Dhcp.h"
+#include "stipple/platform/tc002/Tc002Dhcp.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -18,9 +18,9 @@
 #include <cstdio>
 #include <cstring>
 
-#include "notrix/net/Ipv4Udp.h"
+#include "stipple/net/Ipv4Udp.h"
 
-namespace notrix {
+namespace stipple {
 namespace platform {
 namespace tc002 {
 namespace {
@@ -484,4 +484,4 @@ void Tc002Dhcp::tick(std::uint64_t nowMillis) {
 
 }  // namespace tc002
 }  // namespace platform
-}  // namespace notrix
+}  // namespace stipple

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/platform/tc002/Tc002Input.h"
+#include "stipple/platform/tc002/Tc002Input.h"
 
-#include "notrix/platform/tc002/RotaryDecoder.h"
+#include "stipple/platform/tc002/RotaryDecoder.h"
 
 #include <fcntl.h>
 #include <time.h>
 #include <unistd.h>
 
-namespace notrix {
+namespace stipple {
 namespace platform {
 namespace tc002 {
 namespace {
@@ -168,4 +168,4 @@ bool Tc002Input::poll(InputEvent& event) {
 
 }  // namespace tc002
 }  // namespace platform
-}  // namespace notrix
+}  // namespace stipple

@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/apps/SplashScreen.h"
+#include "stipple/apps/SplashScreen.h"
 
 #include <cmath>
 
-#include "notrix/graphics/Canvas.h"
-#include "notrix/graphics/Framebuffer.h"
-#include "notrix/platform/PlatformServices.h"
-#include "notrix/text/Scroll.h"
-#include "notrix/text/Text.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/graphics/Framebuffer.h"
+#include "stipple/platform/PlatformServices.h"
+#include "stipple/text/Scroll.h"
+#include "stipple/text/Text.h"
 
-namespace notrix {
+namespace stipple {
 namespace apps {
 namespace {
 
@@ -209,4 +209,4 @@ std::string splashDetail(std::string_view version, const platform::INetworkManag
 }
 
 }  // namespace apps
-}  // namespace notrix
+}  // namespace stipple

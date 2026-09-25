@@ -169,7 +169,7 @@ The asymmetry decides it:
   nothing, and its owner reasonably concludes the firmware is broken.
 
 The first costs a few bytes of unreachable table. The second is the kind of
-defect that gets reported as "NOTRIX doesn't work on my clock".
+defect that gets reported as "STIPPLE doesn't work on my clock".
 
 ### What has not changed
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/core/Md5.h"
+#include "stipple/core/Md5.h"
 
-namespace notrix {
+namespace stipple {
 namespace {
 
 /// The per-round shift amounts, from RFC 1321.
@@ -180,4 +180,4 @@ std::string Md5::hex(const void* data, std::size_t length) {
     return md5.finishHex();
 }
 
-}  // namespace notrix
+}  // namespace stipple

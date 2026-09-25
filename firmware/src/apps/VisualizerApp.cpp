@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/apps/VisualizerApp.h"
+#include "stipple/apps/VisualizerApp.h"
 
-#include "notrix/graphics/Canvas.h"
-#include "notrix/text/Text.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/text/Text.h"
 
-namespace notrix {
+namespace stipple {
 namespace apps {
 namespace {
 
@@ -390,4 +390,4 @@ void renderNoMicrophone(Canvas& canvas, Rgb color) {
 }
 
 }  // namespace apps
-}  // namespace notrix
+}  // namespace stipple

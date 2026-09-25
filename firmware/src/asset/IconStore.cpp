@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/asset/IconStore.h"
+#include "stipple/asset/IconStore.h"
 
-namespace notrix {
+namespace stipple {
 namespace asset {
 
 const char* IconStore::describe(PutResult result) noexcept {
@@ -303,4 +303,4 @@ bool IconStore::deserialize(std::string_view blob) {
 }
 
 }  // namespace asset
-}  // namespace notrix
+}  // namespace stipple

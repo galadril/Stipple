@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/scene/Scene.h"
+#include "stipple/scene/Scene.h"
 
-#include "notrix/graphics/Canvas.h"
-#include "notrix/text/Scroll.h"
-#include "notrix/text/Text.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/text/Scroll.h"
+#include "stipple/text/Text.h"
 
-namespace notrix {
+namespace stipple {
 namespace scene {
 namespace {
 
@@ -627,4 +627,4 @@ void Scene::renderElement(Canvas& canvas,
 }
 
 }  // namespace scene
-}  // namespace notrix
+}  // namespace stipple

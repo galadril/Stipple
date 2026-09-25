@@ -22,8 +22,8 @@ compile_commands.json
 # Emscripten
 *.wasm
 *.wasm.map
-simulator/web/public/notrix-core.js
-simulator/web/public/notrix-core.wasm
+simulator/web/public/stipple-core.js
+simulator/web/public/stipple-core.wasm
 
 # Golden-image test artifacts. The .rgb fixtures ARE committed; the PNGs beside
 # them are generated previews for human review, and the _failed/ directory holds
@@ -70,3 +70,11 @@ restore/
 *.img
 *.squashfs
 res-*.bin
+
+# Internal planning that is not part of the public project.
+#
+# The blueprint was written before anyone had hardware and is contradicted by
+# docs/research/tc002-platform-findings.md in enough places that shipping it
+# would mislead newcomers. Kept here so it is still to hand, out of the repo
+# so it is not published. Move it to a private repository if you prefer.
+private/

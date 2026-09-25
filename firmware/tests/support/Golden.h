@@ -2,9 +2,9 @@
 #pragma once
 
 #include "TestFramework.h"
-#include "notrix/graphics/Framebuffer.h"
+#include "stipple/graphics/Framebuffer.h"
 
-namespace notrix {
+namespace stipple {
 namespace test {
 
 /// Compare a rendered frame against `testdata/<name>.rgb` (raw RGB888,
@@ -17,16 +17,16 @@ namespace test {
 /// Fixture policy:
 ///   - missing fixture, normal run -> created automatically, with a loud notice
 ///     and a reviewable PNG, so a new test does not fail on its first run
-///   - missing fixture, NOTRIX_STRICT_GOLDEN=1 (CI) -> failure, because absent
+///   - missing fixture, STIPPLE_STRICT_GOLDEN=1 (CI) -> failure, because absent
 ///     there means it was never committed
-///   - mismatch -> always a failure, unless NOTRIX_UPDATE_GOLDEN=1
+///   - mismatch -> always a failure, unless STIPPLE_UPDATE_GOLDEN=1
 ///
 /// Always look at the PNG before committing a created or updated fixture. A
 /// blindly regenerated golden file records the bug instead of catching it.
 void checkGolden(const char* name, const Framebuffer& framebuffer, const char* file, int line);
 
 }  // namespace test
-}  // namespace notrix
+}  // namespace stipple
 
-#define NOTRIX_CHECK_GOLDEN(name, framebuffer)                                                     \
-    ::notrix::test::checkGolden((name), (framebuffer), __FILE__, __LINE__)
+#define STIPPLE_CHECK_GOLDEN(name, framebuffer)                                                     \
+    ::stipple::test::checkGolden((name), (framebuffer), __FILE__, __LINE__)

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/platform/simulator/SimulatorPlatform.h"
+#include "stipple/platform/simulator/SimulatorPlatform.h"
 
-namespace notrix {
+namespace stipple {
 namespace platform {
 namespace simulator {
 
@@ -226,4 +226,4 @@ const MqttMessage* SimulatorMqtt::lastOn(std::string_view topic) const {
 
 }  // namespace simulator
 }  // namespace platform
-}  // namespace notrix
+}  // namespace stipple

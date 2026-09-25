@@ -5,7 +5,7 @@
 #include <iostream>
 #include <vector>
 
-namespace notrix {
+namespace stipple {
 namespace test {
 
 std::string describe(const Rgb& color) {
@@ -105,9 +105,9 @@ int Registry::runAll(const char* filter) {
 }
 
 }  // namespace test
-}  // namespace notrix
+}  // namespace stipple
 
 int main(int argc, char** argv) {
     const char* filter = argc > 1 ? argv[1] : nullptr;
-    return notrix::test::Registry::instance().runAll(filter);
+    return stipple::test::Registry::instance().runAll(filter);
 }

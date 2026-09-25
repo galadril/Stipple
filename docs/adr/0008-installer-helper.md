@@ -54,7 +54,7 @@ restart the stock service afterwards. Volatile by construction — a power cycle
 restores the stock application. Blueprint §44's "no persistent flashing without
 an explicit task" means this tier, not tier 3, is what `dev.ps1 deploy` does.
 
-Tier 3 is for a device that has already run NOTRIX successfully in tier 2 on
+Tier 3 is for a device that has already run STIPPLE successfully in tier 2 on
 that same hardware and stock-app version. Flashing something that has never
 executed on the device in front of you is the scenario the 8 MiB partition write
 punishes.
@@ -106,12 +106,12 @@ model is wrong. Tiers 1 and 2 may be as frictionless as we can make them.
 Blueprint §27.3's CLI is the reference implementation:
 
 ```
-notrix doctor  --host 192.168.1.42    # reachability, versions, capabilities
-notrix deploy  --host 192.168.1.42    # tier 2, volatile
-notrix capture --host 192.168.1.42    # write a restore image here
-notrix flash   --host 192.168.1.42    # tier 3, gated on the above
-notrix restore --host 192.168.1.42    # back to stock from a captured image
-notrix logs    --host 192.168.1.42
+stipple doctor  --host 192.168.1.42    # reachability, versions, capabilities
+stipple deploy  --host 192.168.1.42    # tier 2, volatile
+stipple capture --host 192.168.1.42    # write a restore image here
+stipple flash   --host 192.168.1.42    # tier 3, gated on the above
+stipple restore --host 192.168.1.42    # back to stock from a captured image
+stipple logs    --host 192.168.1.42
 ```
 
 `dev.ps1`'s device verbs and any future GUI helper wrap this, they do not
@@ -122,8 +122,8 @@ the two words carry very different amounts of warning.
 ### Crash-loop state is reported, not inferred
 
 The platform abandons an application that crashes three times at start-up. A
-NOTRIX that has been fallen back from is indistinguishable, to the user, from
-one that never installed. `notrix doctor` must therefore be able to say which of
+STIPPLE that has been fallen back from is indistinguishable, to the user, from
+one that never installed. `stipple doctor` must therefore be able to say which of
 the two it is looking at, and the firmware must record start-up progress
 somewhere that survives a crash. Otherwise the first real field report is "it
 didn't work" with nothing attached.
@@ -133,7 +133,7 @@ didn't work" with nothing attached.
 Blueprint §27.4's list — reproducible image, two devices, factory reset,
 interrupted update, invalid image rejection, upgrade, downgrade, checksum, boot
 health flag, rollback — is unchanged and unrelaxed. Until all of it passes,
-`notrix flash` is not built into released binaries, and no public
+`stipple flash` is not built into released binaries, and no public
 "flash permanently" button exists (§27.4, Stage 10's warning). Tier 2 ships
 first and carries real usage.
 
@@ -265,7 +265,7 @@ that were in it.
 
 So the missing piece is only the writer, and its requirements are now clear:
 
-1. **Only ever write `res`.** Never BOOT0, KERNEL or rootfs. Nothing NOTRIX does
+1. **Only ever write `res`.** Never BOOT0, KERNEL or rootfs. Nothing STIPPLE does
    needs them, and refusing to write them is a property of the tool rather than
    a promise in a runbook.
 2. **Abort before erasing** if anything is not as expected — unmount failure,
@@ -311,7 +311,7 @@ physical recovery correct.
 ## Update, 2026-09-22 evening: the gate was right and I argued past it
 
 A device was flashed and is now unreachable. The flash itself worked - the
-`res` partition took the image, and NOTRIX started as the device's
+`res` partition took the image, and STIPPLE started as the device's
 application, which is the thing the whole day was aiming at. What followed is
 the part worth recording.
 
@@ -319,12 +319,12 @@ the part worth recording.
 
 1. `update.img` was staged on `/mnt/storage` so the reset button would be a
    correct recovery. Good idea.
-2. The image was flashed. It applied, and NOTRIX ran.
+2. The image was flashed. It applied, and STIPPLE ran.
 3. **Nothing cleared the staged image**, so the loader found it again on the
    next boot and reflashed. And again. A boot loop.
 4. The reset button was held to break the loop. Reset wipes `/data` - which
-   is where `libnotrix.so` lived, because
-   [ADR 0021](0021-notrix-as-the-startup-library.md) deliberately put it
+   is where `libstipple.so` lived, because
+   [ADR 0021](0021-stipple-as-the-startup-library.md) deliberately put it
    there.
 5. With no library, no application loads. And **nothing on this device
    obtains an IP address except the application** - the finding recorded in
@@ -361,21 +361,21 @@ there. A recovery image and a pending update are not the same thing and must
 not live at the same path.
 
 **Never wipe `/data` while it is the only copy of anything.** ADR 0021 puts
-NOTRIX in `/data` precisely so it can be updated without flashing. That makes
+STIPPLE in `/data` precisely so it can be updated without flashing. That makes
 `/data` load-bearing, and it makes factory reset destructive in a way it was
 not before. Either keep a copy in `res`, or accept that reset is not a
 recovery.
 
 **A device that cannot obtain an address cannot be recovered over the
-network.** Until NOTRIX's DHCP client runs from somewhere that survives a
+network.** Until STIPPLE's DHCP client runs from somewhere that survives a
 missing application - or the config falls back to the vendor library when the
-NOTRIX one is absent - flashing this device is not safe.
+STIPPLE one is absent - flashing this device is not safe.
 
 That last one has a cheap fix worth building before anything is flashed
 again: **if `startupLibPath` points at a file that does not exist, the device
 should fall back to `/res/lib/libzkgui.so`.** The framework already logs the
 `dlerror` and carries on; it simply carries on with nothing. A `res` image
-that pointed at a small shim which loads NOTRIX if present and the vendor
+that pointed at a small shim which loads STIPPLE if present and the vendor
 application otherwise would have made all of this a non-event.
 
 ## Update: the second gate is met
@@ -398,7 +398,7 @@ the device, and a restore path somebody has actually walked. Flashing is no
 longer blocked by this ADR.
 
 It should still not happen without the fallback shim in
-[ADR 0021](0021-notrix-as-the-startup-library.md). The gates were about
+[ADR 0021](0021-stipple-as-the-startup-library.md). The gates were about
 being able to recover; the shim is about not needing to. Both matter, and
 this ADR is the wrong place to relax the second one having just spent a day
 proving the first.
@@ -409,7 +409,7 @@ The post-mortem above says the loader "found it again on the next boot and
 reflashed", i.e. that leaving `update.img` on `/mnt/storage` is itself the
 loop. That is **wrong**, and the recovered device disproved it.
 
-After recovery, `/mnt/storage/update.img` was still the NOTRIX image - the
+After recovery, `/mnt/storage/update.img` was still the STIPPLE image - the
 same file, in the same place - and the device ran for sixteen minutes
 without touching it. Identified by MD5, not assumed.
 
@@ -429,7 +429,7 @@ scan for files.
 
 **"Staging is one-shot" is still right, for a different reason.** An image
 left at `/mnt/storage/update.img` is not a loop - but it *is* what the reset
-button installs. Leaving the NOTRIX image there meant the recovery button was
+button installs. Leaving the STIPPLE image there meant the recovery button was
 armed with the thing that broke the device. That is worse than a loop,
 because it is silent until somebody reaches for it.
 
@@ -457,9 +457,9 @@ part:
 set it to `running` within `ZK_APPCHECK_DELAY`, it wipes `/data` and
 reinstalls whatever is staged. **No flag, no button, no file needs to be
 involved.** The stock application sets that property - `libzkgui.so` carries
-the string - and NOTRIX, which replaces the application, never did.
+the string - and STIPPLE, which replaces the application, never did.
 
-So the sequence was: NOTRIX booted fine, failed to announce itself, and was
+So the sequence was: STIPPLE booted fine, failed to announce itself, and was
 deleted along with the Wi-Fi credentials in `/data/misc/wifi`, and stock was
 reinstalled from the safety-net image. The progress bar was auto recovery.
 
@@ -477,7 +477,7 @@ findings before anyone had looked at the thing doing the work.
 ### What this changes
 
 **`Tc002Platform::announceRunning()` is now a precondition for flashing
-anything**, and `notrixMain` calls it before opening the panel, the MCU or
+anything**, and `stippleMain` calls it before opening the panel, the MCU or
 the network.
 
 **The rule about `/mnt/storage/update.img` gets stronger, not weaker.** The

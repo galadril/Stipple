@@ -18,18 +18,18 @@
 #include <new>
 #include <string>
 
-#include "notrix/api/ApiServer.h"
-#include "notrix/app/Carousel.h"
-#include "notrix/config/Config.h"
-#include "notrix/demo/TestPattern.h"
-#include "notrix/graphics/Canvas.h"
-#include "notrix/input/InputMapper.h"
-#include "notrix/json/Json.h"
-#include "notrix/notify/Notifications.h"
-#include "notrix/platform/simulator/SimulatorPlatform.h"
-#include "notrix/scene/Scene.h"
-#include "notrix/text/Scroll.h"
-#include "notrix/text/Text.h"
+#include "stipple/api/ApiServer.h"
+#include "stipple/app/Carousel.h"
+#include "stipple/config/Config.h"
+#include "stipple/demo/TestPattern.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/input/InputMapper.h"
+#include "stipple/json/Json.h"
+#include "stipple/notify/Notifications.h"
+#include "stipple/platform/simulator/SimulatorPlatform.h"
+#include "stipple/scene/Scene.h"
+#include "stipple/text/Scroll.h"
+#include "stipple/text/Text.h"
 #include "support/TestFramework.h"
 
 namespace {
@@ -61,9 +61,9 @@ void operator delete[](void* memory, std::size_t) noexcept { std::free(memory); 
 
 namespace {
 
-using notrix::Canvas;
-using notrix::Framebuffer;
-using notrix::Rect;
+using stipple::Canvas;
+using stipple::Framebuffer;
+using stipple::Rect;
 
 /// MSVC's debug STL allocates an iterator-debug proxy for every container it
 /// constructs, regardless of small-string optimisation. That swamps the signal:
@@ -111,10 +111,10 @@ const char* kSceneJson = R"({"name":"dash","elements":[
 
 /// Assert a measured allocation count is zero, but only where the measurement
 /// is trustworthy. Reports the raw number either way.
-#define NOTRIX_EXPECT_NO_ALLOCATIONS(count, what)                                              \
+#define STIPPLE_EXPECT_NO_ALLOCATIONS(count, what)                                              \
     do {                                                                                       \
         if (kAllocationCountsAreMeaningful) {                                                  \
-            NOTRIX_CHECK_EQ((count), 0);                                                       \
+            STIPPLE_CHECK_EQ((count), 0);                                                       \
         } else {                                                                               \
             std::printf("        [alloc] %s: %d (debug STL inflates this; "                    \
                         "asserted in release builds only)\n",                                  \
@@ -124,96 +124,96 @@ const char* kSceneJson = R"({"name":"dash","elements":[
 
 // --- footprint ---------------------------------------------------------------
 
-NOTRIX_TEST(MemoryBudget, FramebufferIsExactlyTheExpectedSize) {
+STIPPLE_TEST(MemoryBudget, FramebufferIsExactlyTheExpectedSize) {
     // 52 * 16 * 3. The single largest fixed allocation in the system, and the
     // one number the whole display budget is built on.
-    NOTRIX_CHECK_EQ(sizeof(Framebuffer), std::size_t(2496));
-    NOTRIX_CHECK_EQ(Framebuffer::kByteSize, std::size_t(2496));
+    STIPPLE_CHECK_EQ(sizeof(Framebuffer), std::size_t(2496));
+    STIPPLE_CHECK_EQ(Framebuffer::kByteSize, std::size_t(2496));
 }
 
-NOTRIX_TEST(MemoryBudget, CanvasIsAStackHandleNotAnOwner) {
+STIPPLE_TEST(MemoryBudget, CanvasIsAStackHandleNotAnOwner) {
     // Canvas must stay cheap enough to construct per draw pass.
-    NOTRIX_CHECK(sizeof(Canvas) <= 32);
+    STIPPLE_CHECK(sizeof(Canvas) <= 32);
 }
 
-NOTRIX_TEST(MemoryBudget, ReportsStructureFootprints) {
+STIPPLE_TEST(MemoryBudget, ReportsStructureFootprints) {
     // Not assertions so much as a visible record: these are the objects that
     // will live for the lifetime of the device.
     std::printf("        [sizeof] Framebuffer=%zu Canvas=%zu Scene=%zu\n", sizeof(Framebuffer),
-                sizeof(Canvas), sizeof(notrix::scene::Scene));
+                sizeof(Canvas), sizeof(stipple::scene::Scene));
     std::printf("        [sizeof] AppRegistry=%zu Carousel=%zu App=%zu\n",
-                sizeof(notrix::app::AppRegistry), sizeof(notrix::app::Carousel),
-                sizeof(notrix::app::App));
+                sizeof(stipple::app::AppRegistry), sizeof(stipple::app::Carousel),
+                sizeof(stipple::app::App));
     std::printf("        [sizeof] NotificationQueue=%zu Notification=%zu Config=%zu\n",
-                sizeof(notrix::notify::NotificationQueue), sizeof(notrix::notify::Notification),
-                sizeof(notrix::config::Config));
-    std::printf("        [sizeof] JsonToken=%zu InputMapper=%zu\n", sizeof(notrix::json::Token),
-                sizeof(notrix::input::InputMapper));
-    NOTRIX_CHECK(true);
+                sizeof(stipple::notify::NotificationQueue), sizeof(stipple::notify::Notification),
+                sizeof(stipple::config::Config));
+    std::printf("        [sizeof] JsonToken=%zu InputMapper=%zu\n", sizeof(stipple::json::Token),
+                sizeof(stipple::input::InputMapper));
+    STIPPLE_CHECK(true);
 }
 
 // --- the render path ---------------------------------------------------------
 
-NOTRIX_TEST(MemoryBudget, CanvasPrimitivesNeverAllocate) {
+STIPPLE_TEST(MemoryBudget, CanvasPrimitivesNeverAllocate) {
     Framebuffer framebuffer;
     Canvas canvas(framebuffer);
 
     Counting counting;
     for (int i = 0; i < 100; ++i) {
         canvas.clear();
-        canvas.pixel(1, 1, notrix::colors::kRed);
-        canvas.line(0, 0, 51, 15, notrix::colors::kGreen);
-        canvas.rect(Rect{2, 2, 10, 10}, notrix::colors::kBlue);
-        canvas.fillRect(Rect{4, 4, 6, 6}, notrix::colors::kWhite);
+        canvas.pixel(1, 1, stipple::colors::kRed);
+        canvas.line(0, 0, 51, 15, stipple::colors::kGreen);
+        canvas.rect(Rect{2, 2, 10, 10}, stipple::colors::kBlue);
+        canvas.fillRect(Rect{4, 4, 6, 6}, stipple::colors::kWhite);
     }
     const int allocations = counting.stop();
 
-    NOTRIX_EXPECT_NO_ALLOCATIONS(allocations, "canvas primitives");
+    STIPPLE_EXPECT_NO_ALLOCATIONS(allocations, "canvas primitives");
 }
 
-NOTRIX_TEST(MemoryBudget, TestPatternNeverAllocates) {
+STIPPLE_TEST(MemoryBudget, TestPatternNeverAllocates) {
     Framebuffer framebuffer;
     Canvas canvas(framebuffer);
 
     Counting counting;
     for (int frame = 0; frame < 200; ++frame) {
-        notrix::demo::drawTestPattern(canvas, frame);
+        stipple::demo::drawTestPattern(canvas, frame);
     }
     const int allocations = counting.stop();
 
-    NOTRIX_EXPECT_NO_ALLOCATIONS(allocations, "test pattern");
+    STIPPLE_EXPECT_NO_ALLOCATIONS(allocations, "test pattern");
 }
 
-NOTRIX_TEST(MemoryBudget, TextRenderingNeverAllocates) {
+STIPPLE_TEST(MemoryBudget, TextRenderingNeverAllocates) {
     Framebuffer framebuffer;
     Canvas canvas(framebuffer);
 
-    notrix::text::TextStyle style;
-    style.font = &notrix::text::font5x7();
+    stipple::text::TextStyle style;
+    style.font = &stipple::text::font5x7();
 
     Counting counting;
     for (int i = 0; i < 100; ++i) {
-        notrix::text::measureLine("21.4\xC2\xB0" "C", notrix::text::font5x7());
-        notrix::text::draw(canvas, "Living room", Rect{0, 0, 52, 7}, style);
-        notrix::text::drawScrolling(canvas, "A long scrolling label", Rect{0, 8, 40, 7}, style,
-                                    notrix::text::ScrollMode::Auto,
+        stipple::text::measureLine("21.4\xC2\xB0" "C", stipple::text::font5x7());
+        stipple::text::draw(canvas, "Living room", Rect{0, 0, 52, 7}, style);
+        stipple::text::drawScrolling(canvas, "A long scrolling label", Rect{0, 8, 40, 7}, style,
+                                    stipple::text::ScrollMode::Auto,
                                     static_cast<std::uint64_t>(i) * 100u);
     }
     const int allocations = counting.stop();
 
-    NOTRIX_EXPECT_NO_ALLOCATIONS(allocations, "text rendering");
+    STIPPLE_EXPECT_NO_ALLOCATIONS(allocations, "text rendering");
 }
 
-NOTRIX_TEST(MemoryBudget, CarouselTickNeverAllocates) {
-    notrix::app::AppRegistry registry;
+STIPPLE_TEST(MemoryBudget, CarouselTickNeverAllocates) {
+    stipple::app::AppRegistry registry;
     for (int i = 0; i < 4; ++i) {
-        notrix::app::App entry;
+        stipple::app::App entry;
         entry.id = "app" + std::to_string(i);
         entry.name = entry.id;
         entry.durationSeconds = 2;
         registry.put(std::move(entry));
     }
-    notrix::app::Carousel carousel(registry);
+    stipple::app::Carousel carousel(registry);
     carousel.tick(0);
 
     Counting counting;
@@ -223,12 +223,12 @@ NOTRIX_TEST(MemoryBudget, CarouselTickNeverAllocates) {
     const int allocations = counting.stop();
 
     // Ticking is the steady state: it runs every frame, forever.
-    NOTRIX_EXPECT_NO_ALLOCATIONS(allocations, "carousel tick");
+    STIPPLE_EXPECT_NO_ALLOCATIONS(allocations, "carousel tick");
 }
 
-NOTRIX_TEST(MemoryBudget, NotificationTickNeverAllocates) {
-    notrix::notify::NotificationQueue queue;
-    notrix::notify::Notification notification;
+STIPPLE_TEST(MemoryBudget, NotificationTickNeverAllocates) {
+    stipple::notify::NotificationQueue queue;
+    stipple::notify::Notification notification;
     notification.id = "n1";
     notification.text = "Doorbell";
     notification.durationSeconds = 600;
@@ -240,17 +240,17 @@ NOTRIX_TEST(MemoryBudget, NotificationTickNeverAllocates) {
     }
     const int allocations = counting.stop();
 
-    NOTRIX_EXPECT_NO_ALLOCATIONS(allocations, "notification tick");
+    STIPPLE_EXPECT_NO_ALLOCATIONS(allocations, "notification tick");
 }
 
-NOTRIX_TEST(MemoryBudget, SceneRenderNeverAllocates) {
+STIPPLE_TEST(MemoryBudget, SceneRenderNeverAllocates) {
     // Scenes are the normal render path once apps exist, so it has to hold here
     // too, not just for hand-called primitives. Text is rendered straight from
     // the parsed document's bytes rather than materialised into a std::string.
-    notrix::json::Token tokens[256];
-    notrix::scene::Scene scene(tokens, 256);
+    stipple::json::Token tokens[256];
+    stipple::scene::Scene scene(tokens, 256);
     const std::string json = kSceneJson;
-    NOTRIX_CHECK(scene.load(json));
+    STIPPLE_CHECK(scene.load(json));
 
     Framebuffer framebuffer;
     Canvas canvas(framebuffer);
@@ -265,42 +265,42 @@ NOTRIX_TEST(MemoryBudget, SceneRenderNeverAllocates) {
     }
     const int allocations = counting.stop();
 
-    NOTRIX_EXPECT_NO_ALLOCATIONS(allocations, "scene render (10 frames)");
+    STIPPLE_EXPECT_NO_ALLOCATIONS(allocations, "scene render (10 frames)");
 }
 
 // --- bounded structures ------------------------------------------------------
 
-NOTRIX_TEST(MemoryBudget, EveryQueueAndRegistryIsBounded) {
+STIPPLE_TEST(MemoryBudget, EveryQueueAndRegistryIsBounded) {
     // §38 forbids unbounded queues. These caps are what make the worst case
     // knowable before it happens.
-    NOTRIX_CHECK_EQ(notrix::app::AppRegistry::kMaxApps, 32);
-    NOTRIX_CHECK_EQ(notrix::notify::NotificationQueue::kMaxQueued, 16);
-    NOTRIX_CHECK_EQ(notrix::platform::simulator::SimulatorInput::kCapacity, std::size_t(32));
-    NOTRIX_CHECK(notrix::app::AppRegistry::kMaxSceneBytes <= 8192);
-    NOTRIX_CHECK(notrix::notify::NotificationQueue::kMaxTextBytes <= 512);
+    STIPPLE_CHECK_EQ(stipple::app::AppRegistry::kMaxApps, 32);
+    STIPPLE_CHECK_EQ(stipple::notify::NotificationQueue::kMaxQueued, 16);
+    STIPPLE_CHECK_EQ(stipple::platform::simulator::SimulatorInput::kCapacity, std::size_t(32));
+    STIPPLE_CHECK(stipple::app::AppRegistry::kMaxSceneBytes <= 8192);
+    STIPPLE_CHECK(stipple::notify::NotificationQueue::kMaxTextBytes <= 512);
 }
 
-NOTRIX_TEST(MemoryBudget, WorstCaseAppStorageIsKnowable) {
+STIPPLE_TEST(MemoryBudget, WorstCaseAppStorageIsKnowable) {
     // 32 apps at 4 KB of scene each is the ceiling the device must survive.
-    const std::size_t worstCase = static_cast<std::size_t>(notrix::app::AppRegistry::kMaxApps) *
-                                  notrix::app::AppRegistry::kMaxSceneBytes;
+    const std::size_t worstCase = static_cast<std::size_t>(stipple::app::AppRegistry::kMaxApps) *
+                                  stipple::app::AppRegistry::kMaxSceneBytes;
     std::printf("        [budget] worst-case app scene storage: %zu bytes\n", worstCase);
 
     // Flagged deliberately: 128 KB of scene text may not fit alongside
     // everything else on the real device. Phase 7 measures it; until then this
     // records the number rather than pretending it is safe.
-    NOTRIX_CHECK_EQ(worstCase, std::size_t(131072));
+    STIPPLE_CHECK_EQ(worstCase, std::size_t(131072));
 }
 
-NOTRIX_TEST(MemoryBudget, ApiRequestBudgetIsBounded) {
-    const notrix::api::ApiOptions defaults;
-    NOTRIX_CHECK(defaults.maxBodyBytes <= 32u * 1024u);
-    NOTRIX_CHECK(defaults.maxJsonTokens <= 1024);
+STIPPLE_TEST(MemoryBudget, ApiRequestBudgetIsBounded) {
+    const stipple::api::ApiOptions defaults;
+    STIPPLE_CHECK(defaults.maxBodyBytes <= 32u * 1024u);
+    STIPPLE_CHECK(defaults.maxJsonTokens <= 1024);
 
     // Token storage for one request, which is transient but concurrent with
     // everything else.
     const std::size_t tokenBytes =
-        static_cast<std::size_t>(defaults.maxJsonTokens) * sizeof(notrix::json::Token);
+        static_cast<std::size_t>(defaults.maxJsonTokens) * sizeof(stipple::json::Token);
     std::printf("        [budget] api request token storage: %zu bytes\n", tokenBytes);
-    NOTRIX_CHECK(tokenBytes <= 16u * 1024u);
+    STIPPLE_CHECK(tokenBytes <= 16u * 1024u);
 }

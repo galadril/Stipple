@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/input/Navigator.h"
+#include "stipple/input/Navigator.h"
 
-namespace notrix {
+namespace stipple {
 namespace input {
 namespace {
 
@@ -116,4 +116,4 @@ bool Navigator::tick(std::uint64_t nowMillis) noexcept {
 }
 
 }  // namespace input
-}  // namespace notrix
+}  // namespace stipple

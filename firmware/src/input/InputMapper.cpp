@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/input/InputMapper.h"
+#include "stipple/input/InputMapper.h"
 
-namespace notrix {
+namespace stipple {
 namespace input {
 
 using platform::ButtonPhase;
@@ -148,4 +148,4 @@ bool InputMapper::handle(const InputEvent& event, ActionEvent& out) noexcept {
 }
 
 }  // namespace input
-}  // namespace notrix
+}  // namespace stipple

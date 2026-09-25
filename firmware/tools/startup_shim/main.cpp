@@ -3,7 +3,7 @@
 // The eight kilobytes that stop a missing file from becoming a lockout.
 //
 // `/res/etc/EasyUI.cfg` names one library for the framework to load. Point
-// that at NOTRIX in `/data` and a NOTRIX that will not load leaves a device
+// that at STIPPLE in `/data` and a STIPPLE that will not load leaves a device
 // with **no application at all** - and on this hardware that is not a mild
 // failure. Nothing here obtains an IP address except the application, so no
 // application means no DHCP, no ADB, and no USB gadget either, because the
@@ -15,7 +15,7 @@
 //
 // So the config points here instead, and this decides:
 //
-//     /data/notrix/libnotrix.so loads   -> NOTRIX takes the process
+//     /data/stipple/libstipple.so loads   -> STIPPLE takes the process
 //     it does not                       -> the stock clock runs
 //
 // **The trick is in the link line, not in this file.** This library lists
@@ -26,7 +26,7 @@
 // libeasyui's `.data` and it does not matter, because nothing here has to
 // name them.
 //
-// Which is the whole point: a broken NOTRIX degrades to a working clock on
+// Which is the whole point: a broken STIPPLE degrades to a working clock on
 // the network, and recovery is copying one file back rather than opening the
 // case.
 
@@ -39,7 +39,7 @@ namespace {
 
 /// Tried in order, first one that loads wins.
 ///
-/// 1. **An override in /data.** This is how a NOTRIX update lands without
+/// 1. **An override in /data.** This is how a STIPPLE update lands without
 ///    flashing, and - more importantly - how it is rolled back: delete one
 ///    file and the device returns to the version that was flashed with it.
 ///
@@ -49,7 +49,7 @@ namespace {
 ///
 /// 3. Neither, and the stock clock runs.
 ///
-/// **Note what is deliberately absent: `/data/notrix/libnotrix.so`.** An
+/// **Note what is deliberately absent: `/data/stipple/libstipple.so`.** An
 /// earlier design loaded exactly that and nothing else, which meant a stale
 /// copy in /data silently shadowed a freshly flashed one - a correct image
 /// would be flashed and then load the old broken code out of /data, with
@@ -58,14 +58,14 @@ namespace {
 /// that cannot happen by accident: an override is something somebody put
 /// there on purpose.
 constexpr const char* kCandidates[] = {
-    "/data/notrix/libnotrix.so.override",
-    "/res/lib/libnotrix.so",
+    "/data/stipple/libstipple.so.override",
+    "/res/lib/libstipple.so",
 };
 
 /// Kept on flash rather than in /tmp, because the one time anybody reads
 /// this is after a boot that went wrong - and /tmp does not survive the
 /// power cycle that usually follows.
-constexpr const char* kJournal = "/data/notrix/startup.log";
+constexpr const char* kJournal = "/data/stipple/startup.log";
 
 void note(const char* what, const char* detail) {
     FILE* journal = std::fopen(kJournal, "a");
@@ -85,13 +85,13 @@ void note(const char* what, const char* detail) {
 /// single symbol.
 __attribute__((constructor)) static void chooseApplication() {
     for (const char* const candidate : kCandidates) {
-        // RTLD_GLOBAL so anything NOTRIX itself loads can resolve against
-        // it, and RTLD_NOW so a NOTRIX with an unresolved symbol fails
+        // RTLD_GLOBAL so anything STIPPLE itself loads can resolve against
+        // it, and RTLD_NOW so a STIPPLE with an unresolved symbol fails
         // *here* - where there is still a next candidate, and a stock clock
         // behind that - rather than half-way through running.
-        void* notrix = ::dlopen(candidate, RTLD_NOW | RTLD_GLOBAL);
-        if (notrix != nullptr) {
-            // Unreachable in practice: NOTRIX takes the process in its own
+        void* stipple = ::dlopen(candidate, RTLD_NOW | RTLD_GLOBAL);
+        if (stipple != nullptr) {
+            // Unreachable in practice: STIPPLE takes the process in its own
             // constructor and does not come back. Reaching here means it
             // loaded and declined to start, which is worth recording and
             // worth carrying on from.
@@ -112,5 +112,5 @@ __attribute__((constructor)) static void chooseApplication() {
     // vendor application's entry points through the DT_NEEDED link, exactly
     // as if it had opened libzkgui.so itself - so the device is a working
     // clock on the network rather than a device nobody can reach.
-    note("no notrix, starting the stock clock", nullptr);
+    note("no stipple, starting the stock clock", nullptr);
 }

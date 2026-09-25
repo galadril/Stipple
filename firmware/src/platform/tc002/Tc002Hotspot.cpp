@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/platform/tc002/Tc002Hotspot.h"
+#include "stipple/platform/tc002/Tc002Hotspot.h"
 
 #include <fcntl.h>
 #include <signal.h>
@@ -12,7 +12,7 @@
 #include <cstdio>
 #include <cstring>
 
-namespace notrix {
+namespace stipple {
 namespace platform {
 namespace tc002 {
 namespace {
@@ -37,15 +37,15 @@ bool interfaceExists(const char* name) {
     struct stat info;
     return ::stat(path.c_str(), &info) == 0;
 }
-constexpr const char* kHostapdConf = "/tmp/notrix-hostapd.conf";
-constexpr const char* kDnsmasqConf = "/tmp/notrix-dnsmasq.conf";
+constexpr const char* kHostapdConf = "/tmp/stipple-hostapd.conf";
+constexpr const char* kDnsmasqConf = "/tmp/stipple-dnsmasq.conf";
 
 /// Open, not secured, and that is a decision rather than an oversight.
 ///
 /// The hotspot exists so somebody can reach a device that has no network. A
 /// password on it would have to be one they already know, which means printed
 /// on the device or fixed in the firmware - and a fixed password shared by
-/// every NOTRIX in the world is worse than none, because it looks like
+/// every STIPPLE in the world is worse than none, because it looks like
 /// security. It runs for ten minutes, serves one configuration page, and the
 /// worst it can leak is the list of networks already broadcasting their names.
 constexpr const char* kHostapdTemplate =
@@ -78,13 +78,13 @@ constexpr const char* kDnsmasqTemplate =
     "dhcp-range=192.168.4.10,192.168.4.60,255.255.255.0,12h\n"
     "dhcp-option=3,192.168.4.1\n"
     "dhcp-option=6,192.168.4.1\n"
-    "dhcp-leasefile=/tmp/notrix-dnsmasq.leases\n"
+    "dhcp-leasefile=/tmp/stipple-dnsmasq.leases\n"
     "pid-file=\n"
     // No upstream. This serves addresses so a phone will connect and stay
     // connected; it is not a route to the internet and should not pretend to
     // be one.
     "no-resolv\n"
-    "log-facility=/tmp/notrix-dnsmasq.log\n";
+    "log-facility=/tmp/stipple-dnsmasq.log\n";
 
 }  // namespace
 
@@ -101,7 +101,7 @@ Tc002Hotspot::~Tc002Hotspot() { stop(); }
 /// So this one file goes on flash. It is the documented exception to "avoid
 /// flash writes": a handful of lines, written only while hosting, and the
 /// alternative is diagnosing the same failure twice.
-constexpr const char* kJournal = "/data/notrix/hotspot.log";
+constexpr const char* kJournal = "/data/stipple/hotspot.log";
 
 void Tc002Hotspot::note(const std::string& text) {
     event_ = text;
@@ -248,7 +248,7 @@ bool Tc002Hotspot::start(const std::string& ssid, std::uint64_t nowMillis) {
     }
 
     const char* const startHostapd[] = {"/bin/hostapd", kHostapdConf, nullptr};
-    hostapdPid_ = spawn(startHostapd, "/tmp/notrix-hostapd.log");
+    hostapdPid_ = spawn(startHostapd, "/tmp/stipple-hostapd.log");
     if (hostapdPid_ < 0) {
         note("hotspot: hostapd would not start");
         stop();
@@ -256,8 +256,8 @@ bool Tc002Hotspot::start(const std::string& ssid, std::uint64_t nowMillis) {
     }
 
     const char* const startDnsmasq[] = {"/bin/dnsmasq", "--keep-in-foreground",
-                                        "--conf-file=/tmp/notrix-dnsmasq.conf", nullptr};
-    dnsmasqPid_ = spawn(startDnsmasq, "/tmp/notrix-dnsmasq-stderr.log");
+                                        "--conf-file=/tmp/stipple-dnsmasq.conf", nullptr};
+    dnsmasqPid_ = spawn(startDnsmasq, "/tmp/stipple-dnsmasq-stderr.log");
     if (dnsmasqPid_ < 0) {
         note("hotspot: dnsmasq would not start");
         stop();
@@ -389,4 +389,4 @@ bool Tc002Hotspot::tick(std::uint64_t nowMillis) {
 
 }  // namespace tc002
 }  // namespace platform
-}  // namespace notrix
+}  // namespace stipple

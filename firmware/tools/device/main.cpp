@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// NOTRIX on the TC002.
+// STIPPLE on the TC002.
 //
 // Not a demo: this runs ApplicationHost, the same startup, main loop, boot
 // record and safe-mode fallback the emulator and the host tests run. The only
@@ -10,10 +10,10 @@
 // neither arbitrates:
 //
 //     adb shell setprop ctl.stop zkswe
-//     adb shell /tmp/notrix_device
+//     adb shell /tmp/stipple_device
 //     adb shell setprop ctl.start zkswe
 //
-// Nothing here is persistent except configuration under /data/notrix. The
+// Nothing here is persistent except configuration under /data/stipple. The
 // binary lives in /tmp, which is tmpfs, so a power cycle restores the stock
 // application no matter how this exits.
 //
@@ -31,9 +31,9 @@
 #include <ctime>
 #include <string>
 
-#include "notrix/core/Log.h"
-#include "notrix/host/ApplicationHost.h"
-#include "notrix/platform/tc002/Tc002Platform.h"
+#include "stipple/core/Log.h"
+#include "stipple/host/ApplicationHost.h"
+#include "stipple/platform/tc002/Tc002Platform.h"
 
 namespace {
 
@@ -41,8 +41,8 @@ volatile std::sig_atomic_t g_stop = 0;
 
 extern "C" void onSignal(int) { g_stop = 1; }
 
-const char* sourceName(notrix::platform::RawInput source) {
-    using notrix::platform::RawInput;
+const char* sourceName(stipple::platform::RawInput source) {
+    using stipple::platform::RawInput;
     switch (source) {
         case RawInput::KeyMinus: return "-";
         case RawInput::KeyMiddle: return "middle";
@@ -54,8 +54,8 @@ const char* sourceName(notrix::platform::RawInput source) {
     return "?";
 }
 
-const char* phaseName(notrix::platform::ButtonPhase phase) {
-    using notrix::platform::ButtonPhase;
+const char* phaseName(stipple::platform::ButtonPhase phase) {
+    using stipple::platform::ButtonPhase;
     switch (phase) {
         case ButtonPhase::Down: return "down";
         case ButtonPhase::Up: return "up";
@@ -78,7 +78,7 @@ void sleepMillis(std::uint64_t millis) {
 
 }  // namespace
 
-/// The whole of NOTRIX's startup, with two ways in.
+/// The whole of STIPPLE's startup, with two ways in.
 ///
 /// As an executable this is `main`. As a shared library it is called from a
 /// static constructor, because that is how the TC002 framework loads its
@@ -89,7 +89,7 @@ void sleepMillis(std::uint64_t millis) {
 /// Deliberately the same function either way. A device build that took a
 /// different path from the one tested over ADB would be a second firmware
 /// wearing the first one's tests.
-int notrixMain(int argc, char** argv) {
+int stippleMain(int argc, char** argv) {
     // Flags come out first, so they cannot be mistaken for the positional
     // arguments they follow.
     bool wantDhcp = true;
@@ -146,7 +146,7 @@ int notrixMain(int argc, char** argv) {
     // power cycle.
     std::signal(SIGHUP, SIG_IGN);
 
-    notrix::platform::tc002::Tc002Platform platform;
+    stipple::platform::tc002::Tc002Platform platform;
 
     // First, and before anything that can fail.
     //
@@ -154,7 +154,7 @@ int notrixMain(int argc, char** argv) {
     // seeing sys.zkapp.state become "running" it wipes /data and reinstalls
     // whatever image is staged. Opening the panel, the MCU and the network
     // all happen after this line precisely because none of them are worth
-    // losing NOTRIX and the Wi-Fi credentials over.
+    // losing STIPPLE and the Wi-Fi credentials over.
     platform.announceRunning();
 
     if (!platform.open()) {
@@ -164,7 +164,7 @@ int notrixMain(int argc, char** argv) {
         return 1;
     }
 
-    notrix::host::ApplicationHost host(platform);
+    stipple::host::ApplicationHost host(platform);
     if (!host.initialize()) {
         std::fprintf(stderr, "ApplicationHost refused to start\n");
         platform.close();
@@ -188,9 +188,9 @@ int notrixMain(int argc, char** argv) {
     const bool serving = platform.http().start(kHttpPort, host);
 
     const auto status = platform.network()->status();
-    std::printf("NOTRIX on %s\n", platform.name());
+    std::printf("STIPPLE on %s\n", platform.name());
     std::printf("  boot mode   : %s\n",
-                notrix::host::bootModeName(host.bootMode()));
+                stipple::host::bootModeName(host.bootMode()));
     std::printf("  failures    : %u consecutive\n",
                 host.bootRecord().consecutiveFailures);
     std::printf("  network     : %s%s%s\n",
@@ -340,7 +340,7 @@ int notrixMain(int argc, char** argv) {
         // simply finds the queue already empty. What it buys is the ability to
         // say whether a button reached the firmware at all, which is otherwise
         // indistinguishable from a button whose action has no visible effect.
-        notrix::platform::InputEvent event;
+        stipple::platform::InputEvent event;
         while (platform.input().poll(event)) {
             std::printf("  input: %-11s %s\n", sourceName(event.source),
                         phaseName(event.phase));
@@ -368,7 +368,7 @@ int notrixMain(int argc, char** argv) {
 
         // The lease. Nothing else on this device can obtain or renew one, so
         // without this the address is whatever the vendor application got
-        // before NOTRIX started - and it expires.
+        // before STIPPLE started - and it expires.
         platform.dhcp().tick(now);
 
         // Joining a network is the longest-running thing this device does:
@@ -472,16 +472,16 @@ int notrixMain(int argc, char** argv) {
                 platform.hotspot().setRevertMillis(
                     static_cast<std::uint64_t>(hotspotSeconds) * 1000u);
             }
-            if (platform.hotspot().start("NOTRIX-setup", now)) {
+            if (platform.hotspot().start("STIPPLE-setup", now)) {
                 hotspotStarted = true;
                 knobPending = false;
                 hotspotScanRequested = false;
                 hotspotShowing = true;
                 // Said on the panel before anything else, because the panel
                 // is the only channel left once the radio changes job.
-                host.setNotice("NOTRIX",
-                               std::string("join NOTRIX-setup then open ") +
-                                   notrix::platform::tc002::Tc002Hotspot::kAddress);
+                host.setNotice("STIPPLE",
+                               std::string("join STIPPLE-setup then open ") +
+                                   stipple::platform::tc002::Tc002Hotspot::kAddress);
             }
         }
 
@@ -592,13 +592,13 @@ int notrixMain(int argc, char** argv) {
     return 0;
 }
 
-#ifdef NOTRIX_AS_LIBRARY
+#ifdef STIPPLE_AS_LIBRARY
 
 /// Loaded by /bin/zkgui, and never gives the process back.
 ///
 /// The framework `dlopen`s whatever /res/etc/EasyUI.cfg names, then looks up
 /// three entry points and runs its own loop. This returns to none of that:
-/// the constructor takes the thread and NOTRIX owns the device from here.
+/// the constructor takes the thread and STIPPLE owns the device from here.
 ///
 /// **Which is why the three entry points never had to be worked out.** Their
 /// names are obfuscated in libeasyui's .data and it does not matter, because
@@ -608,16 +608,16 @@ int notrixMain(int argc, char** argv) {
 /// accepts is a development one - the flags exist for ADB sessions, and a
 /// device booting into its own firmware wants the stored configuration and
 /// nothing else.
-__attribute__((constructor)) static void notrixTakesOver() {
-    static char program[] = "notrix";
+__attribute__((constructor)) static void stippleTakesOver() {
+    static char program[] = "stipple";
     static char* argv[] = {program, nullptr};
-    notrixMain(1, argv);
+    stippleMain(1, argv);
 
     // Reached only if the loop stops - a signal, or a display that could not
     // be opened. Returning would hand control back to a framework that is
-    // about to start its own UI on a panel NOTRIX has been driving, so the
+    // about to start its own UI on a panel STIPPLE has been driving, so the
     // process ends here instead. init does not respawn zkswe on its own, so
-    // the device sits reachable over ADB with the panel as NOTRIX left it,
+    // the device sits reachable over ADB with the panel as STIPPLE left it,
     // which is a far better place to debug from than a fight over the
     // display.
     ::_exit(0);
@@ -625,6 +625,6 @@ __attribute__((constructor)) static void notrixTakesOver() {
 
 #else
 
-int main(int argc, char** argv) { return notrixMain(argc, argv); }
+int main(int argc, char** argv) { return stippleMain(argc, argv); }
 
 #endif

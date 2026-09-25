@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# NOTRIX developer entry point (blueprint §29.2).
+# STIPPLE developer entry point (blueprint §29.2).
 #
 #   .\dev.ps1 build          configure + build the host target
 #   .\dev.ps1 test           build and run the host test suite
@@ -11,14 +11,14 @@
 #   .\dev.ps1 emulator       build the browser emulator (needs EMSDK)
 #   .\dev.ps1 verify         drive the built WASM module headlessly (needs node)
 #   .\dev.ps1 device         cross-build for the TC002 and run it under ARM emulation
-#   .\dev.ps1 deploy <ip>    build NOTRIX and run it on the device
+#   .\dev.ps1 deploy <ip>    build STIPPLE and run it on the device
 #   .\dev.ps1 panel <ip>     build the channel-order test and run it on the panel
 #   .\dev.ps1 serve          build the emulator and serve it on localhost
 #   .\dev.ps1 clean          remove build output
 #   .\dev.ps1 doctor         report toolchain status
 #
 # 'deploy' is ADR 0008's tier 2: volatile, /tmp, stock app restored by a power
-# cycle. It uses the *bullseye* toolchain because notrix_device is dynamically
+# cycle. It uses the *bullseye* toolchain because stipple_device is dynamically
 # linked for the speaker, and a Debian 12 binary demands a glibc this device
 # does not have. 'device' still uses bookworm, because the smoke test it builds
 # is static and does not care.
@@ -122,7 +122,7 @@ function Get-TestBinary([string]$Preset = 'host-debug') {
         throw "no test output at $testDir — did the build succeed?"
     }
 
-    $binary = Get-ChildItem $testDir -Recurse -Filter "notrix_tests.exe" -ErrorAction SilentlyContinue |
+    $binary = Get-ChildItem $testDir -Recurse -Filter "stipple_tests.exe" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
 
@@ -150,8 +150,8 @@ switch ($Command) {
         # because the alternative is finding out from a red build.
         Invoke-Build 'ci'
         $binary = Get-TestBinary 'ci'
-        $env:NOTRIX_STRICT_GOLDEN = '1'
-        try { & $binary } finally { Remove-Item env:NOTRIX_STRICT_GOLDEN -ErrorAction SilentlyContinue }
+        $env:STIPPLE_STRICT_GOLDEN = '1'
+        try { & $binary } finally { Remove-Item env:STIPPLE_STRICT_GOLDEN -ErrorAction SilentlyContinue }
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Write-Host "`nCI checks passed." -ForegroundColor Green
     }
@@ -178,7 +178,7 @@ switch ($Command) {
             throw "podman or docker is needed to run the pinned cross-toolchain. See tooling/cross/."
         }
 
-        $image = 'notrix-cross:bookworm'
+        $image = 'stipple-cross:bookworm'
         & $engine.Source build -t $image -f tooling/cross/Containerfile tooling/cross
         if ($LASTEXITCODE -ne 0) { throw "could not build the cross-toolchain image" }
 
@@ -189,13 +189,13 @@ cmake --build --preset device-arm
 cd /src/build/device-arm/firmware
 echo
 echo "--- artifact ---"
-file notrix_device_smoke
-arm-linux-gnueabihf-strip -o /tmp/stripped notrix_device_smoke
+file stipple_device_smoke
+arm-linux-gnueabihf-strip -o /tmp/stripped stipple_device_smoke
 echo "stripped: $(stat -c %s /tmp/stripped) bytes"
-readelf -d notrix_device_smoke | grep NEEDED || echo "shared libraries: none (static)"
+readelf -d stipple_device_smoke | grep NEEDED || echo "shared libraries: none (static)"
 echo
 echo "--- running on ARM ---"
-qemu-arm-static notrix_device_smoke
+qemu-arm-static stipple_device_smoke
 '@
         # PowerShell here-strings carry CRLF line endings, and bash reads the
         # carriage return as part of each command, so every path ends in an
@@ -208,13 +208,13 @@ qemu-arm-static notrix_device_smoke
     }
 
     'deploy' {
-        # Tier 2 from ADR 0008: build NOTRIX, push it to /tmp, run it. Volatile
+        # Tier 2 from ADR 0008: build STIPPLE, push it to /tmp, run it. Volatile
         # by construction - /tmp is tmpfs, so a power cycle restores the stock
         # application whatever happens here.
         #
         # **Bullseye, not bookworm, and that is the whole point of this verb.**
         #
-        # notrix_device is dynamically linked, because the speaker is only
+        # stipple_device is dynamically linked, because the speaker is only
         # reachable through /lib/libmi_ao.so and a static binary cannot dlopen.
         # A Debian 12 toolchain emits executables needing GLIBC_2.34 for
         # __libc_start_main; this device carries 2.30, so such a binary does not
@@ -237,7 +237,7 @@ qemu-arm-static notrix_device_smoke
             throw "podman or docker is needed to run the pinned cross-toolchain. See tooling/cross/."
         }
 
-        $image = 'notrix-cross:bullseye'
+        $image = 'stipple-cross:bullseye'
         & $engine.Source build -t $image -f tooling/cross/Containerfile.bullseye tooling/cross
         if ($LASTEXITCODE -ne 0) { throw "could not build the bullseye cross-toolchain image" }
 
@@ -246,19 +246,19 @@ set -e
 cmake -S /src -B /src/build/device-arm -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=/src/cmake/toolchains/arm-linux-gnueabihf.cmake \
   -DCMAKE_BUILD_TYPE=Release \
-  -DNOTRIX_BUILD_TESTS=OFF \
-  -DNOTRIX_DEVICE_BUILD=ON \
-  -DNOTRIX_WARNINGS_AS_ERRORS=ON
-cmake --build /src/build/device-arm --target notrix_device
+  -DSTIPPLE_BUILD_TESTS=OFF \
+  -DSTIPPLE_DEVICE_BUILD=ON \
+  -DSTIPPLE_WARNINGS_AS_ERRORS=ON
+cmake --build /src/build/device-arm --target stipple_device
 
 echo
 echo "--- artifact ---"
-file /src/build/device-arm/firmware/notrix_device
+file /src/build/device-arm/firmware/stipple_device
 
 # The check that would have caught the wrong image. The device carries glibc
 # 2.30 and GLIBCXX 3.4.28; anything above either will not start.
 echo "--- highest versioned symbols required ---"
-arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/notrix_device \
+arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/stipple_device \
   | grep -oE 'GLIBC_[0-9.]+|GLIBCXX_[0-9.]+' | sort -u -V | tail -4
 '@
         $script = $script -replace "`r", ""
@@ -266,7 +266,7 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/notrix_device \
         & $engine.Source run --rm -v "${repoRoot}:/src" $image bash -c $script
         if ($LASTEXITCODE -ne 0) { throw "cross-build failed" }
 
-        $binary = Join-Path $repoRoot 'build\device-arm\firmware\notrix_device'
+        $binary = Join-Path $repoRoot 'build\device-arm\firmware\stipple_device'
         if (-not (Test-Path $binary)) { throw "expected $binary after the build" }
 
         if ($target) {
@@ -276,25 +276,25 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/notrix_device \
         # Anything already running owns the panel and port 80, so it has to go
         # first - otherwise the new process reports "port in use" and renders
         # nothing, which looks like a build problem and is not.
-        $running = & $adb.Source shell ps 2>&1 | Select-String 'notrix_device'
+        $running = & $adb.Source shell ps 2>&1 | Select-String 'stipple_device'
         foreach ($line in $running) {
             $id = $line.Line.Trim().Split(' ')[0]
             & $adb.Source shell "kill -9 $id" | Out-Null
         }
 
-        & $adb.Source push $binary /tmp/notrix_device
+        & $adb.Source push $binary /tmp/stipple_device
         if ($LASTEXITCODE -ne 0) { throw "adb push failed - is the device connected?" }
-        & $adb.Source shell chmod 700 /tmp/notrix_device
+        & $adb.Source shell chmod 700 /tmp/stipple_device
 
         # The vendor application drives the same panel and neither arbitrates.
         & $adb.Source shell "setprop ctl.stop zkswe" | Out-Null
         Start-Sleep -Seconds 2
 
-        Write-Host "`nNOTRIX is running. Ctrl-C here stops it." -ForegroundColor Green
+        Write-Host "`nSTIPPLE is running. Ctrl-C here stops it." -ForegroundColor Green
         Write-Host "  Restore the stock clock with: adb shell setprop ctl.start zkswe" -ForegroundColor Gray
         Write-Host ""
 
-        & $adb.Source shell /tmp/notrix_device
+        & $adb.Source shell /tmp/stipple_device
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 
@@ -335,7 +335,7 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/notrix_device \
     'image' {
         # Build a res partition image from a capture, changing one line.
         #
-        # The image carries no NOTRIX code. ADR 0021 puts NOTRIX in /data and
+        # The image carries no STIPPLE code. ADR 0021 puts STIPPLE in /data and
         # points the framework's startupLibPath at it, so this is flashed once
         # and every release after that is a file copy over the network.
         #
@@ -343,20 +343,22 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/notrix_device \
         # filesystem stores uid/gid 1000 and modes like 0770, and extracting
         # it onto a Windows bind mount flattens both to root/0777 - which
         # would silently change the ownership of every file on the partition.
-        $capture = Join-Path $repoRoot 'restorees-raw.bin'
+        $capture = Join-Path $repoRoot 'restore
+es-raw.bin'
         if (-not (Test-Path $capture)) {
-            throw "no capture at restorees-raw.bin - run '.\dev.ps1 capture <target>' first"
+            throw "no capture at restore
+es-raw.bin - run '.\dev.ps1 capture <target>' first"
         }
 
         $engine = (Get-Command podman -ErrorAction SilentlyContinue) ??
                   (Get-Command docker -ErrorAction SilentlyContinue)
         if (-not $engine) { throw "podman or docker is needed for the pinned toolchain." }
 
-        $image = 'notrix-cross:bullseye'
+        $image = 'stipple-cross:bullseye'
         & $engine.Source build -t $image -f tooling/cross/Containerfile.bullseye tooling/cross | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "could not build the cross-toolchain image" }
 
-        $script = 'bash /src/tooling/imgtool/buildres.sh /src/restore/res-raw.bin /src/restore/notrix-res.squashfs'
+        $script = 'bash /src/tooling/imgtool/buildres.sh /src/restore/res-raw.bin /src/restore/stipple-res.squashfs'
         & $engine.Source run --rm -v "${repoRoot}:/src" $image bash -c $script
         if ($LASTEXITCODE -ne 0) { throw "could not build the res image" }
 
@@ -395,22 +397,22 @@ otrix-update.img') `
 
         # Static, so the bookworm image is fine — the __libc_start_main problem
         # only bites dynamically linked executables.
-        $image = 'notrix-cross:bookworm'
+        $image = 'stipple-cross:bookworm'
         & $engine.Source build -t $image -f tooling/cross/Containerfile tooling/cross
         if ($LASTEXITCODE -ne 0) { throw "could not build the cross-toolchain image" }
 
         $script = @'
 set -e
 cmake --preset device-arm
-cmake --build --preset device-arm --target notrix_panel_test
-file /src/build/device-arm/firmware/notrix_panel_test
+cmake --build --preset device-arm --target stipple_panel_test
+file /src/build/device-arm/firmware/stipple_panel_test
 '@
         $script = $script -replace "`r", ""
 
         & $engine.Source run --rm -v "${repoRoot}:/src" $image bash -c $script
         if ($LASTEXITCODE -ne 0) { throw "cross-build failed" }
 
-        $binary = Join-Path $repoRoot 'build\device-arm\firmware\notrix_panel_test'
+        $binary = Join-Path $repoRoot 'build\device-arm\firmware\stipple_panel_test'
         if (-not (Test-Path $binary)) { throw "expected $binary after the build" }
 
         if ($target) {
@@ -419,10 +421,10 @@ file /src/build/device-arm/firmware/notrix_panel_test
 
         # /tmp is the volatile path — a power cycle wipes it, which is exactly
         # what we want from something that takes the panel away from zkgui.
-        & $adb.Source push $binary /tmp/notrix_panel_test
+        & $adb.Source push $binary /tmp/stipple_panel_test
         if ($LASTEXITCODE -ne 0) { throw "adb push failed — is the device connected?" }
 
-        & $adb.Source shell chmod 700 /tmp/notrix_panel_test
+        & $adb.Source shell chmod 700 /tmp/stipple_panel_test
 
         Write-Host "`nLook at the panel." -ForegroundColor Green
         Write-Host "  Three bands, one channel each, left to right." -ForegroundColor Gray
@@ -430,7 +432,7 @@ file /src/build/device-arm/firmware/notrix_panel_test
         Write-Host "  One white dot top-left, two white pixels top-right." -ForegroundColor Gray
         Write-Host ""
 
-        & $adb.Source shell /tmp/notrix_panel_test
+        & $adb.Source shell /tmp/stipple_panel_test
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 
@@ -438,8 +440,8 @@ file /src/build/device-arm/firmware/notrix_panel_test
         Invoke-Build 'host-debug'
         $binary = Get-TestBinary
         Write-Host "Regenerating golden fixtures. Review the PNGs in firmware\tests\testdata before committing." -ForegroundColor Yellow
-        $env:NOTRIX_UPDATE_GOLDEN = '1'
-        try { & $binary } finally { Remove-Item env:NOTRIX_UPDATE_GOLDEN -ErrorAction SilentlyContinue }
+        $env:STIPPLE_UPDATE_GOLDEN = '1'
+        try { & $binary } finally { Remove-Item env:STIPPLE_UPDATE_GOLDEN -ErrorAction SilentlyContinue }
     }
 
     'preview' {
@@ -447,9 +449,9 @@ file /src/build/device-arm/firmware/notrix_panel_test
         # no input, nothing interactive — but it needs no Emscripten toolchain.
         Invoke-Build 'host-debug'
 
-        $binary = Get-ChildItem (Join-Path $repoRoot "build\host-debug\firmware") -Recurse -Filter "notrix_preview.exe" -ErrorAction SilentlyContinue |
+        $binary = Get-ChildItem (Join-Path $repoRoot "build\host-debug\firmware") -Recurse -Filter "stipple_preview.exe" -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if (-not $binary) { throw "notrix_preview not found — did the build succeed?" }
+        if (-not $binary) { throw "stipple_preview not found — did the build succeed?" }
 
         $outDir = Join-Path $repoRoot 'build\preview'
         New-Item -ItemType Directory -Force -Path $outDir | Out-Null
@@ -500,7 +502,7 @@ file /src/build/device-arm/firmware/notrix_panel_test
     }
 
     'doctor' {
-        Write-Host "NOTRIX toolchain status`n" -ForegroundColor Cyan
+        Write-Host "STIPPLE toolchain status`n" -ForegroundColor Cyan
 
         try { $cmake = Find-CMake; Write-Host ("  cmake       OK    " + $cmake) -ForegroundColor Green }
         catch { Write-Host "  cmake       MISSING" -ForegroundColor Red }

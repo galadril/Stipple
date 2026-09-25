@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Four symbols, to find out whether NOTRIX can be the thing /bin/zkgui runs.
+// Four symbols, to find out whether STIPPLE can be the thing /bin/zkgui runs.
 //
 // The vendor launcher is nine kilobytes and imports exactly four functions
 // from libeasyui.so:
@@ -20,7 +20,7 @@
 // route means implementing against EasyUI's own C++ ABI, and the three
 // symbol names it looks up are obfuscated in .data rather than stored as
 // text - so even finding the contract is a reverse-engineering project, and
-// meeting it would couple NOTRIX to a vendor framework in exactly the way
+// meeting it would couple STIPPLE to a vendor framework in exactly the way
 // blueprint section 53 exists to prevent.
 //
 // Shadowing libeasyui.so instead needs four symbols whose names are public,
@@ -34,7 +34,7 @@
 // next launch and is gone at the next power cycle.
 //
 // This file proves the hook and nothing else. It does not render, does not
-// open the panel, and deliberately does not link NOTRIX: the question is
+// open the panel, and deliberately does not link STIPPLE: the question is
 // whether our code runs at all, and mixing that with a display bring-up
 // would make a failure ambiguous.
 
@@ -46,7 +46,7 @@ namespace {
 
 /// Written where a power cycle cannot be blamed for losing it.
 void note(const char* what) {
-    FILE* log = std::fopen("/tmp/notrix-easyui-shim.log", "a");
+    FILE* log = std::fopen("/tmp/stipple-easyui-shim.log", "a");
     if (log == nullptr) {
         return;
     }
@@ -81,7 +81,7 @@ EasyUIContext* EasyUIContext::getInstance() {
 void EasyUIContext::initEasyUI() { note("initEasyUI"); }
 
 void EasyUIContext::runEasyUI() {
-    note("runEasyUI - this is where NOTRIX would take over");
+    note("runEasyUI - this is where STIPPLE would take over");
 
     // Returns, deliberately. The real one would never, but a shim that hung
     // would leave the launcher occupying the panel with no way to tell a

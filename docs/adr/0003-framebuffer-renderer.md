@@ -1,4 +1,4 @@
-# 0003 — Framebuffer renderer owned by NOTRIX
+# 0003 — Framebuffer renderer owned by STIPPLE
 
 - **Status:** Accepted
 - **Date:** 2026-09-11
@@ -16,7 +16,7 @@ any firmware revision.
 
 ## Decision
 
-NOTRIX owns a complete 52×16 RGB framebuffer and renders everything itself:
+STIPPLE owns a complete 52×16 RGB framebuffer and renders everything itself:
 pixels, lines, rectangles, sprites, icons, bitmap fonts, scrolling text,
 progress bars, graphs, transitions and animations. The platform adapter's only
 job is to hand a finished frame to the panel.
@@ -48,7 +48,7 @@ on hardware demands them; the `Rgb` type is the only thing that would change.
   [0011](0011-simulator-first-development-order.md) possible at all.
 - Golden-image tests can assert exact pixel output (§31.2).
 - Emulator and device are pixel-identical by construction, not by comparison.
-- Firmware-revision changes in Ulanzi's renderer cannot regress NOTRIX.
+- Firmware-revision changes in Ulanzi's renderer cannot regress STIPPLE.
 
 **Bad**
 

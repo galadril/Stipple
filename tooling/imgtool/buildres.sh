@@ -3,10 +3,10 @@
 #
 # Rebuild a TC002 `res` partition with one line changed.
 #
-# **The image this produces contains no NOTRIX code.** That is the point of
+# **The image this produces contains no STIPPLE code.** That is the point of
 # ADR 0021: the only difference from the captured original is the
 # `startupLibPath` field in /res/etc/EasyUI.cfg, pointed at a writable
-# location. NOTRIX itself lives in /data and is updated by copying a file,
+# location. STIPPLE itself lives in /data and is updated by copying a file,
 # so this image is built once and is the same for every release after.
 #
 # It runs inside the pinned container and not on the host, for a reason that
@@ -23,9 +23,9 @@ set -euo pipefail
 CAPTURE="${1:?usage: buildres.sh <res-raw.bin> <output.squashfs> [startupLibPath]}"
 OUTPUT="${2:?usage: buildres.sh <res-raw.bin> <output.squashfs> [startupLibPath]}"
 # Where the framework is pointed. Defaults to the shim rather than straight
-# at NOTRIX, because a missing NOTRIX must leave a working clock rather than
+# at STIPPLE, because a missing STIPPLE must leave a working clock rather than
 # a device with no way in - see ADR 0008 for what happens otherwise.
-STARTUP_LIB="${3:-/res/lib/libnotrixboot.so}"
+STARTUP_LIB="${3:-/res/lib/libstippleboot.so}"
 SHIM_SOURCE="/src/firmware/tools/startup_shim/main.cpp"
 
 CONFIG="etc/EasyUI.cfg"
@@ -69,7 +69,7 @@ echo "--- the only change ---"
 grep startupLibPath "$WORK/tree/$CONFIG"
 
 # The vendor application is deliberately left in place. Nothing overwrites
-# it, so the stock experience is one config field away - and a NOTRIX that
+# it, so the stock experience is one config field away - and a STIPPLE that
 # will not load leaves a device that still boots rather than one that does
 # not.
 if [ ! -f "$WORK/tree/lib/libzkgui.so" ]; then
@@ -85,24 +85,24 @@ fi
 #
 # Built here rather than shipped, because it links against the vendor library
 # from *this* capture - which never leaves the machine it was captured on.
-if [ "$STARTUP_LIB" = "/res/lib/libnotrixboot.so" ]; then
+if [ "$STARTUP_LIB" = "/res/lib/libstippleboot.so" ]; then
     if [ ! -f "$SHIM_SOURCE" ]; then
         echo "error: $SHIM_SOURCE is missing" >&2
         exit 1
     fi
     echo "--- building the startup shim ---"
-    arm-linux-gnueabihf-g++ -shared -fPIC -Os -std=c++17         -o "$WORK/tree/lib/libnotrixboot.so" "$SHIM_SOURCE"         -L"$WORK/tree/lib" -Wl,--no-as-needed -l:libzkgui.so -Wl,--as-needed -ldl
+    arm-linux-gnueabihf-g++ -shared -fPIC -Os -std=c++17         -o "$WORK/tree/lib/libstippleboot.so" "$SHIM_SOURCE"         -L"$WORK/tree/lib" -Wl,--no-as-needed -l:libzkgui.so -Wl,--as-needed -ldl
 
     # Ownership and mode have to match everything else on this partition, or
     # the image stops being one line different from the original.
-    chown --reference="$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libnotrixboot.so"
-    chmod --reference="$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libnotrixboot.so"
+    chown --reference="$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libstippleboot.so"
+    chmod --reference="$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libstippleboot.so"
 
     # Timestamps taken from the vendor library beside it, and the directory's
     # own mtime put back after the write. Adding a file bumps the parent
     # directory, and an image whose only differences are structural is one a
     # reviewer can check by diffing - they should not have to discount dates.
-    touch -r "$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libnotrixboot.so"
+    touch -r "$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libstippleboot.so"
     touch -r "$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib"
 
     # Checked, not assumed. --as-needed is the default and drops a library
@@ -110,56 +110,56 @@ if [ "$STARTUP_LIB" = "/res/lib/libnotrixboot.so" ]; then
     # the whole point is to forward symbols we never name. Without the
     # DT_NEEDED entry dlsym finds nothing and the fallback delivers the very
     # lockout it exists to prevent.
-    if ! arm-linux-gnueabihf-readelf -d "$WORK/tree/lib/libnotrixboot.so"         | grep -q 'NEEDED.*libzkgui\.so'; then
+    if ! arm-linux-gnueabihf-readelf -d "$WORK/tree/lib/libstippleboot.so"         | grep -q 'NEEDED.*libzkgui\.so'; then
         echo "error: the shim does not depend on libzkgui.so" >&2
         echo "       without that link the vendor application cannot be reached" >&2
         exit 1
     fi
 
-    echo "    $(ls -la "$WORK/tree/lib/libnotrixboot.so" | awk '{print $5}') bytes"
-    echo "    needs: $(arm-linux-gnueabihf-readelf -d "$WORK/tree/lib/libnotrixboot.so"         | grep NEEDED | awk '{print $5}' | tr -d '[]' | tr '
+    echo "    $(ls -la "$WORK/tree/lib/libstippleboot.so" | awk '{print $5}') bytes"
+    echo "    needs: $(arm-linux-gnueabihf-readelf -d "$WORK/tree/lib/libstippleboot.so"         | grep NEEDED | awk '{print $5}' | tr -d '[]' | tr '
 ' ' ')"
 fi
 
-# Put NOTRIX itself in the image.
+# Put STIPPLE itself in the image.
 #
-# This is the difference between an image that installs NOTRIX and one that
+# This is the difference between an image that installs STIPPLE and one that
 # merely *points* at it. The earlier design shipped only the shim and left
-# NOTRIX in /data, which is fine right up until /data holds an old copy or no
+# STIPPLE in /data, which is fine right up until /data holds an old copy or no
 # copy: the flash succeeds, the shim loads whatever is in /data, and the
 # device runs last week's build - or the stock clock - with nothing to say
 # why. That happened twice on real hardware and was misread as a bad flash
 # both times.
 #
-# Bundling it also breaks a bootstrap trap. The fixes that let NOTRIX bring
+# Bundling it also breaks a bootstrap trap. The fixes that let STIPPLE bring
 # up its own Wi-Fi cannot be delivered over Wi-Fi, so they have to arrive in
 # the image.
-if [ "$STARTUP_LIB" = "/res/lib/libnotrixboot.so" ]; then
-    NOTRIX_LIB="${NOTRIX_LIB:-/src/build/device-arm/firmware/libnotrix.so}"
-    if [ ! -f "$NOTRIX_LIB" ]; then
+if [ "$STARTUP_LIB" = "/res/lib/libstippleboot.so" ]; then
+    STIPPLE_LIB="${STIPPLE_LIB:-/src/build/device-arm/firmware/libstipple.so}"
+    if [ ! -f "$STIPPLE_LIB" ]; then
         # Refused rather than warned about. An image without this is one that
         # boots to the stock clock, and the person flashing it would have no
-        # way to tell that from a NOTRIX that failed to start.
-        echo "error: $NOTRIX_LIB is missing" >&2
-        echo "       build it first: cmake --build --preset device-arm --target notrix_startup" >&2
+        # way to tell that from a STIPPLE that failed to start.
+        echo "error: $STIPPLE_LIB is missing" >&2
+        echo "       build it first: cmake --build --preset device-arm --target stipple_startup" >&2
         exit 1
     fi
 
-    echo "--- bundling NOTRIX ---"
-    cp "$NOTRIX_LIB" "$WORK/tree/lib/libnotrix.so"
-    chown --reference="$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libnotrix.so"
-    chmod --reference="$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libnotrix.so"
-    touch -r "$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libnotrix.so"
+    echo "--- bundling STIPPLE ---"
+    cp "$STIPPLE_LIB" "$WORK/tree/lib/libstipple.so"
+    chown --reference="$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libstipple.so"
+    chmod --reference="$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libstipple.so"
+    touch -r "$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib/libstipple.so"
     touch -r "$WORK/tree/lib/libzkgui.so" "$WORK/tree/lib"
 
     # Checked on the way in, because a library built for the wrong
     # architecture fails at dlopen on the device - by which point the only
     # evidence is one line in a log on a machine with no network.
-    if ! arm-linux-gnueabihf-readelf -h "$WORK/tree/lib/libnotrix.so" | grep -q "ARM"; then
-        echo "error: $NOTRIX_LIB is not an ARM shared library" >&2
+    if ! arm-linux-gnueabihf-readelf -h "$WORK/tree/lib/libstipple.so" | grep -q "ARM"; then
+        echo "error: $STIPPLE_LIB is not an ARM shared library" >&2
         exit 1
     fi
-    echo "    $(ls -la "$WORK/tree/lib/libnotrix.so" | awk '{print $5}') bytes"
+    echo "    $(ls -la "$WORK/tree/lib/libstipple.so" | awk '{print $5}') bytes"
 fi
 
 # Parameters read off the original rather than chosen: squashfs 4.0, xz,
@@ -174,17 +174,17 @@ echo "--- built ---"
 ls -la "$OUTPUT" | awk '{print "size        " $5 " bytes"}'
 echo "wrote       $OUTPUT"
 echo
-if [ "$STARTUP_LIB" = "/res/lib/libnotrixboot.so" ]; then
-    echo "The image carries the shim and NOTRIX itself, so flashing it is the"
+if [ "$STARTUP_LIB" = "/res/lib/libstippleboot.so" ]; then
+    echo "The image carries the shim and STIPPLE itself, so flashing it is the"
     echo "whole install - nothing has to be copied afterwards and no network"
-    echo "is needed. The shim prefers /data/notrix/libnotrix.so.override if"
+    echo "is needed. The shim prefers /data/stipple/libstipple.so.override if"
     echo "somebody put one there, falls back to the bundled copy, and falls"
     echo "back again to the stock clock rather than to nothing."
 else
-    echo "This image has no NOTRIX in it. It changes where the framework looks,"
-    echo "and NOTRIX goes to $STARTUP_LIB separately."
+    echo "This image has no STIPPLE in it. It changes where the framework looks,"
+    echo "and STIPPLE goes to $STARTUP_LIB separately."
     echo
-    echo "WARNING: pointing straight at /data means a missing NOTRIX leaves the"
+    echo "WARNING: pointing straight at /data means a missing STIPPLE leaves the"
     echo "         device with no application, and therefore no network and no"
     echo "         way in. See docs/adr/0008-installer-helper.md."
 fi

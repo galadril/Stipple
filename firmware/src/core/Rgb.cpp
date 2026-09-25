@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/core/Rgb.h"
+#include "stipple/core/Rgb.h"
 
-namespace notrix {
+namespace stipple {
 namespace {
 
 /// -1 for anything that is not a hex digit, so callers test one value rather
@@ -57,4 +57,4 @@ void formatHexColor(Rgb color, char out[8]) noexcept {
     out[7] = '\0';
 }
 
-}  // namespace notrix
+}  // namespace stipple
