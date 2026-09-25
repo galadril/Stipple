@@ -1,0 +1,915 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Derived from firmware/src/api/ApiServer.cpp and Http.cpp rather than
+# written alongside them, so it describes what the device does rather than
+# what it was meant to do. Routes, methods and status codes were extracted
+# from the handlers; response fields from the JSON writer calls.
+#
+# The same router answers HTTP and MQTT, so this describes both surfaces.
+# See docs/mqtt.md for the topic mapping.
+
+openapi: 3.1.0
+
+info:
+  title: Stipple
+  version: "1"
+  summary: Open pixel firmware for the Ulanzi TC002.
+  description: |
+    One API surface, served by the device itself.
+
+    **Everything is local.** There is no cloud component and no account; the
+    device answers on your network and nowhere else.
+
+    **Authentication is off by default.** When an access password is set, every
+    route including the web UI requires HTTP Basic, and unauthenticated
+    requests get `401` with a `WWW-Authenticate` challenge. A device that
+    demanded a password before it would show a clock would be a worse first
+    five minutes than the risk it removes.
+
+    **Bodies are bounded.** Ordinary requests have a small ceiling; firmware
+    and asset uploads have their own, larger one. Anything over gets `413`.
+    This runs on a device with 36 MB of RAM.
+  license:
+    name: GPL-3.0-or-later
+    url: https://www.gnu.org/licenses/gpl-3.0.html
+
+servers:
+  - url: http://{device}/api/v1
+    description: The device on your network.
+    variables:
+      device:
+        default: stipple.local
+        description: Hostname or IP address.
+
+security:
+  - basicAuth: []
+  - {}
+
+tags:
+  - name: device
+    description: What the device is and how it is doing.
+  - name: apps
+    description: The carousel.
+  - name: notifications
+    description: Things that interrupt it.
+  - name: assets
+    description: Icons.
+  - name: settings
+  - name: network
+  - name: system
+
+paths:
+  /device:
+    get:
+      tags: [device]
+      summary: Everything about the device in one call
+      description: |
+        Intended as the first call a client makes. Capabilities are reported
+        explicitly rather than inferred: `battery.known` is false on a device
+        that cannot measure one, which is a different thing from 0%.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Device" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+
+  /health:
+    get:
+      tags: [device]
+      summary: Liveness and a few counters
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, examples: ["ok"] }
+                  uptimeMillis: { type: integer }
+                  wallClockValid:
+                    type: boolean
+                    description: |
+                      False until the clock has been set from a trustworthy
+                      source. The device has no RTC battery, so it boots at
+                      1970 and the clock face shows `__:__` rather than a
+                      confident wrong time.
+                  apps: { type: integer }
+                  notifications: { type: integer }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+
+  /version:
+    get:
+      tags: [device]
+      summary: Firmware and API version
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: string, examples: ["0.1.0"] }
+                  commit: { type: string }
+                  api: { type: integer, description: Major version of this API. }
+                  schema: { type: integer, description: Configuration schema version. }
+                  target: { type: string, examples: ["tc002", "simulator"] }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+
+  /diagnostics:
+    get:
+      tags: [device]
+      summary: Render, input and carousel counters
+      description: |
+        For finding out why something looks wrong. `dropped`, `skipped` and
+        `overruns` are the interesting ones: they say the device could not
+        keep up rather than that nothing happened.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+
+  /logs:
+    get:
+      tags: [device]
+      summary: The ring buffer
+      description: |
+        A ring buffer in RAM, not a file. Logging to flash on a device like
+        this wears it out and survives nothing useful. `totalWritten` exceeds
+        `count` once it has wrapped.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  capacity: { type: integer }
+                  totalWritten: { type: integer }
+                  minimumLevel: { type: string }
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        at: { type: integer }
+                        level: { type: string }
+                        message: { type: string }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /display/frame:
+    get:
+      tags: [device]
+      summary: The frame currently on the panel
+      description: What the web UI's live view reads.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  width: { type: integer, examples: [52] }
+                  height: { type: integer, examples: [16] }
+                  format: { type: string, examples: ["rgb888"] }
+                  pixels:
+                    type: array
+                    items: { type: integer }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+
+  /input:
+    post:
+      tags: [device]
+      summary: Inject a button press
+      description: |
+        The same path the physical buttons take, so the web UI's on-screen
+        controls cannot drift from the hardware.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [control]
+              properties:
+                control:
+                  type: string
+                  description: Which control. Unknown names are refused rather than ignored.
+                phase:
+                  type: string
+                  enum: [down, up, tick]
+                holdMillis: { type: integer }
+      responses:
+        "204": { description: Delivered. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /apps:
+    get:
+      tags: [apps]
+      summary: List the carousel, in order
+      description: |
+        Order is explicit and owned by the app manager. It is never inferred
+        from filesystem or map iteration, so it is stable across reboots.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items: { $ref: "#/components/schemas/App" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+    post:
+      tags: [apps]
+      summary: Add an app
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AppWrite" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /apps/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [apps]
+      summary: One app
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+    put:
+      tags: [apps]
+      summary: Create or replace an app at this id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AppWrite" }
+      responses:
+        "200": { description: Replaced. }
+        "201": { description: Created. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    patch:
+      tags: [apps]
+      summary: Change some fields of an app
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AppWrite" }
+      responses:
+        "200": { description: Updated. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    delete:
+      tags: [apps]
+      summary: Remove an app
+      responses:
+        "204": { description: Removed. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: |
+            Built-in apps cannot be deleted; disable them instead.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /apps/{id}/activate:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [apps]
+      summary: Show this app now
+      responses:
+        "200": { description: Showing. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "409":
+          description: The app is disabled, so it cannot be shown.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /notifications:
+    get:
+      tags: [notifications]
+      summary: What is queued and what is showing
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+    post:
+      tags: [notifications]
+      summary: Raise a notification
+      description: |
+        The queue is bounded. When it is full this answers `429` rather than
+        growing: an unbounded queue on a device with this much RAM is a crash
+        with extra steps.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: { type: string }
+                text: { type: string }
+                priority: { type: integer }
+                durationSeconds: { type: integer }
+                hold:
+                  type: boolean
+                  description: Stay up until dismissed.
+                dismissible: { type: boolean }
+                sound: { type: string }
+      responses:
+        "201": { description: Queued. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "429":
+          description: The notification queue is full.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [notifications]
+      summary: Clear them all
+      responses:
+        "200": { description: Cleared. }
+
+  /notifications/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [notifications]
+      summary: Dismiss one
+      responses:
+        "204": { description: Dismissed. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+
+  /assets:
+    get:
+      tags: [assets]
+      summary: List icons, with the byte budget
+      description: |
+        The budget is a total byte count rather than an icon count. Sixty-four
+        static 8x8 glyphs and eight eight-frame animations cost the same RAM,
+        and a per-icon limit would either forbid the first or permit far too
+        much of the second.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+    post:
+      tags: [assets]
+      summary: Upload an icon
+      description: |
+        Raw RGB frames, never PNG or GIF. Decoding a compressed format means
+        running inflate or LZW against untrusted input on this hardware;
+        conversion happens in the browser instead, so the device only handles
+        a format it cannot get wrong.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, width, height, frames]
+              properties:
+                id: { type: string }
+                width: { type: integer }
+                height: { type: integer }
+                frameMillis: { type: integer }
+                transparent:
+                  type: integer
+                  description: |
+                    Colour key as packed RGB. Transparency is a key rather
+                    than an alpha channel: an LED is on or off, so a fourth
+                    byte per pixel would buy nothing.
+                frames:
+                  type: array
+                  items: { type: array, items: { type: integer } }
+      responses:
+        "201": { description: Stored. }
+        "409":
+          description: The icon budget is full, or the id is taken.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    delete:
+      tags: [assets]
+      summary: Remove every icon
+      responses:
+        "204": { description: Cleared. }
+
+  /assets/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [assets]
+      summary: One icon
+      responses:
+        "200": { description: OK }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [assets]
+      summary: Remove one icon
+      responses:
+        "204": { description: Removed. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /settings:
+    get:
+      tags: [settings]
+      summary: Everything configurable
+      description: |
+        Secrets are never returned. The MQTT password and the access password
+        are write-only: the device will take them and will not give them back,
+        to anyone, including a backup.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+    patch:
+      tags: [settings]
+      summary: Change some settings
+      description: |
+        Partial. Absent keys are left alone, so a client does not have to read
+        the whole document to change one field.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Settings" }
+      responses:
+        "200":
+          description: The settings as they now stand.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /network:
+    get:
+      tags: [network]
+      summary: What the device can see and what it is on
+      description: |
+        Read-only. Joining has its own route because it is a provisioning
+        concern with its own gates.
+
+        `canScan` goes false while the device is hosting its own access point:
+        one radio cannot be an access point and a station at once. That is a
+        real state, not an error, and not the same as "no networks in range".
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Network" }
+        "501": { $ref: "#/components/responses/NotSupported" }
+
+  /network/scan:
+    post:
+      tags: [network]
+      summary: Ask the radio to look
+      responses:
+        "202": { description: Scanning. Poll /network for results. }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "501": { $ref: "#/components/responses/NotSupported" }
+        "503":
+          description: The radio cannot scan right now - usually because it is hosting.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /network/join:
+    post:
+      tags: [network]
+      summary: Join a network
+      description: |
+        Returns immediately; the join takes tens of seconds. Watch `join.stage`
+        on `/network`.
+
+        A join is only kept if it produced an **address**, not merely an
+        association - a device associated to a network it cannot be reached on
+        is the failure that looks like success. Joining also never replaces a
+        stored network, so a wrong password falls back to the one that was
+        already working.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ssid]
+              properties:
+                ssid: { type: string }
+                password:
+                  type: string
+                  description: Omit or leave empty for an open network.
+      responses:
+        "202": { description: Joining. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "501": { $ref: "#/components/responses/NotSupported" }
+
+  /system/firmware:
+    get:
+      tags: [system]
+      summary: What is installed, and whether it can be rolled back
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path: { type: string }
+                  installedBytes:
+                    type: integer
+                    description: |
+                      Zero means the device is running the copy flashed with
+                      it, which is what every device looks like until somebody
+                      updates it. Not an error.
+                  canRollBack: { type: boolean }
+                  maxBytes: { type: integer }
+                  version: { type: string }
+        "501": { $ref: "#/components/responses/NotSupported" }
+    post:
+      tags: [system]
+      summary: Install a new firmware
+      description: |
+        Upload `libstipple.so` from a release.
+
+        Checked before a byte is written: it must be a 32-bit ARM shared
+        object, so a host build is refused rather than installed. Then written
+        beside the running copy and renamed into place, so a failed upload
+        changes nothing.
+
+        **Installed is not running** - reboot to start it. If it will not
+        load, the device falls back to the version flashed with it rather than
+        to nothing.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: Installed. Reboot to run it.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, examples: ["installed"] }
+                  path: { type: string }
+                  bytes: { type: integer }
+                  canRollBack: { type: boolean }
+                  rebootRequired: { type: boolean }
+                  note: { type: string }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422":
+          description: |
+            Not a firmware this device could load - wrong architecture, not a
+            shared library, or not an ELF at all.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "501": { $ref: "#/components/responses/NotSupported" }
+        "503":
+          description: The install could not be written.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [system]
+      summary: Go back to the previous firmware
+      responses:
+        "200": { description: Rolled back. Reboot to run it. }
+        "422":
+          description: There is no previous version.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /system/reset:
+    post:
+      tags: [system]
+      summary: Put configuration back to defaults
+      description: |
+        Separate from deleting settings, because "reset" and "delete" are
+        different promises: this leaves a working configuration behind rather
+        than an absent one. The device keeps its name, so it is still the one
+        you were looking at.
+      responses:
+        "200": { description: Reset. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /system/reboot:
+    post:
+      tags: [system]
+      summary: Restart the device
+      description: Settings are saved as they change, so a restart loses nothing.
+      responses:
+        "202": { description: Rebooting. }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "501": { $ref: "#/components/responses/NotSupported" }
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: |
+        Off by default. When set, it covers the API and the web UI alike -
+        they are the same server, and two schemes would be two things to get
+        wrong.
+
+        Sent in the clear over your network and stored in the clear on the
+        device. It keeps the rest of the LAN out; it is not protection from
+        somebody holding the device.
+
+        Forgotten it? Hold the minus and plus buttons together for five
+        seconds. That clears the password and nothing else - apps and settings
+        are kept, because somebody locked out of a clock wants their
+        configuration to still be there when they get back in.
+
+  responses:
+    BadRequest:
+      description: The request could not be parsed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: An access password is set and was not supplied.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such resource.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    MethodNotAllowed:
+      description: That method is not supported on this route.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: The request is valid but conflicts with the current state.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooLarge:
+      description: |
+        Over the body ceiling. Ordinary requests and uploads have different
+        limits; both are bounded, because this device has 36 MB of RAM.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unprocessable:
+      description: Well-formed, but the device cannot act on it.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotSupported:
+      description: |
+        This build has no such capability - for example a simulator with no
+        radio. Reported explicitly rather than as an empty success.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ServerError:
+      description: Something went wrong on the device.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      description: Every error has this shape, so a client needs one branch.
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              examples: ["not_found", "unprocessable", "unauthorized"]
+            message:
+              type: string
+              description: Written for a person to read.
+      required: [error]
+
+    App:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        enabled: { type: boolean }
+        durationSeconds:
+          type: integer
+          description: Zero means "use the carousel default".
+        scene:
+          type: object
+          description: The scene document, for apps that carry one.
+
+    AppWrite:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        enabled: { type: boolean }
+        durationSeconds: { type: integer }
+        scene:
+          type: object
+          description: |
+            A scene document. Elements may be pixel, line, rectangle, text,
+            icon, bitmap, sprite, progress, graph, animation or group.
+
+    Device:
+      type: object
+      properties:
+        name: { type: string }
+        platform: { type: string, examples: ["tc002", "simulator"] }
+        version: { type: string }
+        apiVersion: { type: integer }
+        firstRun:
+          type: boolean
+          description: True until something is saved. Drives the welcome state.
+        display:
+          type: object
+          properties:
+            width: { type: integer }
+            height: { type: integer }
+            brightness: { type: integer }
+            minimumFrameIntervalMillis:
+              type: integer
+              description: |
+                The panel has an internal throttle; going faster than this
+                gains nothing and the vendor warns against it.
+        network: { $ref: "#/components/schemas/Network" }
+        capabilities:
+          type: object
+          description: |
+            What this build can do at all, as opposed to what it is doing.
+            A missing capability is reported rather than faked.
+          properties:
+            audio: { type: boolean }
+            network: { type: boolean }
+            reboot: { type: boolean }
+            battery: { type: boolean }
+            microphone: { type: boolean }
+        battery:
+          type: object
+          properties:
+            known:
+              type: boolean
+              description: |
+                False means the device cannot measure a battery, which is not
+                the same as an empty one. Clients must tell those apart.
+            percent: { type: integer }
+            millivolts: { type: integer }
+            charging: { type: boolean }
+
+    Network:
+      type: object
+      properties:
+        connected: { type: boolean }
+        ipv4: { type: string }
+        hostname: { type: string }
+        ssid: { type: string }
+        rssiDbm: { type: integer }
+        leaseManaged:
+          type: boolean
+          description: |
+            Whether Stipple is holding the DHCP lease itself. It usually is:
+            this hardware ships no DHCP client, so the application is the only
+            thing that can.
+        leaseState: { type: string, examples: ["bound", "renewing"] }
+        leaseSeconds: { type: integer }
+        canScan: { type: boolean }
+        canJoin: { type: boolean }
+        networksAreLive:
+          type: boolean
+          description: |
+            False when the list is remembered from an earlier scan rather than
+            current - which is the case while the device is hosting its own
+            access point and cannot scan.
+        join:
+          type: object
+          properties:
+            stage: { type: string, examples: ["idle", "associating", "succeeded", "failed"] }
+            ssid: { type: string }
+            detail: { type: string }
+        networks:
+          type: array
+          items:
+            type: object
+            properties:
+              ssid: { type: string }
+              signalDbm: { type: integer }
+              secured: { type: boolean }
+              current: { type: boolean }
+
+    Settings:
+      type: object
+      description: |
+        Versioned, with transactional writes, a checksum and a backup copy.
+        Malformed configuration must never brick the device or cause a boot
+        loop, so a bad field falls back to its default rather than failing the
+        whole load.
+      properties:
+        schemaVersion: { type: integer }
+        deviceName: { type: string }
+        display: { type: object }
+        audio: { type: object }
+        clock:
+          type: object
+          properties:
+            twentyFourHour: { type: boolean }
+            utcOffsetSeconds: { type: integer }
+            timezone:
+              type: string
+              description: |
+                A POSIX TZ rule such as `CET-1CEST,M3.5.0,M10.5.0/3`, not a
+                zone name. This hardware carries no timezone database, and
+                shipping one would cost megabytes on an 8 MiB partition and go
+                stale the moment a government moved a date.
+            ntpServer:
+              type: string
+              description: |
+                Numeric by default, deliberately. DNS does not work on a stock
+                TC002 - the resolver reads only `/etc/resolv.conf`, that file
+                is read-only and lists an unreachable server first, so lookups
+                stall rather than fail over.
+        apps: { type: object }
+        notifications: { type: object }
+        network: { type: object }
+        mqtt:
+          type: object
+          description: Off by default. The password is write-only.
+        web:
+          type: object
+          description: Access control. The password is write-only.

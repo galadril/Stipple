@@ -53,6 +53,13 @@ jobs:
         if: runner.os == 'Linux'
         run: node tooling/web/check-app.mjs
 
+      # The only thing worse than no API documentation is documentation that
+      # is confidently wrong. This reads the router and openapi.yaml and
+      # insists they describe the same routes.
+      - name: Check the API specification
+        if: runner.os == 'Linux'
+        run: python3 tooling/api/check-openapi.py
+
       - name: Configure
         run: cmake --preset ci
 
