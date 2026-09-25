@@ -25,6 +25,11 @@ curl -X POST $DEV/api/v1/notifications \
      -H 'Content-Type: application/json' \
      -d '{"text":"tea is ready","durationSeconds":10}'
 
+# ...with an icon, by the id you uploaded it under
+curl -X POST $DEV/api/v1/notifications \
+     -H 'Content-Type: application/json' \
+     -d '{"text":"new mail","icon":"mail"}'
+
 # A custom app
 curl -X PUT $DEV/api/v1/apps/weather \
      -H 'Content-Type: application/json' \

@@ -1644,7 +1644,7 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
     // Notifications take the whole panel: they interrupt rather than share.
     if (const notify::Notification* alert = notifications_.active()) {
         notify::render(canvas, *alert, Framebuffer::bounds(),
-                       notifications_.activeElapsedMillis(nowMillis));
+                       notifications_.activeElapsedMillis(nowMillis), &icons_);
         return;
     }
 

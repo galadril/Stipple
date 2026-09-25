@@ -9,6 +9,12 @@
 #include "stipple/core/Rgb.h"
 
 namespace stipple {
+namespace asset {
+class IconStore;
+}  // namespace asset
+}  // namespace stipple
+
+namespace stipple {
 
 class Canvas;
 struct Rect;
@@ -44,6 +50,15 @@ struct Notification {
 
     Rgb color = colors::kWhite;
     std::string sound;
+
+    /// An icon from the store, by id. Empty for text alone.
+    ///
+    /// A notification is the one thing that interrupts whatever you were
+    /// looking at, and on a panel this size a glyph says "mail" or "doorbell"
+    /// faster than four scrolling words can. The id is resolved at render
+    /// time rather than stored as pixels, so replacing an icon updates every
+    /// notification that names it.
+    std::string icon;
 
     // Assigned by the queue.
     std::uint64_t enqueuedAtMillis = 0;
@@ -129,16 +144,18 @@ private:
     std::uint32_t dropped_ = 0;
 };
 
-/// Draw a notification as a full-panel overlay: its text, auto-scrolled when too
-/// wide, over a cleared background.
+/// Draw a notification as a full-panel overlay: an optional icon, then its
+/// text, auto-scrolled when too wide, over a cleared background.
 ///
-/// Deliberately simple. Richer notification layouts belong in the scene model
-/// once assets exist, and a notification that cannot render is worse than one
-/// that renders plainly.
+/// `icons` may be null, and the named icon may be missing - in both cases the
+/// text takes the whole panel. That is deliberate: the message is the point,
+/// and a notification that refuses to appear because a decoration is absent
+/// would be the worst possible trade.
 void render(Canvas& canvas,
             const Notification& notification,
             const Rect& box,
-            std::uint64_t elapsedMillis);
+            std::uint64_t elapsedMillis,
+            const asset::IconStore* icons = nullptr);
 
 }  // namespace notify
 }  // namespace stipple
