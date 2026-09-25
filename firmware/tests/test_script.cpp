@@ -32,8 +32,13 @@ STIPPLE_TEST(Script, AnInterpreterCostsAKnownAmountOfMemory) {
     // that is not a question to answer by guessing. This is Berry's own
     // accounting, so a change to the sandbox that doubles the footprint
     // fails here rather than on a device with 36 MB and no swap.
+    // Collected, not raw. memoryBytes() is what has been allocated and not
+    // yet reclaimed, collectGarbage() is what is actually live, and comparing
+    // one against the other measures the gap between them rather than
+    // anything about the script. That mistake was in this test and held only
+    // by luck until the prelude changed what a bare interpreter contains.
     ScriptHost empty;
-    const std::size_t baseline = empty.memoryBytes();
+    const std::size_t baseline = empty.collectGarbage();
 
     // A bare interpreter, before any script. The bound is generous - the
     // point is to catch a regression of the order that matters, not to pin

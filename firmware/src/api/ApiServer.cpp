@@ -1367,6 +1367,17 @@ Response ApiServer::handleScriptCollection(const Request& request) {
         entry.name = stored->name;
         entry.builtin = app::Builtin::Script;
         entry.source = app::AppSource::Local;
+
+        // A script with a duration() gets what it asked for, rounded to whole
+        // seconds because that is what the carousel deals in. Only on the
+        // first save: after that it is the user's setting, and a script
+        // overwriting it on every edit would undo a choice they made on
+        // purpose. The script declares a default, not a policy.
+        const std::uint32_t wanted = context_.scripts->durationMillis(id);
+        if (wanted > 0) {
+            entry.durationSeconds = static_cast<int>((wanted + 999u) / 1000u);
+        }
+
         context_.apps->put(std::move(entry));
     }
 

@@ -3,6 +3,9 @@
 
 #include "stipple/script/ScriptHost.h"
 
+#include <cstdio>
+#include <cstdlib>
+
 namespace stipple {
 namespace script {
 
@@ -175,6 +178,14 @@ bool ScriptStore::button(std::string_view id, std::string_view name) {
     return result == ScriptHost::EventResult::Handled;
 }
 
+std::uint32_t ScriptStore::durationMillis(std::string_view id) {
+    Entry* entry = findEntry(id);
+    if (entry == nullptr || entry->host == nullptr || !entry->host->ready()) {
+        return 0;
+    }
+    return entry->host->durationMillis();
+}
+
 void ScriptStore::setEnvironment(const ScriptEnvironment& environment) noexcept {
     environment_ = environment;
     for (Entry& entry : entries_) {
@@ -213,8 +224,12 @@ std::size_t ScriptStore::memoryBytes() const noexcept {
 
 namespace {
 
+/// Stands in for a missing interpreter's values, so serialize() has something
+/// to take a reference to rather than a branch around every use.
+const std::vector<std::pair<std::string, ScriptHost::Stored>> kNoStoredValues;
+
 constexpr char kMagic[] = "SBS";       // Stipple Berry Scripts
-constexpr std::uint8_t kFormatVersion = 1;
+constexpr std::uint8_t kFormatVersion = 2;  // 2 adds each script's stored values
 
 void pushByte(std::string& out, std::uint8_t value) {
     out.push_back(static_cast<char>(value));
@@ -283,6 +298,43 @@ std::string ScriptStore::serialize() const {
         out += entry.info.name;
         pushUint32(out, static_cast<std::uint32_t>(entry.info.source.size()));
         out += entry.info.source;
+
+        // What the script asked the device to remember. A high score that did
+        // not survive a power cut is not a high score.
+        const auto& stored =
+            entry.host != nullptr ? entry.host->stored() : kNoStoredValues;
+        pushByte(out, static_cast<std::uint8_t>(stored.size()));
+        for (const auto& pair : stored) {
+            pushByte(out, static_cast<std::uint8_t>(pair.first.size()));
+            out += pair.first;
+            pushByte(out, static_cast<std::uint8_t>(pair.second.kind));
+            switch (pair.second.kind) {
+                case ScriptHost::Stored::Kind::Integer:
+                    pushUint32(out, static_cast<std::uint32_t>(pair.second.integer));
+                    break;
+                case ScriptHost::Stored::Kind::Real: {
+                    // Written as the text of the number rather than as raw
+                    // float bytes. This blob is read back by the same build
+                    // that wrote it today and by a different one after an
+                    // update, and a float's byte order is not something to
+                    // assume across that.
+                    char buffer[32];
+                    std::snprintf(buffer, sizeof(buffer), "%.7g",
+                                  static_cast<double>(pair.second.real));
+                    const std::string text(buffer);
+                    pushByte(out, static_cast<std::uint8_t>(text.size()));
+                    out += text;
+                    break;
+                }
+                case ScriptHost::Stored::Kind::Boolean:
+                    pushByte(out, pair.second.boolean ? 1u : 0u);
+                    break;
+                case ScriptHost::Stored::Kind::Text:
+                    pushByte(out, static_cast<std::uint8_t>(pair.second.text.size()));
+                    out += pair.second.text;
+                    break;
+            }
+        }
     }
     return out;
 }
@@ -314,6 +366,7 @@ bool ScriptStore::deserialize(std::string_view blob) {
         std::string id;
         std::string name;
         std::string source;
+        std::vector<std::pair<std::string, ScriptHost::Stored>> stored;
     };
     std::vector<Pending> pending;
     pending.reserve(stored);
@@ -329,6 +382,54 @@ bool ScriptStore::deserialize(std::string_view blob) {
         if (sourceLength > ScriptHost::kMaxSourceBytes) { return false; }
         if (!reader.text(sourceLength, entry.source)) { return false; }
         if (!validScriptId(entry.id)) { return false; }
+
+        std::uint8_t storedCount = 0;
+        if (!reader.byte(storedCount) || storedCount > ScriptHost::kMaxStoreKeys) {
+            return false;
+        }
+        for (std::uint8_t k = 0; k < storedCount; ++k) {
+            std::string key;
+            std::uint8_t keyLength = 0;
+            std::uint8_t kind = 0;
+            if (!reader.byte(keyLength) || !reader.text(keyLength, key)) { return false; }
+            if (!reader.byte(kind) ||
+                kind > static_cast<std::uint8_t>(ScriptHost::Stored::Kind::Text)) {
+                return false;
+            }
+
+            ScriptHost::Stored value;
+            value.kind = static_cast<ScriptHost::Stored::Kind>(kind);
+            switch (value.kind) {
+                case ScriptHost::Stored::Kind::Integer: {
+                    std::uint32_t raw = 0;
+                    if (!reader.uint32(raw)) { return false; }
+                    value.integer = static_cast<std::int32_t>(raw);
+                    break;
+                }
+                case ScriptHost::Stored::Kind::Real: {
+                    std::string text;
+                    std::uint8_t length = 0;
+                    if (!reader.byte(length) || !reader.text(length, text)) { return false; }
+                    value.real = std::strtof(text.c_str(), nullptr);
+                    break;
+                }
+                case ScriptHost::Stored::Kind::Boolean: {
+                    std::uint8_t raw = 0;
+                    if (!reader.byte(raw)) { return false; }
+                    value.boolean = raw != 0;
+                    break;
+                }
+                case ScriptHost::Stored::Kind::Text: {
+                    std::uint8_t length = 0;
+                    if (!reader.byte(length) || !reader.text(length, value.text)) {
+                        return false;
+                    }
+                    break;
+                }
+            }
+            entry.stored.emplace_back(std::move(key), std::move(value));
+        }
+
         pending.push_back(std::move(entry));
     }
 
@@ -343,7 +444,15 @@ bool ScriptStore::deserialize(std::string_view blob) {
         // stored script that no longer compiles - because the firmware's
         // builtins changed under it, say - comes back with its source intact
         // and its reason attached, exactly as if it had just been typed.
+        const std::string id = entry.id;
         put(std::move(entry.id), std::move(entry.name), std::move(entry.source));
+
+        // After put(), because put() builds a fresh interpreter and would
+        // throw the values away if they were restored first.
+        if (Entry* restored = findEntry(id);
+            restored != nullptr && restored->host != nullptr) {
+            restored->host->restoreStored(std::move(entry.stored));
+        }
     }
     return true;
 }

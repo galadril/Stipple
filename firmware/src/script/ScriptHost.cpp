@@ -6,6 +6,8 @@ extern "C" {
 #include "be_gc.h"
 }
 
+#include <cstring>
+
 #include "stipple/core/Rgb.h"
 #include "stipple/graphics/Canvas.h"
 #include "stipple/graphics/Framebuffer.h"
@@ -28,6 +30,10 @@ struct Active {
     std::uint32_t heartbeats = 0;
     bool overBudget = false;
     ScriptEnvironment environment;
+
+    /// The drawing script's own remembered values. Null outside a call, so a
+    /// builtin reached any other way writes nothing.
+    std::vector<std::pair<std::string, ScriptHost::Stored>>* store = nullptr;
 };
 
 Active g_active;
@@ -227,6 +233,155 @@ int b_charging(bvm* vm) {
     be_return(vm);
 }
 
+/* --- remembering things -----------------------------------------------------
+ *
+ * `store.get(key, fallback)` and `store.set(key, value)`, which is how the
+ * scripts people have already written keep a high score or a preference.
+ *
+ * The native half is two plain functions. The `store` object a script actually
+ * calls is built by a few lines of Berry at start-up (see kPrelude), because
+ * defining a class from C is a page of table-building for something the
+ * language expresses in five lines - and those five lines cost about a hundred
+ * bytes in a VM that costs four thousand.
+ */
+
+ScriptHost::Stored* findStored(const char* key) {
+    if (g_active.store == nullptr || key == nullptr) {
+        return nullptr;
+    }
+    for (auto& entry : *g_active.store) {
+        if (entry.first == key) {
+            return &entry.second;
+        }
+    }
+    return nullptr;
+}
+
+void pushStored(bvm* vm, const ScriptHost::Stored& value) {
+    switch (value.kind) {
+        case ScriptHost::Stored::Kind::Integer:
+            be_pushint(vm, value.integer);
+            return;
+        case ScriptHost::Stored::Kind::Real:
+            be_pushreal(vm, value.real);
+            return;
+        case ScriptHost::Stored::Kind::Boolean:
+            be_pushbool(vm, value.boolean ? 1 : 0);
+            return;
+        case ScriptHost::Stored::Kind::Text:
+            be_pushstring(vm, value.text.c_str());
+            return;
+    }
+    be_pushnil(vm);
+}
+
+int b_store_get(bvm* vm) {
+    const int top = be_top(vm);
+    if (top >= 1 && be_isstring(vm, 1)) {
+        if (const ScriptHost::Stored* found = findStored(be_tostring(vm, 1));
+            found != nullptr) {
+            pushStored(vm, *found);
+            be_return(vm);
+        }
+    }
+
+    // Nothing stored: hand back the fallback the script supplied, whatever it
+    // is. Returning nil instead would make every script write the same three
+    // lines of defaulting.
+    if (top >= 2) {
+        be_pushvalue(vm, 2);
+    } else {
+        be_pushnil(vm);
+    }
+    be_return(vm);
+}
+
+int b_store_set(bvm* vm) {
+    if (g_active.store == nullptr || be_top(vm) < 2 || !be_isstring(vm, 1)) {
+        be_return_nil(vm);
+    }
+
+    const char* key = be_tostring(vm, 1);
+    if (key == nullptr || key[0] == 0 ||
+        std::strlen(key) > ScriptHost::kMaxStoreKeyBytes) {
+        be_return_nil(vm);
+    }
+
+    ScriptHost::Stored value;
+    if (be_isint(vm, 2)) {
+        value.kind = ScriptHost::Stored::Kind::Integer;
+        value.integer = static_cast<std::int32_t>(be_toint(vm, 2));
+    } else if (be_isbool(vm, 2)) {
+        value.kind = ScriptHost::Stored::Kind::Boolean;
+        value.boolean = be_tobool(vm, 2) != 0;
+    } else if (be_isreal(vm, 2)) {
+        value.kind = ScriptHost::Stored::Kind::Real;
+        value.real = static_cast<float>(be_toreal(vm, 2));
+    } else if (be_isstring(vm, 2)) {
+        value.kind = ScriptHost::Stored::Kind::Text;
+        const char* text = be_tostring(vm, 2);
+        value.text = text != nullptr ? text : "";
+        if (value.text.size() > ScriptHost::kMaxStoreTextBytes) {
+            value.text.resize(ScriptHost::kMaxStoreTextBytes);
+        }
+    } else {
+        // Lists, maps and instances are not stored. They have no stable shape
+        // to write to flash, and quietly storing something else under the key
+        // would be worse than refusing.
+        be_return_nil(vm);
+    }
+
+    if (ScriptHost::Stored* existing = findStored(key); existing != nullptr) {
+        *existing = std::move(value);
+        be_return_nil(vm);
+    }
+
+    // Full. Refused rather than evicting something: a script cannot be
+    // expected to guess which of its own keys the device threw away.
+    if (g_active.store->size() >= ScriptHost::kMaxStoreKeys) {
+        be_return_nil(vm);
+    }
+
+    g_active.store->emplace_back(key, std::move(value));
+    be_return_nil(vm);
+}
+
+/* --- scrolling text ---------------------------------------------------------
+ *
+ * A panel eight characters wide needs this for almost any real message, and
+ * the scripts people have written already call it.
+ *
+ * Returns the number of complete passes, which is the only way a script can
+ * know its message has been read - Selenograph uses exactly that to decide
+ * when to move on from a scrolling caption to the next thing.
+ */
+int b_scroll_text(bvm* vm) {
+    int laps = 0;
+    if (g_active.canvas != nullptr && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        const char* body = be_tostring(vm, 1);
+        const Rgb colour = be_top(vm) >= 2 ? fromScriptColor(be_toint(vm, 2)) : colors::kWhite;
+        const int y = be_top(vm) >= 3 ? argInt(vm, 3) : (Framebuffer::kHeight - 7) / 2;
+
+        const int ink = text::measureLine(body, text::font5x7());
+
+        // One pass is the text entering from the right and leaving on the
+        // left, so the cycle is the panel plus the text. Measured in pixels
+        // travelled rather than in frames, so the speed is the same whatever
+        // the frame rate - and identical in the emulator and on the device.
+        const int cycle = Framebuffer::kWidth + ink;
+        if (cycle > 0) {
+            constexpr int kPixelsPerSecond = 14;  // slow enough to read
+            const int travelled =
+                static_cast<int>((g_active.elapsedMillis * kPixelsPerSecond) / 1000u);
+            laps = travelled / cycle;
+            const int x = Framebuffer::kWidth - (travelled % cycle);
+            text::drawLine(*g_active.canvas, body, x, y, text::font5x7(), colour);
+        }
+    }
+    be_pushint(vm, laps);
+    be_return(vm);
+}
+
 int b_now_ms(bvm* vm) {
     be_pushint(vm, static_cast<bint>(g_active.elapsedMillis));
     be_return(vm);
@@ -258,7 +413,33 @@ void registerBuiltins(bvm* vm) {
     be_regfunc(vm, "battery", b_battery);
     be_regfunc(vm, "battery_known", b_battery_known);
     be_regfunc(vm, "charging", b_charging);
+
+    be_regfunc(vm, "scroll_text", b_scroll_text);
+
+    // The plain functions behind `store`. Named with a leading underscore
+    // because the prelude wraps them and a script has no reason to call them
+    // directly.
+    be_regfunc(vm, "_store_get", b_store_get);
+    be_regfunc(vm, "_store_set", b_store_set);
 }
+
+/// Berry that runs before any script.
+///
+/// Only what is genuinely easier to express in the language than in C. `store`
+/// is a two-method object, which is five lines here against a page of
+/// table-building from the C side, and costs about a hundred bytes in a VM
+/// that costs four thousand.
+constexpr const char* kPrelude = R"BERRY(
+class _StippleStore
+  def get(key, fallback)
+    return _store_get(key, fallback)
+  end
+  def set(key, value)
+    return _store_set(key, value)
+  end
+end
+store = _StippleStore()
+)BERRY";
 
 /// The global the instance is stashed under.
 ///
@@ -278,6 +459,19 @@ ScriptHost::ScriptHost() : state_(new State()) {
     if (state_->vm != nullptr) {
         be_set_obs_hook(state_->vm, observe);
         registerBuiltins(state_->vm);
+
+        // The prelude is ours, so a failure here is a bug in this file rather
+        // than in somebody's script - but it must not take the device with
+        // it. A VM without `store` still runs every script that does not use
+        // it, which is most of them.
+        bvm* vm = state_->vm;
+        const int top = be_top(vm);
+        if (be_loadbuffer(vm, "prelude", kPrelude, std::strlen(kPrelude)) == 0) {
+            be_pcall(vm, 0);
+        }
+        if (const int extra = be_top(vm) - top; extra > 0) {
+            be_pop(vm, extra);
+        }
     }
 }
 
@@ -344,6 +538,54 @@ bool ScriptHost::load(std::string_view source, std::string& problem) {
 
     ready_ = true;
     return true;
+}
+
+const std::vector<std::pair<std::string, ScriptHost::Stored>>&
+ScriptHost::stored() const noexcept {
+    return store_;
+}
+
+void ScriptHost::restoreStored(std::vector<std::pair<std::string, Stored>> values) {
+    if (values.size() > kMaxStoreKeys) {
+        values.resize(kMaxStoreKeys);
+    }
+    store_ = std::move(values);
+}
+
+std::uint32_t ScriptHost::durationMillis() {
+    if (!ready_ || state_ == nullptr || state_->vm == nullptr) {
+        return 0;
+    }
+
+    bvm* vm = state_->vm;
+    const int topBefore = be_top(vm);
+    std::uint32_t millis = 0;
+
+    g_active.environment = environment_;
+    g_active.store = &store_;
+    g_active.heartbeats = 0;
+    g_active.overBudget = false;
+
+    if (be_getglobal(vm, kInstance)) {
+        if (be_getmethod(vm, -1, "duration")) {
+            be_pushvalue(vm, -2);
+            if (be_pcall(vm, 1) == 0 && be_isint(vm, -1)) {
+                const bint value = be_toint(vm, -1);
+                // Clamped rather than trusted. A script asking for a week on
+                // screen has made a mistake, and honouring it would look
+                // exactly like the carousel having stopped.
+                constexpr bint kCeiling = 10 * 60 * 1000;
+                millis = static_cast<std::uint32_t>(
+                    value < 0 ? 0 : (value > kCeiling ? kCeiling : value));
+            }
+        }
+    }
+
+    if (const int extra = be_top(vm) - topBefore; extra > 0) {
+        be_pop(vm, extra);
+    }
+    g_active.store = nullptr;
+    return millis;
 }
 
 void ScriptHost::setEnvironment(const ScriptEnvironment& environment) noexcept {
@@ -423,6 +665,7 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
     g_active.canvas = &canvas;
     g_active.elapsedMillis = elapsedMillis;
     g_active.environment = environment_;
+    g_active.store = &store_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -436,6 +679,7 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
         problem = "the script has no draw() method";
     }
     g_active.canvas = nullptr;
+    g_active.store = nullptr;
 
     if (result != EventResult::Handled) {
         // Disabled rather than retried. A script that throws thirty times a
@@ -459,6 +703,7 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
     // into whatever the last frame left behind.
     g_active.canvas = nullptr;
     g_active.environment = environment_;
+    g_active.store = &store_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -469,6 +714,8 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
     if (g_active.overBudget && problem.empty()) {
         problem = "the button handler ran too long";
     }
+    g_active.store = nullptr;
+
     if (result == EventResult::Failed) {
         // A handler that loops for ever is exactly as bad as a draw() that
         // does, and gets the same answer.

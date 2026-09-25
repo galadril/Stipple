@@ -126,6 +126,13 @@ public:
     /// same reason.
     virtual bool button(std::string_view id, std::string_view name) = 0;
 
+    /// How long a script would like on screen, in milliseconds.
+    ///
+    /// Zero means it did not say, and the carousel's own setting applies. A
+    /// script that cycles through three readouts needs longer than the
+    /// default and nothing else can know that.
+    virtual std::uint32_t durationMillis(std::string_view id) = 0;
+
     /// Tell every script what the device currently knows.
     ///
     /// Set once per frame by the host, before anything draws. Cheap enough to

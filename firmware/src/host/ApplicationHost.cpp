@@ -527,10 +527,16 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
             // The knob is deliberately not offered. It is how somebody moves
             // between apps, and a script that took it would be a script you
             // could not leave.
+            //
+            // "select" rather than "action", because that is the name the
+            // scripts people have already written test for. The point of
+            // matching the documented interface is that their scripts run
+            // here unchanged, and a different word for the only button would
+            // undo most of that for the sake of a nicer noun.
             if (scripts_ != nullptr) {
                 if (const app::App* active = carousel_.active();
                     active != nullptr && active->builtin == app::Builtin::Script &&
-                    scripts_->button(active->id, "action")) {
+                    scripts_->button(active->id, "select")) {
                     scheduler_.invalidate();
                     break;
                 }

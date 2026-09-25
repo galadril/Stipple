@@ -490,7 +490,11 @@ STIPPLE_TEST(ScriptStore, RubbishIsRefused) {
     ScriptStore store;
     STIPPLE_CHECK(!store.deserialize(""));
     STIPPLE_CHECK(!store.deserialize("not a blob at all"));
-    STIPPLE_CHECK(!store.deserialize(std::string("SBS") + '\x02' + '\x00'));  // wrong version
+    // A version this build does not know. Deliberately far ahead rather than
+    // one step off: the point is that an unrecognised format is refused, and
+    // a number adjacent to the current one turns into a passing test the day
+    // somebody bumps the format.
+    STIPPLE_CHECK(!store.deserialize(std::string("SBS") + '\x63' + '\x00'));
 
     // A good blob with a byte glued on the end is not the blob it claims to be.
     ScriptStore source;

@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "stipple/script/IScriptRunner.h"
 
@@ -83,6 +85,39 @@ public:
     /// exactly as bad as a draw() that does, and arrives by the same route.
     EventResult button(std::string_view name, std::string& problem);
 
+    /// One value a script has asked the device to remember.
+    ///
+    /// Tagged rather than everything-is-a-string, because `store.get("sound",
+    /// false)` has to give back a boolean and a script comparing it to `false`
+    /// would otherwise get the string "false", which Berry considers true.
+    struct Stored {
+        enum class Kind : std::uint8_t { Integer, Real, Boolean, Text };
+        Kind kind = Kind::Integer;
+        std::int32_t integer = 0;
+        float real = 0.0f;
+        bool boolean = false;
+        std::string text;
+    };
+
+    /// Bounded like everything else. A script that writes a new key every
+    /// frame would otherwise fill the device with its own rubbish, and it
+    /// would do it slowly enough that nobody would connect the two.
+    static constexpr std::size_t kMaxStoreKeys = 16;
+    static constexpr std::size_t kMaxStoreKeyBytes = 32;
+    static constexpr std::size_t kMaxStoreTextBytes = 128;
+
+    /// The script's remembered values, in insertion order, for persistence.
+    const std::vector<std::pair<std::string, Stored>>& stored() const noexcept;
+    void restoreStored(std::vector<std::pair<std::string, Stored>> values);
+
+    /// Ask the script how long it would like on screen, in milliseconds.
+    ///
+    /// Zero when it has no `duration()`, which means the carousel's own
+    /// setting applies. A script that wants longer has to say so - a moon
+    /// phase cycling through three readouts needs more than the default five
+    /// seconds, and nothing else can know that.
+    std::uint32_t durationMillis();
+
     /// What this script sees of the device. Read by the time and battery
     /// builtins; set by the host before each frame.
     void setEnvironment(const ScriptEnvironment& environment) noexcept;
@@ -127,6 +162,7 @@ private:
     bool ready_ = false;
     std::uint32_t lastInstructions_ = 0;
     ScriptEnvironment environment_;
+    std::vector<std::pair<std::string, Stored>> store_;
 };
 
 }  // namespace script
