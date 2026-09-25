@@ -42,12 +42,25 @@ body {
   line-height: 1.55;
 }
 
+/* The reading column, on solid black.
+ *
+ * Same reasoning as the main site: the dot grid is the identity and it stays,
+ * but text sitting directly on it is hard to read - at body size the dots
+ * land between the letterforms and compete with them. The content gets an
+ * unlit backing and the grid frames it.
+ *
+ * On theme rather than a retreat from it: the grid is the panel with nothing
+ * on it, the content is the part that is lit.
+ */
 main {
   max-width: 68rem;
   margin: 0 auto;
   padding: 0 var(--pad) 4rem;
   display: grid;
   gap: clamp(1.5rem, 4vw, 2.5rem);
+  background-color: var(--void);
+  border-left: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
 }
 
 :focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
