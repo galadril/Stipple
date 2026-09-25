@@ -374,7 +374,59 @@ void ApplicationHost::loadScripts() {
         platform_.storage().remove(kScriptStateKey);
         return;
     }
+    // Every restored script gets its app back.
+    //
+    // Without this, scripts silently stopped appearing after a reboot. The
+    // API creates a script's app when the script is written, but that only
+    // covers the write: on the next boot the scripts came back from their own
+    // blob while the apps came from the stored carousel order, which had
+    // never been told about them. The script listed as perfectly fine and
+    // could not reach the panel.
+    //
+    // Found on hardware, not in a test - the device had an aquarium script
+    // with nothing to show it.
+    //
+    // Only where the app is missing. An app restored from the stored order
+    // already carries the position, duration and enabled flag somebody chose,
+    // and recreating it would throw all three away every time the device
+    // started.
+    int restored = 0;
+    for (int i = 0; i < scripts_->count(); ++i) {
+        const script::Script* entry = scripts_->at(i);
+        if (entry == nullptr || registry_.find(entry->id) != nullptr) {
+            continue;
+        }
+        app::App app;
+        app.id = entry->id;
+        app.name = entry->name;
+        app.builtin = app::Builtin::Script;
+        app.source = app::AppSource::Local;
+        if (const std::uint32_t wanted = scripts_->durationMillis(entry->id); wanted > 0) {
+            app.durationSeconds = static_cast<int>((wanted + 999u) / 1000u);
+        }
+        registry_.put(std::move(app));
+        ++restored;
+    }
+
     logger_.info(platform_.clock().monotonicMillis(), "scripts loaded");
+
+    if (restored > 0) {
+        // And the stored arrangement applied again, now that those apps
+        // exist.
+        //
+        // initialize() already did this once, before the scripts were loaded,
+        // so every script's stored position, duration and enabled flag was
+        // skipped as "an app that no longer exists". Recreating the app
+        // without this gives it back at the end of the carousel, switched on,
+        // at the default duration - undoing a choice somebody made on purpose
+        // every time the device started.
+        //
+        // Safe to repeat: it walks the stored order and ignores what it
+        // cannot find, so the second pass only fills in what the first could
+        // not.
+        applyStoredAppOrder();
+        logger_.info(platform_.clock().monotonicMillis(), "restored apps for scripts");
+    }
 }
 
 void ApplicationHost::persistScriptsIfChanged() {
@@ -853,16 +905,31 @@ void ApplicationHost::applyStoredAppOrder() {
     // silently taking someone else's place.
     int position = 0;
     for (const config::AppPreference& preference : stored) {
-        app::App* existing = registry_.find(preference.id);
-        if (existing == nullptr) {
+        if (registry_.find(preference.id) == nullptr) {
             // An app that no longer exists. Normal rather than exceptional:
             // firmware changes, integrations stop pushing, and a stored order
             // from an older build must not stop a newer one booting.
             continue;
         }
+
         registry_.move(preference.id, position);
         registry_.setEnabled(preference.id, preference.enabled);
-        existing->durationSeconds = preference.durationSeconds;
+
+        // Looked up again, after the move.
+        //
+        // move() erases and reinserts, which shifts every element between the
+        // old and new positions - so a pointer taken before it no longer
+        // refers to the same app. The previous version of this wrote the
+        // duration through such a pointer and put it on whichever app had
+        // been shuffled into that slot.
+        //
+        // It stayed hidden because move() returns early when the app is
+        // already where it should be, which is the usual case on a boot where
+        // nothing has changed. It surfaced as soon as a script's app was
+        // appended at the end and then moved to the front.
+        if (app::App* moved = registry_.find(preference.id); moved != nullptr) {
+            moved->durationSeconds = preference.durationSeconds;
+        }
         ++position;
     }
 
