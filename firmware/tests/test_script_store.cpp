@@ -867,3 +867,52 @@ STIPPLE_TEST(ScriptStore, TheHostPublishesTheEnvironmentEveryFrame) {
     // is that the script saw a real clock rather than a default.
     STIPPLE_CHECK_EQ(countLit(platform.simulatedDisplay().lastFrame()), 1);
 }
+
+STIPPLE_TEST(ScriptApi, AScriptsAppCannotBeDeletedOnItsOwn) {
+    // Found on real hardware: a script whose app had been deleted from the
+    // Apps tab still listed as fine under Scripts and could never reach the
+    // panel again. Writing a script creates its app, so every script has one
+    // - removing just the app breaks that, and because apps are restored from
+    // configuration and scripts from their own blob, the orphan survives a
+    // reboot.
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    ScriptStore store;
+    host.setScriptRunner(&store);
+
+    STIPPLE_REQUIRE(call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                         R"({"id":"kept","name":"Kept",)"
+                         R"("source":"class App\n def draw()\n  pixel(0,0,rgb(1,2,3))\n end\nend\nreturn App()\n"})")
+                        .status == 201);
+    STIPPLE_REQUIRE(host.apps().find("kept") != nullptr);
+
+    // Refused, and it says where to go instead.
+    const auto refused = call(host, stipple::api::Method::Delete, "/api/v1/apps/kept");
+    STIPPLE_CHECK_EQ(refused.status, 409);
+    STIPPLE_CHECK(refused.body.find("script") != std::string::npos);
+
+    // Both still there.
+    STIPPLE_CHECK(host.apps().find("kept") != nullptr);
+    STIPPLE_CHECK(store.find("kept") != nullptr);
+
+    // Disabling is how you take it off the carousel, and that still works -
+    // otherwise the message above would be sending people nowhere.
+    STIPPLE_CHECK_EQ(call(host, stipple::api::Method::Patch, "/api/v1/apps/kept",
+                          R"({"enabled":false})").status, 200);
+    STIPPLE_REQUIRE(host.apps().find("kept") != nullptr);
+    STIPPLE_CHECK(!host.apps().find("kept")->enabled);
+
+    // And deleting the script takes the app with it, which is the way out.
+    STIPPLE_CHECK_EQ(call(host, stipple::api::Method::Delete, "/api/v1/scripts/kept").status, 204);
+    STIPPLE_CHECK(host.apps().find("kept") == nullptr);
+    STIPPLE_CHECK(store.find("kept") == nullptr);
+
+    // An ordinary app is still deletable, so the guard is narrow.
+    stipple::app::App plain;
+    plain.id = "plain";
+    plain.name = "Plain";
+    plain.sceneJson = R"({"elements":[]})";
+    STIPPLE_REQUIRE(host.apps().put(plain) == stipple::app::AppRegistry::PutResult::Added);
+    STIPPLE_CHECK_EQ(call(host, stipple::api::Method::Delete, "/api/v1/apps/plain").status, 204);
+}

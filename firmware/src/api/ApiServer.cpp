@@ -761,6 +761,24 @@ Response ApiServer::handleAppItem(const Request& request,
         if (existing->source == app::AppSource::System) {
             return conflict("system apps cannot be deleted");
         }
+
+        // A script's app is not deletable on its own.
+        //
+        // Writing a script creates its app, so the invariant is that every
+        // script has one. Removing just the app breaks that and leaves the
+        // script listed as perfectly fine while having no way to ever reach
+        // the panel - and because apps are restored from configuration and
+        // scripts from their own blob, the orphan survives a reboot.
+        //
+        // Deleting the source instead would be worse: somebody tidying their
+        // carousel does not expect to lose the code. So this points at the
+        // place that does both, and `enabled` remains the way to take a
+        // script off the rotation without losing anything.
+        if (existing->builtin == app::Builtin::Script) {
+            return conflict("this app belongs to a script; delete the script itself, "
+                            "or disable the app to take it off the carousel");
+        }
+
         context_.apps->remove(id);
         if (context_.carousel != nullptr) {
             context_.carousel->tick(nowMillis);
