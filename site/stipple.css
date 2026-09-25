@@ -37,7 +37,8 @@ html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
   background-color: var(--void);
-  /* Unlit pixels, everywhere, at a fixed pitch. Content sits on them. */
+  /* Unlit pixels at a fixed pitch. The content does not sit on them - see the
+     note on `main` below. */
   background-image: radial-gradient(var(--grid) 1px, transparent 1px);
   background-size: var(--pitch) var(--pitch);
   background-position: center top;
@@ -69,6 +70,28 @@ a:hover { color: var(--ink); }
   background: var(--void);
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--cyan);
+}
+
+/* The reading column, on solid black.
+
+   The dot grid is the identity and it stays, but body text sitting directly
+   on it is hard to read: at body size the dots land between the letterforms
+   and compete with them. So the content gets an unlit backing and the grid
+   frames it rather than running underneath.
+
+   That is on theme rather than a retreat from it. The grid is the panel with
+   nothing on it; the content is the part that is lit. A hairline either side
+   makes the edge deliberate instead of looking like a rendering gap.
+
+   Wider than the 76rem the sections use, so the backing reads as a margin
+   around the content rather than as a box drawn tightly round it. Below that
+   width it simply fills, because a phone has no room to spend on framing. */
+main {
+  max-width: 82rem;
+  margin: 0 auto;
+  background-color: var(--void);
+  border-left: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
 }
 
 /* --- bar ------------------------------------------------------------------ */
