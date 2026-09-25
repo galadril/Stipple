@@ -916,3 +916,90 @@ STIPPLE_TEST(ScriptApi, AScriptsAppCannotBeDeletedOnItsOwn) {
     STIPPLE_REQUIRE(host.apps().put(plain) == stipple::app::AppRegistry::PutResult::Added);
     STIPPLE_CHECK_EQ(call(host, stipple::api::Method::Delete, "/api/v1/apps/plain").status, 204);
 }
+
+STIPPLE_TEST(ScriptStore, ARestoredScriptGetsItsAppBack) {
+    // Found on hardware: after a restart the device had an aquarium script
+    // that compiled, reported ok, and had nothing to show it.
+    //
+    // The API creates a script's app when the script is written, which only
+    // covers the write. On the next boot the scripts came back from their own
+    // blob and the apps from the stored carousel order, which had never been
+    // told about them - so every script quietly stopped appearing, and the
+    // Scripts tab said everything was fine.
+    SimulatorPlatform platform;
+
+    {
+        ApplicationHost host(platform, quietConfig());
+        STIPPLE_REQUIRE(host.initialize());
+        ScriptStore store;
+        host.setScriptRunner(&store);
+        STIPPLE_REQUIRE(call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                             R"({"id":"tank","name":"Tank",)"
+                             R"("source":"class App\n def draw()\n  pixel(4,4,rgb(0,200,255))\n end\nend\nreturn App()\n"})")
+                            .status == 201);
+        STIPPLE_REQUIRE(host.apps().find("tank") != nullptr);
+        host.tick(1000);  // persistence happens on the tick
+    }
+
+    // Same storage, new device.
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    ScriptStore store;
+    host.setScriptRunner(&store);
+
+    STIPPLE_REQUIRE(store.find("tank") != nullptr);
+    STIPPLE_CHECK(store.find("tank")->ok);
+
+    // The part that was missing.
+    const stipple::app::App* entry = host.apps().find("tank");
+    STIPPLE_REQUIRE(entry != nullptr);
+    STIPPLE_CHECK(entry->builtin == stipple::app::Builtin::Script);
+    STIPPLE_CHECK(entry->name == "Tank");
+
+    // And it actually draws, which is the whole point of having the app back.
+    STIPPLE_REQUIRE(host.carousel().pin("tank", 1000));
+    host.tick(1000);
+    STIPPLE_CHECK(countLit(platform.simulatedDisplay().lastFrame()) > 0);
+}
+
+STIPPLE_TEST(ScriptStore, RestoringDoesNotUndoTheCarouselArrangement) {
+    // The repair above must not become its own bug. Somebody who turned a
+    // script off, moved it and set its duration has said something, and a
+    // reboot must not quietly put it all back.
+    SimulatorPlatform platform;
+
+    {
+        ApplicationHost host(platform, quietConfig());
+        STIPPLE_REQUIRE(host.initialize());
+        ScriptStore store;
+        host.setScriptRunner(&store);
+        STIPPLE_REQUIRE(call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                             R"({"id":"quiet","name":"Quiet",)"
+                             R"("source":"class App\n def draw()\n  pixel(1,1,rgb(9,9,9))\n end\nend\nreturn App()\n"})")
+                            .status == 201);
+        // Through the API, the way somebody would.
+        //
+        // Writing the field on the registry's App directly does not persist:
+        // the order is written out when the registry's revision moves, and a
+        // raw field write does not move it. The reconciler then notices the
+        // live registry disagreeing with the stored order and puts the stored
+        // value back - which is right, and which quietly undid the first
+        // version of this test.
+        STIPPLE_REQUIRE(call(host, stipple::api::Method::Patch, "/api/v1/apps/quiet",
+                             R"({"enabled":false,"durationSeconds":17})").status == 200);
+        STIPPLE_REQUIRE(host.apps().move("quiet", 0));
+        host.tick(1000);
+        host.tick(2000);
+    }
+
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+    ScriptStore store;
+    host.setScriptRunner(&store);
+
+    const stipple::app::App* entry = host.apps().find("quiet");
+    STIPPLE_REQUIRE(entry != nullptr);
+    STIPPLE_CHECK_EQ(host.apps().indexOf("quiet"), 0);
+    STIPPLE_CHECK(!entry->enabled);
+    STIPPLE_CHECK_EQ(entry->durationSeconds, 17);
+}

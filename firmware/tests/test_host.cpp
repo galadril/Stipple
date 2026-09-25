@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "stipple/host/ApplicationHost.h"
 
+#include <cstdio>
 #include <string>
 
 #include "stipple/apps/VisualizerApp.h"
@@ -2372,4 +2373,70 @@ STIPPLE_TEST(Host, CorruptStorageIsNotAFirstRun) {
     host.initialize();
 
     STIPPLE_CHECK_FALSE(host.firstRun());
+}
+
+STIPPLE_TEST(Host, RestoringAnOrderThatActuallyMovesThingsKeepsEachDuration) {
+    // The narrow version of a bug found while restoring script apps.
+    //
+    // applyStoredAppOrder() took a pointer to the app, then called move(),
+    // then wrote the duration through that pointer. move() erases and
+    // reinserts, so everything between the old and new position shifts and
+    // the pointer no longer refers to the same app - the duration landed on
+    // whichever one had been shuffled into that slot.
+    //
+    // It hid for a long time because move() returns early when an app is
+    // already in the right place, which is every boot where nothing has
+    // changed. This arranges a stored order that genuinely reorders things.
+    //
+    // Built-in apps, because they are the ones that exist again after a
+    // restart: an app pushed over the API lives in RAM and only its position
+    // in the order is remembered.
+    // Power and the microphone turned on, so the battery and visualizer apps
+    // exist. Three apps is the smallest number that shows this: with two, the
+    // second pass through the loop happens to overwrite the damage the first
+    // one did, and the test would pass against the broken code.
+    stipple::platform::simulator::SimulatorCapabilities all;
+    all.power = true;
+    all.microphone = true;
+    SimulatorPlatform platform(all);
+
+    {
+        ApplicationHost host(platform, quietConfig());
+        STIPPLE_REQUIRE(host.initialize());
+
+        const struct { const char* id; const char* body; } wanted[] = {
+            {"clock", R"({"durationSeconds":11})"},
+            {"stopwatch", R"({"durationSeconds":22})"},
+            {"battery", R"({"durationSeconds":33})"},
+        };
+        for (const auto& each : wanted) {
+            stipple::api::Request patch;
+            patch.method = stipple::api::Method::Patch;
+            patch.path = std::string("/api/v1/apps/") + each.id;
+            patch.body = each.body;
+            STIPPLE_REQUIRE(host.handle(patch).status == 200);
+        }
+
+        // Reverse them, so restoring has real work to do.
+        STIPPLE_REQUIRE(host.apps().move("battery", 0));
+        STIPPLE_REQUIRE(host.apps().move("stopwatch", 1));
+        host.tick(1000);
+        host.tick(2000);
+    }
+
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+
+    // Each duration on its own app, not on whichever one moved into its place.
+    const struct { const char* id; int seconds; } expected[] = {
+        {"clock", 11}, {"stopwatch", 22}, {"battery", 33},
+    };
+    for (const auto& want : expected) {
+        const stipple::app::App* app = host.apps().find(want.id);
+        STIPPLE_REQUIRE(app != nullptr);
+        STIPPLE_CHECK_EQ(app->durationSeconds, want.seconds);
+    }
+
+    STIPPLE_CHECK_EQ(host.apps().indexOf("battery"), 0);
+    STIPPLE_CHECK_EQ(host.apps().indexOf("stopwatch"), 1);
 }

@@ -149,6 +149,34 @@ jobs:
           # looks.
           mv dist/libstipple.so "dist/libstipple-${VERSION}.so"
 
+          # The image builder: everything needed to produce a flashable
+          # update.img except the one thing that cannot be published.
+          #
+          # A res image contains Ulanzi's libzkgui.so. Shipping one would be
+          # redistributing their firmware, so this ships our half - the shim
+          # source, the library, and the script that rebuilds a capture with
+          # them - and the vendor's half is taken from the user's own device,
+          # where it already legitimately is.
+          mkdir -p dist/imagebuilder
+          cp tooling/imgtool/buildres.sh tooling/imgtool/imgtool.py dist/imagebuilder/
+          cp firmware/tools/startup_shim/main.cpp dist/imagebuilder/startup_shim.cpp
+          cp "dist/libstipple-${VERSION}.so" dist/imagebuilder/libstipple.so
+          cp docs/install.md dist/imagebuilder/README.md
+          zip -j -q "dist/stipple-imagebuilder-${VERSION}.zip" dist/imagebuilder/*
+
+          # Everything the manifest is about to describe must already exist.
+          #
+          # It did not, once: the manifest was written before the image
+          # builder was zipped, so sha256sum and stat both failed, their empty
+          # output left `"bytes": ,` in the file, and the whole thing surfaced
+          # as a JSON decode error pointing at line 19 - which says nothing
+          # about what actually went wrong.
+          for f in "dist/libstipple-${VERSION}.so" \
+                   "dist/stipple-imagebuilder-${VERSION}.zip" \
+                   "dist/stipple-emulator-${VERSION}.zip"; do
+            [ -f "$f" ] || { echo "::error::manifest would describe a missing file: $f"; exit 1; }
+          done
+
           api_version="$(sed -nE 's/.*kApiVersion[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' firmware/include/stipple/core/Version.h | head -1)"
 
           # Blueprint §28's manifest shape, with the honesty fields this stage
@@ -188,21 +216,6 @@ jobs:
 
           python3 -c "import json,sys; json.load(open('dist/manifest.json'))" \
             || { echo "::error::generated manifest.json is not valid JSON"; exit 1; }
-
-          # The image builder: everything needed to produce a flashable
-          # update.img except the one thing that cannot be published.
-          #
-          # A res image contains Ulanzi's libzkgui.so. Shipping one would be
-          # redistributing their firmware, so this ships our half - the shim
-          # source, the library, and the script that rebuilds a capture with
-          # them - and the vendor's half is taken from the user's own device,
-          # where it already legitimately is.
-          mkdir -p dist/imagebuilder
-          cp tooling/imgtool/buildres.sh tooling/imgtool/imgtool.py dist/imagebuilder/
-          cp firmware/tools/startup_shim/main.cpp dist/imagebuilder/startup_shim.cpp
-          cp "dist/libstipple-${VERSION}.so" dist/imagebuilder/libstipple.so
-          cp docs/install.md dist/imagebuilder/README.md
-          zip -j -q "dist/stipple-imagebuilder-${VERSION}.zip" dist/imagebuilder/*
 
           ( cd dist && sha256sum "stipple-emulator-${VERSION}.zip" "stipple-imagebuilder-${VERSION}.zip" "libstipple-${VERSION}.so" manifest.json > SHA256SUMS )
           cat dist/SHA256SUMS
