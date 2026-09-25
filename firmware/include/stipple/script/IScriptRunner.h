@@ -80,6 +80,18 @@ public:
     /// Draw one frame. False when it is missing or has failed.
     virtual bool draw(std::string_view id, Canvas& canvas, std::uint64_t elapsedMillis) = 0;
 
+    /// Offer a button press to a script.
+    ///
+    /// True when the script has an `on_button(name)` and it ran. False when it
+    /// has none, so the press falls through to whatever it would normally have
+    /// done - a script that does not want the button must not swallow it.
+    ///
+    /// Only the action button is offered, never the knob. The knob is how
+    /// somebody moves between apps, and a script that took it would be a
+    /// script you could not leave. The stopwatch made the same call for the
+    /// same reason.
+    virtual bool button(std::string_view id, std::string_view name) = 0;
+
     /// Why a script is not running, or an empty view when it is fine.
     ///
     /// The panel shows that this is non-empty; the API and the web UI show

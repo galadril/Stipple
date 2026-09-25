@@ -158,6 +158,21 @@ bool ScriptStore::draw(std::string_view id, Canvas& canvas, std::uint64_t elapse
     return drew;
 }
 
+bool ScriptStore::button(std::string_view id, std::string_view name) {
+    Entry* entry = findEntry(id);
+    if (entry == nullptr || entry->host == nullptr || !entry->host->ready()) {
+        return false;
+    }
+
+    std::string problem;
+    const ScriptHost::EventResult result = entry->host->button(name, problem);
+    if (result == ScriptHost::EventResult::Failed) {
+        entry->info.problem = problem;
+    }
+    refresh(*entry);
+    return result == ScriptHost::EventResult::Handled;
+}
+
 void ScriptStore::collectGarbage(std::string_view id) {
     if (Entry* entry = findEntry(id); entry != nullptr && entry->host != nullptr) {
         entry->info.memoryBytes = entry->host->collectGarbage();

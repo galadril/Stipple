@@ -283,6 +283,54 @@ std::size_t ScriptHost::collectGarbage() noexcept {
     return be_gc_memcount(state_->vm);
 }
 
+ScriptHost::EventResult ScriptHost::invoke(const char* method, const char* argument,
+                                           std::string& problem) {
+    // Every call into a script goes through here, so the stack discipline
+    // lives in one place.
+    //
+    // That is not tidiness. The first version of draw() popped a count one
+    // short of what it pushed and leaked a single 16-byte slot per frame -
+    // invisible in any short test, fatal after about two minutes on screen
+    // once BE_STACK_TOTAL_MAX ran out. Adding on_button by copying that
+    // sequence would have copied the bug with it. So the depth is recorded
+    // and restored, which is right whatever the call leaves behind, including
+    // on the error paths where the exception value's position is least
+    // obvious.
+    bvm* vm = state_->vm;
+    const int topBefore = be_top(vm);
+    EventResult result = EventResult::NotDefined;
+
+    if (be_getglobal(vm, kInstance)) {
+        if (be_getmethod(vm, -1, method)) {
+            // The instance is the receiver, so it moves above the method.
+            be_pushvalue(vm, -2);
+            int argc = 1;
+            if (argument != nullptr) {
+                be_pushstring(vm, argument);
+                ++argc;
+            }
+            if (be_pcall(vm, argc) == 0) {
+                result = EventResult::Handled;
+            } else {
+                problem = be_isstring(vm, -1) ? be_tostring(vm, -1)
+                                              : "the script failed while running";
+                result = EventResult::Failed;
+            }
+        }
+        // Otherwise NotDefined, which is not an error. An optional callback
+        // the script did not write must let the press fall through rather
+        // than swallowing it.
+    } else {
+        problem = "the script instance is gone";
+        result = EventResult::Failed;
+    }
+
+    if (const int extra = be_top(vm) - topBefore; extra > 0) {
+        be_pop(vm, extra);
+    }
+    return result;
+}
+
 bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& problem) {
     problem.clear();
     if (!ready_ || state_ == nullptr || state_->vm == nullptr) {
@@ -290,65 +338,59 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
         return false;
     }
 
-    bvm* vm = state_->vm;
-
     g_active.canvas = &canvas;
     g_active.elapsedMillis = elapsedMillis;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
-    // The stack is restored to the depth it was at, rather than by popping a
-    // count that matches what was pushed.
-    //
-    // Counting was wrong, and wrong in the way that does not show up in a
-    // test: be_pcall left one more value on the stack than the obvious
-    // reading of push-three-consume-two predicts, so every frame leaked a
-    // single slot. One bvalue is 16 bytes, which is nothing - until you
-    // notice it is 16 bytes thirty times a second, and BE_STACK_TOTAL_MAX is
-    // 4000 slots. A script would have died of stack exhaustion after about
-    // two minutes on screen.
-    //
-    // So the depth is recorded and restored. It is right whatever the call
-    // sequence leaves behind, including on the error paths where the
-    // exception value's position is least obvious.
-    const int topBefore = be_top(vm);
-
-    bool ok = false;
-    if (be_getglobal(vm, kInstance)) {
-        if (be_getmethod(vm, -1, "draw")) {
-            // The instance is the receiver, so it moves above the method.
-            be_pushvalue(vm, -2);
-            if (be_pcall(vm, 1) == 0) {
-                ok = true;
-            } else {
-                problem = be_isstring(vm, -1) ? be_tostring(vm, -1)
-                                              : "the script failed while drawing";
-            }
-        } else {
-            problem = "the script has no draw() method";
-        }
-    } else {
-        problem = "the script instance is gone";
-    }
-
-    if (const int extra = be_top(vm) - topBefore; extra > 0) {
-        be_pop(vm, extra);
-    }
+    const EventResult result = invoke("draw", nullptr, problem);
 
     lastInstructions_ = g_active.heartbeats * 65536u;
     if (g_active.overBudget && problem.empty()) {
         problem = "the script ran too long for one frame";
     }
-
+    if (result == EventResult::NotDefined) {
+        problem = "the script has no draw() method";
+    }
     g_active.canvas = nullptr;
 
-    if (!ok) {
+    if (result != EventResult::Handled) {
         // Disabled rather than retried. A script that throws thirty times a
         // second fills the log and starves everything else of time, and the
         // author needs to see the first error rather than the ten thousandth.
         ready_ = false;
+        return false;
     }
-    return ok;
+    return true;
+}
+
+ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& problem) {
+    problem.clear();
+    if (!ready_ || state_ == nullptr || state_->vm == nullptr) {
+        return EventResult::NotDefined;
+    }
+
+    // No canvas. A button arrives between frames, not during one, and the
+    // drawing builtins check for a canvas before touching anything - so a
+    // handler that tries to draw quietly does nothing rather than writing
+    // into whatever the last frame left behind.
+    g_active.canvas = nullptr;
+    g_active.heartbeats = 0;
+    g_active.overBudget = false;
+
+    const std::string held(name);
+    const EventResult result = invoke("on_button", held.c_str(), problem);
+
+    lastInstructions_ = g_active.heartbeats * 65536u;
+    if (g_active.overBudget && problem.empty()) {
+        problem = "the button handler ran too long";
+    }
+    if (result == EventResult::Failed) {
+        // A handler that loops for ever is exactly as bad as a draw() that
+        // does, and gets the same answer.
+        ready_ = false;
+    }
+    return result;
 }
 
 }  // namespace script

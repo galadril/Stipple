@@ -62,6 +62,25 @@ public:
     /// something, and blanking it would hide the evidence.
     bool draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& problem);
 
+    /// What happened when an optional callback was offered to a script.
+    ///
+    /// Three outcomes rather than a bool, because "the script has no
+    /// on_button" and "the script's on_button threw" need different
+    /// responses: the first should let the press fall through to the
+    /// carousel, and the second must not.
+    enum class EventResult {
+        NotDefined,
+        Handled,
+        Failed,
+    };
+
+    /// Offer a button press to the script's `on_button(name)`.
+    ///
+    /// Bounded by the same instruction budget as draw(), and a failure
+    /// disables the script the same way - a handler that loops for ever is
+    /// exactly as bad as a draw() that does, and arrives by the same route.
+    EventResult button(std::string_view name, std::string& problem);
+
     /// Whether a script is loaded and has not failed.
     bool ready() const noexcept { return ready_; }
 
@@ -91,6 +110,12 @@ public:
     std::size_t collectGarbage() noexcept;
 
 private:
+    /// Call an optional method on the script's instance.
+    ///
+    /// One place, because this is where the stack accounting lives and a
+    /// second copy of it is a second chance to get it wrong.
+    EventResult invoke(const char* method, const char* argument, std::string& problem);
+
     struct State;
     State* state_;
     bool ready_ = false;

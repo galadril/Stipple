@@ -66,6 +66,7 @@ public:
     /// so this stays false until the source is saved again.
     bool draw(std::string_view id, Canvas& canvas, std::uint64_t elapsedMillis) override;
 
+    bool button(std::string_view id, std::string_view name) override;
     bool has(std::string_view id) const noexcept override;
     std::string_view problem(std::string_view id) const noexcept override;
 

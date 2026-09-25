@@ -471,6 +471,26 @@ void ApplicationHost::handleInput(const platform::InputEvent& event) {
                 scheduler_.invalidate();
                 break;
             }
+            // A script gets the press for the same reason the stopwatch does:
+            // this is the only control an app is given, and for an app that
+            // wants one, pausing the carousel is not what it is for.
+            //
+            // Only if the script actually has an on_button. One that does not
+            // must let the press fall through - a script that silently
+            // swallowed the only button would be an app you could not pause
+            // and would look like a device that had stopped responding.
+            //
+            // The knob is deliberately not offered. It is how somebody moves
+            // between apps, and a script that took it would be a script you
+            // could not leave.
+            if (scripts_ != nullptr) {
+                if (const app::App* active = carousel_.active();
+                    active != nullptr && active->builtin == app::Builtin::Script &&
+                    scripts_->button(active->id, "action")) {
+                    scheduler_.invalidate();
+                    break;
+                }
+            }
             carousel_.setPaused(!carousel_.paused());
             break;
         case input::Action::NotificationDismiss:

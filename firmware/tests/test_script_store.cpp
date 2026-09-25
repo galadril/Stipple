@@ -653,3 +653,97 @@ STIPPLE_TEST(ScriptApi, EditingAScriptLeavesTheCarouselArrangementAlone) {
     STIPPLE_REQUIRE(store.find("s") != nullptr);
     STIPPLE_CHECK(store.find("s")->source.find("pixel(0,0,rgb(1,1,1))") != std::string::npos);
 }
+
+// --- buttons -----------------------------------------------------------------
+
+STIPPLE_TEST(ScriptStore, AScriptWithOnButtonGetsThePress) {
+    ScriptStore store;
+    STIPPLE_REQUIRE(store.put("game", "Game",
+                              "class App\n"
+                              "  var presses\n"
+                              "  def init()\n"
+                              "    self.presses = 0\n"
+                              "  end\n"
+                              "  def on_button(name)\n"
+                              "    self.presses += 1\n"
+                              "  end\n"
+                              "  def draw()\n"
+                              "    pixel(self.presses, 0, rgb(255, 255, 255))\n"
+                              "  end\n"
+                              "end\n"
+                              "return App()\n") == stipple::script::ScriptPutResult::Added);
+
+    STIPPLE_CHECK(store.button("game", "action"));
+    STIPPLE_CHECK(store.button("game", "action"));
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    STIPPLE_CHECK(store.draw("game", canvas, 0));
+    STIPPLE_CHECK(framebuffer.at(2, 0) != colors::kBlack);
+}
+
+STIPPLE_TEST(ScriptStore, AScriptWithoutOnButtonDoesNotSwallowThePress) {
+    // A script that silently ate the only button would be an app you could
+    // not pause, and would look like a device that had stopped responding.
+    ScriptStore store;
+    store.put("plain", "Plain", kRedPixel);
+    STIPPLE_CHECK(!store.button("plain", "action"));
+    STIPPLE_CHECK(!store.button("absent", "action"));
+}
+
+STIPPLE_TEST(ScriptStore, AButtonHandlerThatLoopsForEverIsStopped) {
+    // A handler that spins is exactly as bad as a draw() that does, and it
+    // arrives by a different route - so it needs its own budget, not an
+    // assumption that draw() covers it.
+    ScriptStore store;
+    store.put("hostile", "Hostile",
+              "class App\n"
+              "  def on_button(name)\n"
+              "    while true\n"
+              "    end\n"
+              "  end\n"
+              "  def draw()\n"
+              "  end\n"
+              "end\n"
+              "return App()\n");
+
+    // Returns at all, which is the assertion.
+    STIPPLE_CHECK(!store.button("hostile", "action"));
+    STIPPLE_REQUIRE(store.find("hostile") != nullptr);
+    STIPPLE_CHECK(!store.find("hostile")->ok);
+    STIPPLE_CHECK(!store.find("hostile")->problem.empty());
+}
+
+STIPPLE_TEST(ScriptStore, ThePressReachesAScriptThroughTheWholeDevice) {
+    SimulatorPlatform platform;
+    ApplicationHost host(platform, quietConfig());
+    STIPPLE_REQUIRE(host.initialize());
+
+    ScriptStore store;
+    host.setScriptRunner(&store);
+    STIPPLE_REQUIRE(call(host, stipple::api::Method::Post, "/api/v1/scripts",
+                         R"({"id":"tally","name":"Tally",)"
+                         R"("source":"class App\n var n\n def init()\n  self.n = 0\n end\n)"
+                         R"( def on_button(name)\n  self.n += 1\n end\n)"
+                         R"( def draw()\n  rect_fill(0, 0, self.n, 16, rgb(0, 255, 0))\n end\nend\nreturn App()\n"})")
+                        .status == 201);
+
+    STIPPLE_REQUIRE(host.carousel().pin("tally", 1000));
+    host.tick(1000);
+    const int before = countLit(platform.simulatedDisplay().lastFrame());
+
+    // Through the real input path - a short knob press, which is what the
+    // action button is on this hardware - rather than by calling the store.
+    // A long press is the way into settings, so these are deliberately brief.
+    platform.simulatedInput().pressAndRelease(
+        stipple::platform::RawInput::RotaryPress, 1050, 80);
+    host.tick(1200);
+    platform.simulatedInput().pressAndRelease(
+        stipple::platform::RawInput::RotaryPress, 1250, 80);
+    host.tick(1400);
+
+    STIPPLE_CHECK(countLit(platform.simulatedDisplay().lastFrame()) > before);
+
+    // And the carousel was not paused by presses the script took.
+    STIPPLE_CHECK(!host.carousel().paused());
+}
