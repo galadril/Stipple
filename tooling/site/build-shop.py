@@ -231,7 +231,12 @@ def main():
     cards = "".join(card(parse(path)) for path in files)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(PAGE.format(cards=cards), encoding="utf-8")
+    # Newlines pinned to LF. Without it Python translates to CRLF on Windows,
+    # so the file a Windows developer regenerates differs from the one Linux
+    # CI regenerates - and the diff check that exists to catch real drift
+    # would fail on every line instead.
+    with open(OUT, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(PAGE.format(cards=cards))
     print("build-shop: %d scripts -> %s" % (len(files), OUT.relative_to(ROOT)))
     return 0
 
