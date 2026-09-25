@@ -1045,7 +1045,13 @@ Response ApiServer::handleNotificationItem(const Request& request,
 
 namespace {
 
-void writeIcon(JsonWriter& writer, const asset::Icon& icon) {
+/// `withPixels` is only ever set for a single-icon fetch.
+///
+/// The collection deliberately stays metadata: a store holding sixty-four
+/// icons could otherwise answer one request with several hundred kilobytes
+/// of JSON, on a device that has to build the whole string in RAM before it
+/// can send any of it.
+void writeIcon(JsonWriter& writer, const asset::Icon& icon, bool withPixels = false) {
     writer.beginObject()
         .member("id", icon.id)
         .member("width", icon.width)
@@ -1059,6 +1065,25 @@ void writeIcon(JsonWriter& writer, const asset::Icon& icon) {
     } else {
         writer.nullValue();
     }
+
+    if (withPixels) {
+        // Named `pixels` rather than `frames`, because `frames` already means
+        // the count here and changing it would break every existing reader.
+        // The shape matches what POST accepts, so an icon fetched from one
+        // device can be posted to another without translation.
+        const std::size_t perFrame = icon.pixelsPerFrame();
+        writer.key("pixels").beginArray();
+        for (int frame = 0; frame < icon.frameCount; ++frame) {
+            writer.beginArray();
+            const std::size_t base = static_cast<std::size_t>(frame) * perFrame;
+            for (std::size_t i = 0; i < perFrame; ++i) {
+                writer.value(static_cast<std::int64_t>(toPacked(icon.pixels[base + i])));
+            }
+            writer.endArray();
+        }
+        writer.endArray();
+    }
+
     writer.endObject();
 }
 
@@ -1185,7 +1210,7 @@ Response ApiServer::handleAssetItem(const Request& request, const std::string& i
             return notFound("no such icon");
         }
         JsonWriter writer;
-        writeIcon(writer, *icon);
+        writeIcon(writer, *icon, /*withPixels=*/true);
         return ok(writer.take());
     }
 

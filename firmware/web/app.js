@@ -636,6 +636,215 @@
             });
     }
 
+    // --- icons ---------------------------------------------------------------
+
+    // Magenta. Nothing legible uses it, and the device stores transparency as
+    // a colour key rather than an alpha channel because an LED is on or off -
+    // a fourth byte on every pixel would buy nothing.
+    var TRANSPARENT_KEY = 0xff00ff;
+
+    // The panel is sixteen rows tall, so an icon taller than that could never
+    // be shown whole. Wider is allowed: a 32-wide strip is a legitimate thing
+    // to put beside a short label.
+    var ICON_MAX_HEIGHT = 16;
+    var ICON_MAX_WIDTH = 32;
+
+    function iconIdFromName(name) {
+        var base = name.replace(/\.[^.]+$/, '').toLowerCase();
+        var cleaned = base.replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+        return cleaned.slice(0, 48) || 'icon';
+    }
+
+    function fitToPanel(w, h) {
+        var scale = Math.min(ICON_MAX_HEIGHT / h, ICON_MAX_WIDTH / w, 1);
+        return {
+            width: Math.max(1, Math.round(w * scale)),
+            height: Math.max(1, Math.round(h * scale))
+        };
+    }
+
+    /// Decode one image into packed 0xRRGGBB, scaled to fit the panel.
+    function readFrame(file, size) {
+        return new Promise(function (resolve, reject) {
+            var url = URL.createObjectURL(file);
+            var image = new Image();
+            image.onload = function () {
+                URL.revokeObjectURL(url);
+                var target = size || fitToPanel(image.width, image.height);
+
+                var work = document.createElement('canvas');
+                work.width = target.width;
+                work.height = target.height;
+                var ctx = work.getContext('2d', { willReadFrequently: true });
+
+                // Nearest neighbour. Smoothing a 64x64 glyph down to 16x16
+                // turns crisp pixel art into grey mush on a panel that cannot
+                // blend.
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(image, 0, 0, target.width, target.height);
+
+                var data = ctx.getImageData(0, 0, target.width, target.height).data;
+                var packed = [];
+                for (var i = 0; i < target.width * target.height; i++) {
+                    if (data[i * 4 + 3] < 128) {
+                        packed.push(TRANSPARENT_KEY);
+                    } else {
+                        packed.push((data[i * 4] << 16) | (data[i * 4 + 1] << 8) | data[i * 4 + 2]);
+                    }
+                }
+                resolve({ size: target, pixels: packed });
+            };
+            image.onerror = function () {
+                URL.revokeObjectURL(url);
+                reject(new Error(file.name + ' is not an image this browser can read'));
+            };
+            image.src = url;
+        });
+    }
+
+    /// Several files become the frames of one animation, in the order chosen.
+    function uploadIcons(files) {
+        if (!files.length) { return Promise.resolve(); }
+
+        var id = iconIdFromName(files[0].name);
+        var frames = [];
+        var size = null;
+
+        // Sequential rather than Promise.all: every frame after the first has
+        // to match the first one's size, so the first has to finish before the
+        // rest can start.
+        var chain = Promise.resolve();
+        Array.prototype.forEach.call(files, function (file) {
+            chain = chain.then(function () {
+                return readFrame(file, size).then(function (frame) {
+                    if (!size) { size = frame.size; }
+                    frames.push(frame.pixels);
+                });
+            });
+        });
+
+        return chain.then(function () {
+            return send('POST', '/api/v1/assets', {
+                id: id,
+                width: size.width,
+                height: size.height,
+                frameMillis: 100,
+                transparent: TRANSPARENT_KEY,
+                frames: frames
+            });
+        }).then(function () {
+            toast(frames.length > 1
+                ? id + ' stored, ' + frames.length + ' frames'
+                : id + ' stored');
+            return loadIcons();
+        });
+    }
+
+    function drawIcon(canvas, icon, pixels) {
+        canvas.width = icon.width;
+        canvas.height = icon.height;
+        var ctx = canvas.getContext('2d');
+        var image = ctx.createImageData(icon.width, icon.height);
+        // Only the first frame: a list of animations all playing at once is
+        // harder to read than a list of stills.
+        for (var i = 0; i < icon.width * icon.height; i++) {
+            var packed = pixels[i];
+            image.data[i * 4] = (packed >> 16) & 0xff;
+            image.data[i * 4 + 1] = (packed >> 8) & 0xff;
+            image.data[i * 4 + 2] = packed & 0xff;
+            image.data[i * 4 + 3] = packed === icon.transparent ? 0 : 255;
+        }
+        ctx.putImageData(image, 0, 0);
+    }
+
+    function loadIcons() {
+        return send('GET', '/api/v1/assets').then(function (result) {
+            var list = $('icon-list');
+            if (!list) { return; }
+            list.textContent = '';
+
+            var icons = result.assets || [];
+            var budget = $('icon-budget');
+            if (budget) {
+                var used = result.bytesUsed || 0;
+                var total = used + (result.bytesFree || 0);
+                budget.textContent = icons.length
+                    ? icons.length + ' stored, ' +
+                      Math.round(used / 102.4) / 10 + ' of ' +
+                      Math.round(total / 1024) + ' KB used'
+                    : 'none stored';
+            }
+
+            if (!icons.length) { return; }
+
+            // Pixels come one icon at a time, and deliberately in sequence:
+            // this device serves HTTP from a single loop, and sixty-four
+            // parallel requests would be a denial of service written by its
+            // own configuration page.
+            var chain = Promise.resolve();
+            icons.forEach(function (icon) {
+                var row = el('li');
+
+                var canvas = el('canvas', 'icon-preview');
+                canvas.width = icon.width;
+                canvas.height = icon.height;
+
+                var body = el('div', 'grow');
+                body.appendChild(el('div', 'identity', icon.id));
+                body.appendChild(el('div', 'muted',
+                    icon.width + '×' + icon.height +
+                    (icon.frames > 1 ? ', ' + icon.frames + ' frames' : '') +
+                    ', ' + icon.bytes + ' bytes'));
+
+                var remove = el('button', 'btn', 'Delete');
+                remove.type = 'button';
+                remove.addEventListener('click', function () {
+                    if (!confirm('Delete the icon "' + icon.id + '"?')) { return; }
+                    send('DELETE', '/api/v1/assets/' + encodeURIComponent(icon.id))
+                        .then(function () { toast(icon.id + ' deleted'); return loadIcons(); })
+                        .catch(fail);
+                });
+
+                row.appendChild(canvas);
+                row.appendChild(body);
+                row.appendChild(remove);
+                list.appendChild(row);
+
+                chain = chain.then(function () {
+                    return send('GET', '/api/v1/assets/' + encodeURIComponent(icon.id))
+                        .then(function (full) {
+                            if (full.pixels && full.pixels.length) {
+                                drawIcon(canvas, full, full.pixels[0]);
+                            }
+                        })
+                        // A preview that will not load is not worth failing
+                        // the whole list over.
+                        .catch(function () {});
+                });
+            });
+            return chain;
+        });
+    }
+
+    function wireIcons() {
+        var add = $('icon-add');
+        var file = $('icon-file');
+        if (!add || !file) { return; }
+
+        add.addEventListener('click', function () { file.click(); });
+        file.addEventListener('change', function () {
+            var chosen = file.files;
+            if (!chosen || !chosen.length) { return; }
+            add.disabled = true;
+            uploadIcons(chosen)
+                .catch(fail)
+                .then(function () {
+                    add.disabled = false;
+                    file.value = '';
+                });
+        });
+    }
+
     function loadApps() {
         return send('GET', '/api/v1/apps').then(function (result) {
             var list = $('app-list');
@@ -1449,7 +1658,13 @@
     }
 
     function refreshActive() {
-        if (activePanel === 'panel-apps') { return loadApps().catch(fail); }
+        if (activePanel === 'panel-apps') {
+            // Icons load with the panel rather than at startup. Each one costs
+            // a request for its pixels, and a device that fetched sixty-four
+            // of them before showing a clock would be answering its own
+            // configuration page instead of running.
+            return loadApps().then(loadIcons).catch(fail);
+        }
         if (activePanel === 'panel-notify') { return loadNotifications().catch(fail); }
         if (activePanel === 'panel-logs') { return loadLogs().catch(fail); }
         // Refreshed when the tab is open rather than on its own timer. A scan
@@ -2201,6 +2416,7 @@
         wireTabs();
         wireNotify();
         wireMqtt();
+        wireIcons();
         wireReboot();
         wireMaintenance();
         wireNetwork();

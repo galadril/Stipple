@@ -222,3 +222,32 @@ STIPPLE_TEST(WebAssets, ThePageDeclaresAnIconSoBrowsersStopGuessing) {
     STIPPLE_CHECK(html.find("rel=\"icon\"") != std::string::npos);
     STIPPLE_CHECK(html.find("/favicon.svg") != std::string::npos);
 }
+
+STIPPLE_TEST(WebAssets, TheIconManagerIsWiredToTheElementsItNeeds) {
+    // The script looks these up by id and returns quietly if any is missing,
+    // which is the right behaviour at runtime and a silent failure here: the
+    // section would simply never appear, and nothing would say why.
+    const Asset* page = findAsset("/index.html");
+    STIPPLE_REQUIRE(page != nullptr);
+    const std::string html(page->body);
+
+    for (const char* id : {"icon-add", "icon-file", "icon-list", "icon-budget"}) {
+        STIPPLE_CHECK(html.find(std::string("id=\"") + id + "\"") != std::string::npos);
+    }
+
+    // Multiple files become the frames of one animation, so the picker has to
+    // accept more than one.
+    STIPPLE_CHECK(html.find("id=\"icon-file\"") != std::string::npos);
+    STIPPLE_CHECK(html.find("multiple") != std::string::npos);
+
+    const Asset* script = findAsset("/app.js");
+    STIPPLE_REQUIRE(script != nullptr);
+    const std::string js(script->body);
+
+    // Conversion happens in the browser on purpose: decoding PNG or GIF on
+    // the device would mean running inflate or LZW over a file somebody
+    // uploaded.
+    STIPPLE_CHECK(js.find("/api/v1/assets") != std::string::npos);
+    STIPPLE_CHECK(js.find("wireIcons") != std::string::npos);
+    STIPPLE_CHECK(js.find("loadIcons") != std::string::npos);
+}
