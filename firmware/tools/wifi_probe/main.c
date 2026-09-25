@@ -44,7 +44,7 @@ static int openControl(void) {
     struct sockaddr_un local;
     memset(&local, 0, sizeof(local));
     local.sun_family = AF_UNIX;
-    snprintf(clientPath, sizeof(clientPath), "/tmp/notrix-wpa-%d", (int)getpid());
+    snprintf(clientPath, sizeof(clientPath), "/tmp/stipple-wpa-%d", (int)getpid());
     snprintf(local.sun_path, sizeof(local.sun_path), "%s", clientPath);
 
     if (bind(control, (struct sockaddr*)&local, sizeof(local)) < 0) {

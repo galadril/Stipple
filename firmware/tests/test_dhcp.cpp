@@ -3,23 +3,23 @@
 #include <string>
 #include <vector>
 
-#include "notrix/net/DhcpClient.h"
-#include "notrix/net/DhcpMessage.h"
+#include "stipple/net/DhcpClient.h"
+#include "stipple/net/DhcpMessage.h"
 #include "support/TestFramework.h"
 
-using notrix::net::dhcp::build;
-using notrix::net::dhcp::DhcpClient;
-using notrix::net::dhcp::formatIpv4;
-using notrix::net::dhcp::kBroadcastAddress;
-using notrix::net::dhcp::kFixedBytes;
-using notrix::net::dhcp::kInfiniteLease;
-using notrix::net::dhcp::kMagicCookie;
-using notrix::net::dhcp::MessageType;
-using notrix::net::dhcp::parse;
-using notrix::net::dhcp::parseIpv4;
-using notrix::net::dhcp::prefixLength;
-using notrix::net::dhcp::Reply;
-using notrix::net::dhcp::Request;
+using stipple::net::dhcp::build;
+using stipple::net::dhcp::DhcpClient;
+using stipple::net::dhcp::formatIpv4;
+using stipple::net::dhcp::kBroadcastAddress;
+using stipple::net::dhcp::kFixedBytes;
+using stipple::net::dhcp::kInfiniteLease;
+using stipple::net::dhcp::kMagicCookie;
+using stipple::net::dhcp::MessageType;
+using stipple::net::dhcp::parse;
+using stipple::net::dhcp::parseIpv4;
+using stipple::net::dhcp::prefixLength;
+using stipple::net::dhcp::Reply;
+using stipple::net::dhcp::Request;
 
 namespace {
 
@@ -173,7 +173,7 @@ std::uint8_t typeOf(const DhcpClient::Packet& packet) {
 
 /// Drive a client all the way to bound, and report the time it happened.
 ///
-/// Plain returns rather than NOTRIX_REQUIRE: the macro returns from the
+/// Plain returns rather than STIPPLE_REQUIRE: the macro returns from the
 /// enclosing function, which a helper with a value to give back cannot do.
 /// A failure here shows up as the caller's own assertions failing, which is
 /// the right place to read it anyway.
@@ -210,77 +210,77 @@ std::uint64_t handshake(DhcpClient& client, std::uint64_t startMillis,
 
 // --- the wire format ------------------------------------------------------
 
-NOTRIX_TEST(Dhcp, BuildsADiscoverThatLooksLikeOne) {
+STIPPLE_TEST(Dhcp, BuildsADiscoverThatLooksLikeOne) {
     Request request;
     request.xid = 0xDEADBEEFu;
     for (std::size_t i = 0; i < 6; ++i) {
         request.mac[i] = kMac[i];
     }
-    request.hostname = "notrix";
+    request.hostname = "stipple";
 
     std::uint8_t out[600];
     const std::size_t size = build(MessageType::kDiscover, request, out, sizeof(out));
-    NOTRIX_CHECK(size >= 300);
+    STIPPLE_CHECK(size >= 300);
 
-    NOTRIX_CHECK_EQ(int(out[0]), 1);  // BOOTREQUEST
-    NOTRIX_CHECK_EQ(int(out[1]), 1);  // ethernet
-    NOTRIX_CHECK_EQ(int(out[2]), 6);
-    NOTRIX_CHECK_EQ(int(out[10]) & 0x80, 0x80);  // broadcast, and it must be
+    STIPPLE_CHECK_EQ(int(out[0]), 1);  // BOOTREQUEST
+    STIPPLE_CHECK_EQ(int(out[1]), 1);  // ethernet
+    STIPPLE_CHECK_EQ(int(out[2]), 6);
+    STIPPLE_CHECK_EQ(int(out[10]) & 0x80, 0x80);  // broadcast, and it must be
     for (std::size_t i = 0; i < 6; ++i) {
-        NOTRIX_CHECK_EQ(int(out[28 + i]), int(kMac[i]));
+        STIPPLE_CHECK_EQ(int(out[28 + i]), int(kMac[i]));
     }
 
     const std::uint32_t cookie = (static_cast<std::uint32_t>(out[236]) << 24) |
                                  (static_cast<std::uint32_t>(out[237]) << 16) |
                                  (static_cast<std::uint32_t>(out[238]) << 8) |
                                  static_cast<std::uint32_t>(out[239]);
-    NOTRIX_CHECK_EQ(cookie, kMagicCookie);
+    STIPPLE_CHECK_EQ(cookie, kMagicCookie);
 
     std::vector<std::uint8_t> value;
-    NOTRIX_REQUIRE(findOption(out, size, 53, value));
-    NOTRIX_CHECK_EQ(int(value[0]), 1);
+    STIPPLE_REQUIRE(findOption(out, size, 53, value));
+    STIPPLE_CHECK_EQ(int(value[0]), 1);
 
-    NOTRIX_REQUIRE(findOption(out, size, 12, value));
-    NOTRIX_CHECK_EQ(std::string(value.begin(), value.end()), std::string("notrix"));
+    STIPPLE_REQUIRE(findOption(out, size, 12, value));
+    STIPPLE_CHECK_EQ(std::string(value.begin(), value.end()), std::string("stipple"));
 
     // The client identifier is what stops the address wandering between
     // reboots, so it is worth asserting rather than assuming.
-    NOTRIX_REQUIRE(findOption(out, size, 61, value));
-    NOTRIX_CHECK_EQ(value.size(), std::size_t(7));
-    NOTRIX_CHECK_EQ(int(value[0]), 1);
-    NOTRIX_CHECK_EQ(int(value[6]), int(kMac[5]));
+    STIPPLE_REQUIRE(findOption(out, size, 61, value));
+    STIPPLE_CHECK_EQ(value.size(), std::size_t(7));
+    STIPPLE_CHECK_EQ(int(value[0]), 1);
+    STIPPLE_CHECK_EQ(int(value[6]), int(kMac[5]));
 }
 
-NOTRIX_TEST(Dhcp, ReadsAnOffer) {
+STIPPLE_TEST(Dhcp, ReadsAnOffer) {
     ServerReply offer;
     offer.xid = 0x11223344u;
     const std::vector<std::uint8_t> bytes = encode(offer);
 
     Reply reply;
-    NOTRIX_REQUIRE(parse(bytes.data(), bytes.size(), reply));
-    NOTRIX_CHECK(reply.valid);
-    NOTRIX_CHECK(reply.type == MessageType::kOffer);
-    NOTRIX_CHECK_EQ(reply.xid, 0x11223344u);
-    NOTRIX_CHECK_EQ(reply.lease.address, kOurAddress);
-    NOTRIX_CHECK_EQ(reply.lease.mask, kMask);
-    NOTRIX_CHECK_EQ(reply.lease.router, kRouter);
-    NOTRIX_CHECK_EQ(reply.lease.server, kServer);
-    NOTRIX_CHECK_EQ(reply.lease.leaseSeconds, 3600u);
+    STIPPLE_REQUIRE(parse(bytes.data(), bytes.size(), reply));
+    STIPPLE_CHECK(reply.valid);
+    STIPPLE_CHECK(reply.type == MessageType::kOffer);
+    STIPPLE_CHECK_EQ(reply.xid, 0x11223344u);
+    STIPPLE_CHECK_EQ(reply.lease.address, kOurAddress);
+    STIPPLE_CHECK_EQ(reply.lease.mask, kMask);
+    STIPPLE_CHECK_EQ(reply.lease.router, kRouter);
+    STIPPLE_CHECK_EQ(reply.lease.server, kServer);
+    STIPPLE_CHECK_EQ(reply.lease.leaseSeconds, 3600u);
 }
 
-NOTRIX_TEST(Dhcp, FillsInTheTimersAServerLeftOut) {
+STIPPLE_TEST(Dhcp, FillsInTheTimersAServerLeftOut) {
     ServerReply offer;
     offer.xid = 1;
     offer.leaseSeconds = 3600;
     const std::vector<std::uint8_t> bytes = encode(offer);
 
     Reply reply;
-    NOTRIX_REQUIRE(parse(bytes.data(), bytes.size(), reply));
-    NOTRIX_CHECK_EQ(reply.lease.renewSeconds, 1800u);   // half
-    NOTRIX_CHECK_EQ(reply.lease.rebindSeconds, 3150u);  // seven eighths
+    STIPPLE_REQUIRE(parse(bytes.data(), bytes.size(), reply));
+    STIPPLE_CHECK_EQ(reply.lease.renewSeconds, 1800u);   // half
+    STIPPLE_CHECK_EQ(reply.lease.rebindSeconds, 3150u);  // seven eighths
 }
 
-NOTRIX_TEST(Dhcp, KeepsTheTimersAServerDidSend) {
+STIPPLE_TEST(Dhcp, KeepsTheTimersAServerDidSend) {
     ServerReply offer;
     offer.xid = 1;
     offer.leaseSeconds = 3600;
@@ -289,29 +289,29 @@ NOTRIX_TEST(Dhcp, KeepsTheTimersAServerDidSend) {
     const std::vector<std::uint8_t> bytes = encode(offer);
 
     Reply reply;
-    NOTRIX_REQUIRE(parse(bytes.data(), bytes.size(), reply));
-    NOTRIX_CHECK_EQ(reply.lease.renewSeconds, 900u);
-    NOTRIX_CHECK_EQ(reply.lease.rebindSeconds, 2700u);
+    STIPPLE_REQUIRE(parse(bytes.data(), bytes.size(), reply));
+    STIPPLE_CHECK_EQ(reply.lease.renewSeconds, 900u);
+    STIPPLE_CHECK_EQ(reply.lease.rebindSeconds, 2700u);
 }
 
-NOTRIX_TEST(Dhcp, RefusesRubbish) {
+STIPPLE_TEST(Dhcp, RefusesRubbish) {
     Reply reply;
 
     // Too short to be a DHCP packet.
     std::vector<std::uint8_t> bytes(100, 0);
-    NOTRIX_CHECK_FALSE(parse(bytes.data(), bytes.size(), reply));
+    STIPPLE_CHECK_FALSE(parse(bytes.data(), bytes.size(), reply));
 
     // A request, not a reply - our own broadcast coming back to us.
     ServerReply offer;
     offer.xid = 1;
     bytes = encode(offer);
     bytes[0] = 1;
-    NOTRIX_CHECK_FALSE(parse(bytes.data(), bytes.size(), reply));
+    STIPPLE_CHECK_FALSE(parse(bytes.data(), bytes.size(), reply));
 
     // Wrong cookie: BOOTP, or something else entirely on port 68.
     bytes = encode(offer);
     bytes[238] = 0x00;
-    NOTRIX_CHECK_FALSE(parse(bytes.data(), bytes.size(), reply));
+    STIPPLE_CHECK_FALSE(parse(bytes.data(), bytes.size(), reply));
 
     // No message type. A BOOTP reply is not a lease.
     bytes.assign(kFixedBytes, 0);
@@ -321,10 +321,10 @@ NOTRIX_TEST(Dhcp, RefusesRubbish) {
     bytes[238] = 0x53;
     bytes[239] = 0x63;
     bytes.push_back(255);
-    NOTRIX_CHECK_FALSE(parse(bytes.data(), bytes.size(), reply));
+    STIPPLE_CHECK_FALSE(parse(bytes.data(), bytes.size(), reply));
 }
 
-NOTRIX_TEST(Dhcp, RefusesAnOptionThatRunsOffTheEnd) {
+STIPPLE_TEST(Dhcp, RefusesAnOptionThatRunsOffTheEnd) {
     // The one that matters: a length byte claiming more bytes than arrived is
     // how a hand-written parser reads past its buffer, and this parser is fed
     // by anything that can reach port 68.
@@ -337,136 +337,136 @@ NOTRIX_TEST(Dhcp, RefusesAnOptionThatRunsOffTheEnd) {
     bytes.push_back(1);   // one does
 
     Reply reply;
-    NOTRIX_CHECK_FALSE(parse(bytes.data(), bytes.size(), reply));
+    STIPPLE_CHECK_FALSE(parse(bytes.data(), bytes.size(), reply));
 }
 
-NOTRIX_TEST(Dhcp, RefusesAPacketLargerThanAnyServerWouldSend) {
+STIPPLE_TEST(Dhcp, RefusesAPacketLargerThanAnyServerWouldSend) {
     ServerReply offer;
     offer.xid = 1;
     std::vector<std::uint8_t> bytes = encode(offer);
     bytes.resize(4096, 0);
 
     Reply reply;
-    NOTRIX_CHECK_FALSE(parse(bytes.data(), bytes.size(), reply));
+    STIPPLE_CHECK_FALSE(parse(bytes.data(), bytes.size(), reply));
 }
 
-NOTRIX_TEST(Dhcp, FormatsAndParsesAddresses) {
-    NOTRIX_CHECK_EQ(formatIpv4(kOurAddress), std::string("192.168.1.238"));
-    NOTRIX_CHECK_EQ(formatIpv4(0), std::string("0.0.0.0"));
-    NOTRIX_CHECK_EQ(formatIpv4(kBroadcastAddress), std::string("255.255.255.255"));
+STIPPLE_TEST(Dhcp, FormatsAndParsesAddresses) {
+    STIPPLE_CHECK_EQ(formatIpv4(kOurAddress), std::string("192.168.1.238"));
+    STIPPLE_CHECK_EQ(formatIpv4(0), std::string("0.0.0.0"));
+    STIPPLE_CHECK_EQ(formatIpv4(kBroadcastAddress), std::string("255.255.255.255"));
 
     std::uint32_t value = 0;
-    NOTRIX_REQUIRE(parseIpv4("192.168.1.238", value));
-    NOTRIX_CHECK_EQ(value, kOurAddress);
+    STIPPLE_REQUIRE(parseIpv4("192.168.1.238", value));
+    STIPPLE_CHECK_EQ(value, kOurAddress);
 
     // Everything a person might type that is not an address.
-    NOTRIX_CHECK_FALSE(parseIpv4("192.168.1", value));
-    NOTRIX_CHECK_FALSE(parseIpv4("192.168.1.999", value));
-    NOTRIX_CHECK_FALSE(parseIpv4("192.168.1.2.3", value));
-    NOTRIX_CHECK_FALSE(parseIpv4("192.168.1.", value));
-    NOTRIX_CHECK_FALSE(parseIpv4("", value));
-    NOTRIX_CHECK_FALSE(parseIpv4("hello", value));
-    NOTRIX_CHECK_FALSE(parseIpv4(" 192.168.1.1", value));
-    NOTRIX_CHECK_FALSE(parseIpv4("192.168.1.1 ", value));
+    STIPPLE_CHECK_FALSE(parseIpv4("192.168.1", value));
+    STIPPLE_CHECK_FALSE(parseIpv4("192.168.1.999", value));
+    STIPPLE_CHECK_FALSE(parseIpv4("192.168.1.2.3", value));
+    STIPPLE_CHECK_FALSE(parseIpv4("192.168.1.", value));
+    STIPPLE_CHECK_FALSE(parseIpv4("", value));
+    STIPPLE_CHECK_FALSE(parseIpv4("hello", value));
+    STIPPLE_CHECK_FALSE(parseIpv4(" 192.168.1.1", value));
+    STIPPLE_CHECK_FALSE(parseIpv4("192.168.1.1 ", value));
 }
 
-NOTRIX_TEST(Dhcp, CountsPrefixBits) {
-    NOTRIX_CHECK_EQ(prefixLength(kMask), 24);
-    NOTRIX_CHECK_EQ(prefixLength(ip(255, 255, 0, 0)), 16);
-    NOTRIX_CHECK_EQ(prefixLength(0xFFFFFFFFu), 32);
-    NOTRIX_CHECK_EQ(prefixLength(0), 0);
+STIPPLE_TEST(Dhcp, CountsPrefixBits) {
+    STIPPLE_CHECK_EQ(prefixLength(kMask), 24);
+    STIPPLE_CHECK_EQ(prefixLength(ip(255, 255, 0, 0)), 16);
+    STIPPLE_CHECK_EQ(prefixLength(0xFFFFFFFFu), 32);
+    STIPPLE_CHECK_EQ(prefixLength(0), 0);
 }
 
 // --- the state machine ----------------------------------------------------
 
-NOTRIX_TEST(DhcpClient, DoesNothingUntilStarted) {
+STIPPLE_TEST(DhcpClient, DoesNothingUntilStarted) {
     DhcpClient client;
     DhcpClient::Packet packet;
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kIdle);
-    NOTRIX_CHECK_FALSE(client.tick(1000, packet));
-    NOTRIX_CHECK_FALSE(client.bound());
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kIdle);
+    STIPPLE_CHECK_FALSE(client.tick(1000, packet));
+    STIPPLE_CHECK_FALSE(client.bound());
 }
 
-NOTRIX_TEST(DhcpClient, WalksDiscoverOfferRequestAck) {
+STIPPLE_TEST(DhcpClient, WalksDiscoverOfferRequestAck) {
     DhcpClient client;
     client.start(kMac, 0x1234u, 1000);
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kSelecting);
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kSelecting);
 
     DhcpClient::Packet packet;
-    NOTRIX_REQUIRE(client.tick(1000, packet));
-    NOTRIX_CHECK_EQ(int(typeOf(packet)), 1);  // DISCOVER
-    NOTRIX_CHECK_EQ(packet.destination, kBroadcastAddress);
+    STIPPLE_REQUIRE(client.tick(1000, packet));
+    STIPPLE_CHECK_EQ(int(typeOf(packet)), 1);  // DISCOVER
+    STIPPLE_CHECK_EQ(packet.destination, kBroadcastAddress);
     const std::uint32_t xid = xidOf(packet);
 
     ServerReply offer;
     offer.xid = xid;
     const std::vector<std::uint8_t> offerBytes = encode(offer);
     client.receive(offerBytes.data(), offerBytes.size(), 1100);
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kRequesting);
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kRequesting);
 
     // The REQUEST goes out at once rather than waiting for the retry timer:
     // an offer is only held for a moment.
-    NOTRIX_REQUIRE(client.tick(1100, packet));
-    NOTRIX_CHECK_EQ(int(typeOf(packet)), 3);  // REQUEST
-    NOTRIX_CHECK_EQ(xidOf(packet), xid);      // same conversation
+    STIPPLE_REQUIRE(client.tick(1100, packet));
+    STIPPLE_CHECK_EQ(int(typeOf(packet)), 3);  // REQUEST
+    STIPPLE_CHECK_EQ(xidOf(packet), xid);      // same conversation
 
     std::vector<std::uint8_t> value;
-    NOTRIX_REQUIRE(findOption(packet.data, packet.size, 50, value));
-    NOTRIX_CHECK_EQ(value.size(), std::size_t(4));
-    NOTRIX_REQUIRE(findOption(packet.data, packet.size, 54, value));
-    NOTRIX_CHECK_EQ(int(value[3]), 1);  // the server that offered
+    STIPPLE_REQUIRE(findOption(packet.data, packet.size, 50, value));
+    STIPPLE_CHECK_EQ(value.size(), std::size_t(4));
+    STIPPLE_REQUIRE(findOption(packet.data, packet.size, 54, value));
+    STIPPLE_CHECK_EQ(int(value[3]), 1);  // the server that offered
 
     ServerReply ack = offer;
     ack.type = MessageType::kAck;
     const std::vector<std::uint8_t> ackBytes = encode(ack);
     client.receive(ackBytes.data(), ackBytes.size(), 1200);
 
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kBound);
-    NOTRIX_CHECK(client.bound());
-    NOTRIX_CHECK_EQ(client.lease().address, kOurAddress);
-    NOTRIX_CHECK_EQ(client.lease().mask, kMask);
-    NOTRIX_CHECK_EQ(client.lease().router, kRouter);
-    NOTRIX_CHECK(client.takeAcquired());
-    NOTRIX_CHECK_FALSE(client.takeAcquired());  // reading it clears it
-    NOTRIX_CHECK_FALSE(client.takeLost());
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kBound);
+    STIPPLE_CHECK(client.bound());
+    STIPPLE_CHECK_EQ(client.lease().address, kOurAddress);
+    STIPPLE_CHECK_EQ(client.lease().mask, kMask);
+    STIPPLE_CHECK_EQ(client.lease().router, kRouter);
+    STIPPLE_CHECK(client.takeAcquired());
+    STIPPLE_CHECK_FALSE(client.takeAcquired());  // reading it clears it
+    STIPPLE_CHECK_FALSE(client.takeLost());
 }
 
-NOTRIX_TEST(DhcpClient, IgnoresSomebodyElsesConversation) {
+STIPPLE_TEST(DhcpClient, IgnoresSomebodyElsesConversation) {
     DhcpClient client;
     client.start(kMac, 0x1234u, 1000);
 
     DhcpClient::Packet packet;
-    NOTRIX_REQUIRE(client.tick(1000, packet));
+    STIPPLE_REQUIRE(client.tick(1000, packet));
 
     ServerReply offer;
     offer.xid = xidOf(packet) ^ 0xFFFFFFFFu;  // not ours
     const std::vector<std::uint8_t> bytes = encode(offer);
     client.receive(bytes.data(), bytes.size(), 1100);
 
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kSelecting);
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kSelecting);
 }
 
-NOTRIX_TEST(DhcpClient, BacksOffBetweenRetries) {
+STIPPLE_TEST(DhcpClient, BacksOffBetweenRetries) {
     DhcpClient client;
     client.start(kMac, 0x1234u, 1000);
 
     DhcpClient::Packet packet;
-    NOTRIX_REQUIRE(client.tick(1000, packet));
+    STIPPLE_REQUIRE(client.tick(1000, packet));
 
     // Four seconds, and not a tick before it.
-    NOTRIX_CHECK_FALSE(client.tick(4999, packet));
-    NOTRIX_REQUIRE(client.tick(5000, packet));
+    STIPPLE_CHECK_FALSE(client.tick(4999, packet));
+    STIPPLE_REQUIRE(client.tick(5000, packet));
 
     // Then eight.
-    NOTRIX_CHECK_FALSE(client.tick(12999, packet));
-    NOTRIX_REQUIRE(client.tick(13000, packet));
+    STIPPLE_CHECK_FALSE(client.tick(12999, packet));
+    STIPPLE_REQUIRE(client.tick(13000, packet));
 
     // Then sixteen.
-    NOTRIX_CHECK_FALSE(client.tick(28999, packet));
-    NOTRIX_REQUIRE(client.tick(29000, packet));
+    STIPPLE_CHECK_FALSE(client.tick(28999, packet));
+    STIPPLE_REQUIRE(client.tick(29000, packet));
 }
 
-NOTRIX_TEST(DhcpClient, KeepsAskingForeverAndNeverFasterThanAMinute) {
+STIPPLE_TEST(DhcpClient, KeepsAskingForeverAndNeverFasterThanAMinute) {
     // A client that gives up is a device nobody can reach, and nobody is
     // standing next to a clock waiting to restart it. It has to keep trying -
     // and it has to stop getting further apart, or by the next morning the
@@ -493,23 +493,23 @@ NOTRIX_TEST(DhcpClient, KeepsAskingForeverAndNeverFasterThanAMinute) {
         }
     }
 
-    NOTRIX_CHECK(sends > 1400);            // still asking a day later
-    NOTRIX_CHECK(longestGap <= 60000u);    // never more than a minute apart
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kSelecting);
+    STIPPLE_CHECK(sends > 1400);            // still asking a day later
+    STIPPLE_CHECK(longestGap <= 60000u);    // never more than a minute apart
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kSelecting);
 }
 
-NOTRIX_TEST(DhcpClient, StartsOverWhenAnOfferIsFollowedBySilence) {
+STIPPLE_TEST(DhcpClient, StartsOverWhenAnOfferIsFollowedBySilence) {
     DhcpClient client;
     client.start(kMac, 0x1234u, 1000);
 
     DhcpClient::Packet packet;
-    NOTRIX_REQUIRE(client.tick(1000, packet));
+    STIPPLE_REQUIRE(client.tick(1000, packet));
 
     ServerReply offer;
     offer.xid = xidOf(packet);
     const std::vector<std::uint8_t> bytes = encode(offer);
     client.receive(bytes.data(), bytes.size(), 1100);
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kRequesting);
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kRequesting);
 
     // Four REQUESTs, no answer. The address has gone to somebody else.
     std::uint64_t now = 1100;
@@ -517,29 +517,29 @@ NOTRIX_TEST(DhcpClient, StartsOverWhenAnOfferIsFollowedBySilence) {
         client.tick(now, packet);
         now += 70000;
     }
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kSelecting);
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kSelecting);
 }
 
-NOTRIX_TEST(DhcpClient, RenewsAtHalfTheLeaseAndUnicastsToTheServer) {
+STIPPLE_TEST(DhcpClient, RenewsAtHalfTheLeaseAndUnicastsToTheServer) {
     DhcpClient client;
     const std::uint64_t bound = handshake(client, 1000, 3600);
-    NOTRIX_CHECK(client.takeAcquired());  // the first bind, cleared before asking about the renewal
+    STIPPLE_CHECK(client.takeAcquired());  // the first bind, cleared before asking about the renewal
 
     DhcpClient::Packet packet;
-    NOTRIX_CHECK_FALSE(client.tick(bound + 1799999, packet));
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kBound);
+    STIPPLE_CHECK_FALSE(client.tick(bound + 1799999, packet));
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kBound);
 
-    NOTRIX_REQUIRE(client.tick(bound + 1800000, packet));
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kRenewing);
-    NOTRIX_CHECK_EQ(int(typeOf(packet)), 3);
-    NOTRIX_CHECK_EQ(packet.destination, kServer);  // unicast, not broadcast
+    STIPPLE_REQUIRE(client.tick(bound + 1800000, packet));
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kRenewing);
+    STIPPLE_CHECK_EQ(int(typeOf(packet)), 3);
+    STIPPLE_CHECK_EQ(packet.destination, kServer);  // unicast, not broadcast
 
     // A renewal says "I have this", so the address is in ciaddr and there is
     // no option 50 asking for it.
-    NOTRIX_CHECK_EQ(ciaddrOf(packet), kOurAddress);
+    STIPPLE_CHECK_EQ(ciaddrOf(packet), kOurAddress);
     std::vector<std::uint8_t> value;
-    NOTRIX_CHECK_FALSE(findOption(packet.data, packet.size, 50, value));
-    NOTRIX_CHECK_EQ(int(packet.data[10]) & 0x80, 0);  // and no broadcast flag
+    STIPPLE_CHECK_FALSE(findOption(packet.data, packet.size, 50, value));
+    STIPPLE_CHECK_EQ(int(packet.data[10]) & 0x80, 0);  // and no broadcast flag
 
     ServerReply ack;
     ack.type = MessageType::kAck;
@@ -547,12 +547,12 @@ NOTRIX_TEST(DhcpClient, RenewsAtHalfTheLeaseAndUnicastsToTheServer) {
     const std::vector<std::uint8_t> bytes = encode(ack);
     client.receive(bytes.data(), bytes.size(), bound + 1800100);
 
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kBound);
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kBound);
     // Same address, same everything: nothing for the caller to reconfigure.
-    NOTRIX_CHECK_FALSE(client.takeAcquired());
+    STIPPLE_CHECK_FALSE(client.takeAcquired());
 }
 
-NOTRIX_TEST(DhcpClient, RebindsByBroadcastWhenTheServerGoesQuiet) {
+STIPPLE_TEST(DhcpClient, RebindsByBroadcastWhenTheServerGoesQuiet) {
     DhcpClient client;
     const std::uint64_t bound = handshake(client, 1000, 3600);
 
@@ -563,18 +563,18 @@ NOTRIX_TEST(DhcpClient, RebindsByBroadcastWhenTheServerGoesQuiet) {
         client.tick(now, packet);
         now += 1000;
     }
-    NOTRIX_REQUIRE(client.tick(bound + 3150000, packet));
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kRebinding);
-    NOTRIX_CHECK_EQ(packet.destination, kBroadcastAddress);
-    NOTRIX_CHECK_EQ(ciaddrOf(packet), kOurAddress);
+    STIPPLE_REQUIRE(client.tick(bound + 3150000, packet));
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kRebinding);
+    STIPPLE_CHECK_EQ(packet.destination, kBroadcastAddress);
+    STIPPLE_CHECK_EQ(ciaddrOf(packet), kOurAddress);
 }
 
-NOTRIX_TEST(DhcpClient, GivesTheAddressUpWhenTheLeaseRunsOut) {
+STIPPLE_TEST(DhcpClient, GivesTheAddressUpWhenTheLeaseRunsOut) {
     // Keeping an expired lease is how two devices end up with one address,
     // and the second one to notice is the one that stops working.
     DhcpClient client;
     const std::uint64_t bound = handshake(client, 1000, 3600);
-    NOTRIX_CHECK(client.takeAcquired());
+    STIPPLE_CHECK(client.takeAcquired());
 
     DhcpClient::Packet packet;
     std::uint64_t now = bound + 1800000;
@@ -582,22 +582,22 @@ NOTRIX_TEST(DhcpClient, GivesTheAddressUpWhenTheLeaseRunsOut) {
         client.tick(now, packet);
         now += 1000;
     }
-    NOTRIX_CHECK(client.bound());
+    STIPPLE_CHECK(client.bound());
 
     client.tick(bound + 3600000, packet);
-    NOTRIX_CHECK_FALSE(client.bound());
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kSelecting);
-    NOTRIX_CHECK(client.takeLost());
-    NOTRIX_CHECK_EQ(client.lease().address, 0u);
+    STIPPLE_CHECK_FALSE(client.bound());
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kSelecting);
+    STIPPLE_CHECK(client.takeLost());
+    STIPPLE_CHECK_EQ(client.lease().address, 0u);
 }
 
-NOTRIX_TEST(DhcpClient, TakesANakAsAnAnswer) {
+STIPPLE_TEST(DhcpClient, TakesANakAsAnAnswer) {
     DhcpClient client;
     const std::uint64_t bound = handshake(client, 1000, 3600);
-    NOTRIX_CHECK(client.takeAcquired());
+    STIPPLE_CHECK(client.takeAcquired());
 
     DhcpClient::Packet packet;
-    NOTRIX_REQUIRE(client.tick(bound + 1800000, packet));
+    STIPPLE_REQUIRE(client.tick(bound + 1800000, packet));
 
     ServerReply nak;
     nak.type = MessageType::kNak;
@@ -605,21 +605,21 @@ NOTRIX_TEST(DhcpClient, TakesANakAsAnAnswer) {
     const std::vector<std::uint8_t> bytes = encode(nak);
     client.receive(bytes.data(), bytes.size(), bound + 1800100);
 
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kSelecting);
-    NOTRIX_CHECK(client.takeLost());
-    NOTRIX_CHECK_EQ(client.lease().address, 0u);
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kSelecting);
+    STIPPLE_CHECK(client.takeLost());
+    STIPPLE_CHECK_EQ(client.lease().address, 0u);
 }
 
-NOTRIX_TEST(DhcpClient, CarriesTheMaskAndRouterThroughARenewalThatOmitsThem) {
+STIPPLE_TEST(DhcpClient, CarriesTheMaskAndRouterThroughARenewalThatOmitsThem) {
     // A renewal usually answers with the address and nothing else. Treating
     // the missing fields as zero loses the default route every half hour,
     // which looks exactly like flaky Wi-Fi.
     DhcpClient client;
     const std::uint64_t bound = handshake(client, 1000, 3600);
-    NOTRIX_CHECK(client.takeAcquired());
+    STIPPLE_CHECK(client.takeAcquired());
 
     DhcpClient::Packet packet;
-    NOTRIX_REQUIRE(client.tick(bound + 1800000, packet));
+    STIPPLE_REQUIRE(client.tick(bound + 1800000, packet));
 
     ServerReply ack;
     ack.type = MessageType::kAck;
@@ -631,20 +631,20 @@ NOTRIX_TEST(DhcpClient, CarriesTheMaskAndRouterThroughARenewalThatOmitsThem) {
     const std::vector<std::uint8_t> bytes = encode(ack);
     client.receive(bytes.data(), bytes.size(), bound + 1800100);
 
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kBound);
-    NOTRIX_CHECK_EQ(client.lease().mask, kMask);
-    NOTRIX_CHECK_EQ(client.lease().router, kRouter);
-    NOTRIX_CHECK_EQ(client.lease().server, kServer);
-    NOTRIX_CHECK_FALSE(client.takeAcquired());
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kBound);
+    STIPPLE_CHECK_EQ(client.lease().mask, kMask);
+    STIPPLE_CHECK_EQ(client.lease().router, kRouter);
+    STIPPLE_CHECK_EQ(client.lease().server, kServer);
+    STIPPLE_CHECK_FALSE(client.takeAcquired());
 }
 
-NOTRIX_TEST(DhcpClient, TellsTheCallerWhenARenewalMovedTheAddress) {
+STIPPLE_TEST(DhcpClient, TellsTheCallerWhenARenewalMovedTheAddress) {
     DhcpClient client;
     const std::uint64_t bound = handshake(client, 1000, 3600);
-    NOTRIX_CHECK(client.takeAcquired());
+    STIPPLE_CHECK(client.takeAcquired());
 
     DhcpClient::Packet packet;
-    NOTRIX_REQUIRE(client.tick(bound + 1800000, packet));
+    STIPPLE_REQUIRE(client.tick(bound + 1800000, packet));
 
     ServerReply ack;
     ack.type = MessageType::kAck;
@@ -653,12 +653,12 @@ NOTRIX_TEST(DhcpClient, TellsTheCallerWhenARenewalMovedTheAddress) {
     const std::vector<std::uint8_t> bytes = encode(ack);
     client.receive(bytes.data(), bytes.size(), bound + 1800100);
 
-    NOTRIX_CHECK(client.takeAcquired());
-    NOTRIX_CHECK_EQ(client.lease().address, ip(192, 168, 1, 99));
+    STIPPLE_CHECK(client.takeAcquired());
+    STIPPLE_CHECK_EQ(client.lease().address, ip(192, 168, 1, 99));
 }
 
-NOTRIX_TEST(DhcpClient, AsksForTheAddressItAlreadyHas) {
-    // The point of this on a TC002: NOTRIX starts on an address the vendor
+STIPPLE_TEST(DhcpClient, AsksForTheAddressItAlreadyHas) {
+    // The point of this on a TC002: STIPPLE starts on an address the vendor
     // application obtained, and taking over the lease should be invisible to
     // everything else on the network.
     DhcpClient client;
@@ -666,27 +666,27 @@ NOTRIX_TEST(DhcpClient, AsksForTheAddressItAlreadyHas) {
     client.start(kMac, 0x1234u, 1000);
 
     DhcpClient::Packet packet;
-    NOTRIX_REQUIRE(client.tick(1000, packet));
+    STIPPLE_REQUIRE(client.tick(1000, packet));
 
     std::vector<std::uint8_t> value;
-    NOTRIX_REQUIRE(findOption(packet.data, packet.size, 50, value));
-    NOTRIX_CHECK_EQ(value.size(), std::size_t(4));
-    NOTRIX_CHECK_EQ(int(value[0]), 192);
-    NOTRIX_CHECK_EQ(int(value[3]), 238);
+    STIPPLE_REQUIRE(findOption(packet.data, packet.size, 50, value));
+    STIPPLE_CHECK_EQ(value.size(), std::size_t(4));
+    STIPPLE_CHECK_EQ(int(value[0]), 192);
+    STIPPLE_CHECK_EQ(int(value[3]), 238);
 }
 
-NOTRIX_TEST(DhcpClient, NeverRenewsAnInfiniteLease) {
+STIPPLE_TEST(DhcpClient, NeverRenewsAnInfiniteLease) {
     DhcpClient client;
     const std::uint64_t bound = handshake(client, 1000, kInfiniteLease);
 
     DhcpClient::Packet packet;
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kBound);
-    NOTRIX_CHECK_FALSE(client.tick(bound + 7ull * 24ull * 60ull * 60ull * 1000ull, packet));
-    NOTRIX_CHECK(client.bound());
-    NOTRIX_CHECK_EQ(client.remainingSeconds(bound), kInfiniteLease);
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kBound);
+    STIPPLE_CHECK_FALSE(client.tick(bound + 7ull * 24ull * 60ull * 60ull * 1000ull, packet));
+    STIPPLE_CHECK(client.bound());
+    STIPPLE_CHECK_EQ(client.remainingSeconds(bound), kInfiniteLease);
 }
 
-NOTRIX_TEST(DhcpClient, KeepsTheRenewalInsideAVeryShortLease) {
+STIPPLE_TEST(DhcpClient, KeepsTheRenewalInsideAVeryShortLease) {
     // A sixty-second lease should not become a packet storm, but the floor on
     // the renewal interval must never land after the lease has already gone.
     DhcpClient client;
@@ -700,37 +700,37 @@ NOTRIX_TEST(DhcpClient, KeepsTheRenewalInsideAVeryShortLease) {
             break;
         }
     }
-    NOTRIX_CHECK(renewed);
-    NOTRIX_CHECK(client.bound());
+    STIPPLE_CHECK(renewed);
+    STIPPLE_CHECK(client.bound());
 }
 
-NOTRIX_TEST(DhcpClient, SurvivesTheClockStepping) {
+STIPPLE_TEST(DhcpClient, SurvivesTheClockStepping) {
     // Not hypothetical: the system clock is set from the network well after
     // this starts running, so the first big step backwards is normal.
     DhcpClient client;
     const std::uint64_t bound = handshake(client, 10000000, 3600);
 
     DhcpClient::Packet packet;
-    NOTRIX_CHECK_FALSE(client.tick(bound + 1000, packet));
+    STIPPLE_CHECK_FALSE(client.tick(bound + 1000, packet));
 
     // Time jumps back half an hour. The renewal must still be half an hour of
     // real time away, not parked an hour into the future.
     const std::uint64_t stepped = bound + 1000 - 1800000;
-    NOTRIX_CHECK_FALSE(client.tick(stepped, packet));
-    NOTRIX_REQUIRE(client.tick(stepped + 1799000, packet));
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kRenewing);
+    STIPPLE_CHECK_FALSE(client.tick(stepped, packet));
+    STIPPLE_REQUIRE(client.tick(stepped + 1799000, packet));
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kRenewing);
 }
 
-NOTRIX_TEST(DhcpClient, ReportsWhatIsLeftOnTheLease) {
+STIPPLE_TEST(DhcpClient, ReportsWhatIsLeftOnTheLease) {
     DhcpClient client;
     const std::uint64_t bound = handshake(client, 1000, 3600);
 
-    NOTRIX_CHECK_EQ(client.remainingSeconds(bound), 3600u);
-    NOTRIX_CHECK_EQ(client.remainingSeconds(bound + 600000), 3000u);
-    NOTRIX_CHECK_EQ(client.remainingSeconds(bound + 3600000), 0u);
+    STIPPLE_CHECK_EQ(client.remainingSeconds(bound), 3600u);
+    STIPPLE_CHECK_EQ(client.remainingSeconds(bound + 600000), 3000u);
+    STIPPLE_CHECK_EQ(client.remainingSeconds(bound + 3600000), 0u);
 }
 
-NOTRIX_TEST(DhcpClient, StoppingKeepsTheAddressBecauseItIsStillValid) {
+STIPPLE_TEST(DhcpClient, StoppingKeepsTheAddressBecauseItIsStillValid) {
     // stop() is what the hotspot calls before taking the radio. The address
     // does not become wrong just because nobody is renewing it, and the
     // caller may well want to put it straight back.
@@ -738,7 +738,7 @@ NOTRIX_TEST(DhcpClient, StoppingKeepsTheAddressBecauseItIsStillValid) {
     handshake(client, 1000, 3600);
     client.stop();
 
-    NOTRIX_CHECK(client.state() == DhcpClient::State::kIdle);
-    NOTRIX_CHECK_EQ(client.lease().address, kOurAddress);
-    NOTRIX_CHECK_FALSE(client.takeLost());
+    STIPPLE_CHECK(client.state() == DhcpClient::State::kIdle);
+    STIPPLE_CHECK_EQ(client.lease().address, kOurAddress);
+    STIPPLE_CHECK_FALSE(client.takeLost());
 }

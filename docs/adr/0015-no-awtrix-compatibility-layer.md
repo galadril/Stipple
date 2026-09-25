@@ -8,7 +8,7 @@
 
 The blueprint planned two API layers (§3.5, §19.2): the native `/api/v1/*`
 surface, and an AWTRIX-compatible subset under `/api/*` so existing AWTRIX
-integrations could point at a NOTRIX device with little or no change. Blueprint
+integrations could point at a STIPPLE device with little or no change. Blueprint
 Stage 7 scoped that work and named the maintainer's own Domoticz AWTRIX NG
 plugin as the reference client.
 
@@ -16,7 +16,7 @@ With `/api/v1/*` now built (Phase 5), the compatibility layer is the next piece
 of that plan. The question is whether to build it at all.
 
 Arguments for building it: existing AWTRIX users could migrate without touching
-their automations, which lowers the barrier to trying NOTRIX and brings early
+their automations, which lowers the barrier to trying STIPPLE and brings early
 adopters with working setups.
 
 Arguments against:
@@ -29,7 +29,7 @@ Arguments against:
   a published compatibility matrix before the claim can be made at all, and
   partial compatibility is arguably worse than none: an integration that works
   for four fields and silently ignores the fifth produces a bug report against
-  NOTRIX for behaviour NOTRIX never promised.
+  STIPPLE for behaviour STIPPLE never promised.
 - It costs device resources. Every compatibility route is flash and RAM on a
   platform where §38 treats memory as a hard constraint, spent on translating
   someone else's schema.
@@ -38,7 +38,7 @@ Arguments against:
 
 ## Decision
 
-**NOTRIX serves `/api/v1/*` only. There is no AWTRIX compatibility layer, and
+**STIPPLE serves `/api/v1/*` only. There is no AWTRIX compatibility layer, and
 none is planned.** Blueprint §19.2 and the compatibility half of §3.5 are
 withdrawn; blueprint Stage 7 is dropped rather than deferred.
 
@@ -46,7 +46,7 @@ Integrations target the native API.
 
 A request to any `/api/*` path that is not `/api/v1/*` answers `404` with a
 message saying so explicitly, rather than a bare not-found. Someone pointing an
-AWTRIX client at a NOTRIX device should learn why it will not work from the
+AWTRIX client at a STIPPLE device should learn why it will not work from the
 response, not from silence.
 
 If AWTRIX compatibility is ever wanted, it belongs **outside the firmware** as a
@@ -67,18 +67,18 @@ someone building one.
 - The native API stays free to be designed well rather than shaped by another
   project's history.
 - No contract-test suite or compatibility matrix to build and maintain.
-- Flash and RAM stay spent on NOTRIX's own features.
+- Flash and RAM stay spent on STIPPLE's own features.
 
 **Bad**
 
-- Existing AWTRIX automations do not work against NOTRIX. Every user migrating
+- Existing AWTRIX automations do not work against STIPPLE. Every user migrating
   from AWTRIX has to rewrite their integration, which is real friction and will
   cost some early adopters.
-- The maintainer's Domoticz AWTRIX NG plugin needs a NOTRIX mode before it can
-  drive a NOTRIX device. That work moves from "maybe unnecessary" to "required",
+- The maintainer's Domoticz AWTRIX NG plugin needs a STIPPLE mode before it can
+  drive a STIPPLE device. That work moves from "maybe unnecessary" to "required",
   and it is now the first real consumer of the native API — which makes it a
   useful proving ground for whether that API is actually pleasant to use.
-- NOTRIX loses an easy answer to "why should I switch?". The case now rests on
+- STIPPLE loses an easy answer to "why should I switch?". The case now rests on
   the product being better, not on it being a drop-in.
 
 **Neutral**

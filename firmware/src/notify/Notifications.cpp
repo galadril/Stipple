@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/notify/Notifications.h"
+#include "stipple/notify/Notifications.h"
 
-#include "notrix/graphics/Canvas.h"
-#include "notrix/text/Scroll.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/text/Scroll.h"
 
-namespace notrix {
+namespace stipple {
 namespace notify {
 namespace {
 
@@ -261,4 +261,4 @@ void render(Canvas& canvas,
 }
 
 }  // namespace notify
-}  // namespace notrix
+}  // namespace stipple

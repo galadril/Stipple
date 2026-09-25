@@ -18,9 +18,9 @@
 
 # Delimiter for the raw string literals. Chosen to be something no web source
 # would plausibly contain; verified per file below rather than assumed.
-set(NOTRIX_WEB_DELIMITER "NOTRIXWEB")
+set(STIPPLE_WEB_DELIMITER "STIPPLEWEB")
 
-function(_notrix_web_content_type path out_var)
+function(_stipple_web_content_type path out_var)
     get_filename_component(extension "${path}" EXT)
     string(TOLOWER "${extension}" extension)
 
@@ -39,20 +39,20 @@ function(_notrix_web_content_type path out_var)
         # a page that fails in the browser with no clue why, and a build error
         # here is much cheaper to understand than that is.
         message(FATAL_ERROR
-            "notrix_embed_web_assets: no content type known for '${path}'. "
-            "Add one to _notrix_web_content_type, or reconsider shipping this "
+            "stipple_embed_web_assets: no content type known for '${path}'. "
+            "Add one to _stipple_web_content_type, or reconsider shipping this "
             "file in the firmware.")
     endif()
 endfunction()
 
-# notrix_embed_web_assets(<source-dir> <output-cpp> <out-var-for-dependencies>)
-function(notrix_embed_web_assets source_dir output_file deps_var)
+# stipple_embed_web_assets(<source-dir> <output-cpp> <out-var-for-dependencies>)
+function(stipple_embed_web_assets source_dir output_file deps_var)
     file(GLOB_RECURSE asset_files RELATIVE "${source_dir}" "${source_dir}/*")
     list(SORT asset_files)
 
     if(NOT asset_files)
         message(FATAL_ERROR
-            "notrix_embed_web_assets: no files found under '${source_dir}'. "
+            "stipple_embed_web_assets: no files found under '${source_dir}'. "
             "The device UI would silently 404 on every path.")
     endif()
 
@@ -61,8 +61,8 @@ function(notrix_embed_web_assets source_dir output_file deps_var)
     string(APPEND generated "// GENERATED FILE - do not edit.\n")
     string(APPEND generated "// Written by cmake/EmbedWebAssets.cmake from firmware/web/.\n")
     string(APPEND generated "// Edit the sources there and rebuild.\n")
-    string(APPEND generated "\n#include \"notrix/web/WebAssets.h\"\n")
-    string(APPEND generated "\nnamespace notrix {\nnamespace web {\nnamespace {\n\n")
+    string(APPEND generated "\n#include \"stipple/web/WebAssets.h\"\n")
+    string(APPEND generated "\nnamespace stipple {\nnamespace web {\nnamespace {\n\n")
 
     set(table "")
     set(index 0)
@@ -72,23 +72,23 @@ function(notrix_embed_web_assets source_dir output_file deps_var)
         set(absolute "${source_dir}/${relative}")
         list(APPEND dependencies "${absolute}")
 
-        _notrix_web_content_type("${relative}" content_type)
+        _stipple_web_content_type("${relative}" content_type)
         file(READ "${absolute}" contents)
         file(MD5 "${absolute}" digest)
 
         # A file containing the closing delimiter would end its own literal and
         # spray the rest of itself into the generated source as code.
-        string(FIND "${contents}" ")${NOTRIX_WEB_DELIMITER}\"" clash)
+        string(FIND "${contents}" ")${STIPPLE_WEB_DELIMITER}\"" clash)
         if(NOT clash EQUAL -1)
             message(FATAL_ERROR
-                "notrix_embed_web_assets: '${relative}' contains the raw string "
-                "delimiter )${NOTRIX_WEB_DELIMITER}\". Change NOTRIX_WEB_DELIMITER "
+                "stipple_embed_web_assets: '${relative}' contains the raw string "
+                "delimiter )${STIPPLE_WEB_DELIMITER}\". Change STIPPLE_WEB_DELIMITER "
                 "in cmake/EmbedWebAssets.cmake.")
         endif()
 
         string(APPEND generated
             "constexpr std::string_view kBody${index} =\n"
-            "    R\"${NOTRIX_WEB_DELIMITER}(${contents})${NOTRIX_WEB_DELIMITER}\";\n\n")
+            "    R\"${STIPPLE_WEB_DELIMITER}(${contents})${STIPPLE_WEB_DELIMITER}\";\n\n")
 
         string(APPEND table
             "    Asset{\"/${relative}\", \"${content_type}\", kBody${index}, \"\\\"${digest}\\\"\"},\n")
@@ -112,7 +112,7 @@ function(notrix_embed_web_assets source_dir output_file deps_var)
         "    }\n"
         "    return nullptr;\n"
         "}\n\n")
-    string(APPEND generated "}  // namespace web\n}  // namespace notrix\n")
+    string(APPEND generated "}  // namespace web\n}  // namespace stipple\n")
 
     # Only rewrite when the content actually differs, so an unchanged UI does
     # not force a rebuild of everything downstream of it.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/platform/tc002/Tc002Display.h"
+#include "stipple/platform/tc002/Tc002Display.h"
 
-#include "notrix/platform/tc002/WriteAll.h"
+#include "stipple/platform/tc002/WriteAll.h"
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -10,7 +10,7 @@
 #include <cstdio>
 #include <cstring>
 
-namespace notrix {
+namespace stipple {
 namespace platform {
 namespace tc002 {
 namespace {
@@ -209,4 +209,4 @@ void Tc002Display::setBrightness(std::uint8_t brightness) {
 
 }  // namespace tc002
 }  // namespace platform
-}  // namespace notrix
+}  // namespace stipple

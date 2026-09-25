@@ -16,7 +16,7 @@
     // The emulator installs this to route requests straight into the WASM
     // module, because there is no socket to talk to. On a real device it is
     // absent and we use fetch. Nothing else in this file knows the difference.
-    var bridge = window.NOTRIX_BRIDGE || null;
+    var bridge = window.STIPPLE_BRIDGE || null;
 
     function send(method, path, body) {
         if (bridge) {
@@ -389,7 +389,7 @@
     // preview: showing the wrong topic is a cosmetic bug, whereas asking the
     // device for it on every keystroke would not be.
     function previewTopic() {
-        var base = $('mqtt-baseTopic').value || 'notrix';
+        var base = $('mqtt-baseTopic').value || 'stipple';
         var id = $('deviceName').value
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, '-')
@@ -410,7 +410,7 @@
             var welcome = $('first-run');
             if (welcome) { welcome.hidden = !firstRunSeen; }
 
-            $('device-name').textContent = device.name || 'notrix';
+            $('device-name').textContent = device.name || 'stipple';
             $('device-version').textContent = 'v' + device.version;
 
             var facts = $('device-facts');
@@ -1119,7 +1119,7 @@
             var note = $('firmware-state');
             var file = picker && picker.files && picker.files[0];
             if (!file) {
-                if (note) { note.textContent = 'Choose a libnotrix.so first.'; }
+                if (note) { note.textContent = 'Choose a libstipple.so first.'; }
                 return;
             }
 
@@ -1320,7 +1320,7 @@
                 // has, not what a browser tab thinks it set an hour ago.
                 send('GET', '/api/v1/settings')
                     .then(function (current) {
-                        var name = (current.deviceName || 'notrix') + '-' + stamp() + '.json';
+                        var name = (current.deviceName || 'stipple') + '-' + stamp() + '.json';
                         var blob = new Blob([JSON.stringify(current, null, 2)],
                                             { type: 'application/json' });
                         var url = URL.createObjectURL(blob);
@@ -1889,7 +1889,7 @@
         if (shot) {
             shot.addEventListener('click', function () {
                 if (!lastFrame) { return toast('no frame yet', true); }
-                downloadCanvas('notrix-' + stamp() + '.png');
+                downloadCanvas('stipple-' + stamp() + '.png');
             });
         }
 
@@ -2155,7 +2155,7 @@
         var url = URL.createObjectURL(blob);
         var link = el('a');
         link.href = url;
-        link.download = 'notrix-' + stamp() + '.gif';
+        link.download = 'stipple-' + stamp() + '.gif';
         link.click();
         setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
 

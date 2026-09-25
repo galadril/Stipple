@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/api/BasicAuth.h"
+#include "stipple/api/BasicAuth.h"
 
-#include "notrix/core/Base64.h"
+#include "stipple/core/Base64.h"
 
-namespace notrix {
+namespace stipple {
 namespace api {
 namespace {
 
@@ -98,4 +98,4 @@ bool basicAuthorised(std::string_view header, std::string_view expectedUser,
 }
 
 }  // namespace api
-}  // namespace notrix
+}  // namespace stipple

@@ -14,7 +14,7 @@
       "generator": "Ninja",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "NOTRIX_BUILD_TESTS": "ON"
+        "STIPPLE_BUILD_TESTS": "ON"
       }
     },
     {
@@ -24,7 +24,7 @@
       "generator": "Ninja",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "NOTRIX_BUILD_TESTS": "ON"
+        "STIPPLE_BUILD_TESTS": "ON"
       }
     },
     {
@@ -33,7 +33,7 @@
       "inherits": "host-debug",
       "binaryDir": "${sourceDir}/build/ci",
       "cacheVariables": {
-        "NOTRIX_WARNINGS_AS_ERRORS": "ON"
+        "STIPPLE_WARNINGS_AS_ERRORS": "ON"
       }
     },
     {
@@ -43,7 +43,7 @@
       "inherits": "host-debug",
       "binaryDir": "${sourceDir}/build/sanitize",
       "cacheVariables": {
-        "NOTRIX_SANITIZE": "ON"
+        "STIPPLE_SANITIZE": "ON"
       }
     },
     {
@@ -55,22 +55,22 @@
       "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "NOTRIX_BUILD_EMULATOR": "ON",
-        "NOTRIX_BUILD_TESTS": "OFF"
+        "STIPPLE_BUILD_EMULATOR": "ON",
+        "STIPPLE_BUILD_TESTS": "OFF"
       }
     },
     {
       "name": "device-arm",
       "displayName": "TC002 (armv7-a, release)",
-      "description": "Cross-compiles notrix_core for the device. Run inside the pinned toolchain container - see tooling/cross/. Tests are off: they need a host to run on.",
+      "description": "Cross-compiles stipple_core for the device. Run inside the pinned toolchain container - see tooling/cross/. Tests are off: they need a host to run on.",
       "binaryDir": "${sourceDir}/build/device-arm",
       "generator": "Ninja",
       "toolchainFile": "${sourceDir}/cmake/toolchains/arm-linux-gnueabihf.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "NOTRIX_BUILD_TESTS": "OFF",
-        "NOTRIX_WARNINGS_AS_ERRORS": "ON",
-        "NOTRIX_DEVICE_BUILD": "ON"
+        "STIPPLE_BUILD_TESTS": "OFF",
+        "STIPPLE_WARNINGS_AS_ERRORS": "ON",
+        "STIPPLE_DEVICE_BUILD": "ON"
       }
     }
   ],

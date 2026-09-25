@@ -1,4 +1,4 @@
-# NOTRIX core — portable, dependency-free, platform-agnostic.
+# STIPPLE core — portable, dependency-free, platform-agnostic.
 #
 # Everything in this target sits ABOVE the blueprint §53 boundary and must build
 # unchanged for host tests, the WASM emulator and the ARM device. Nothing here
@@ -9,19 +9,19 @@
 # page, so the page must not depend on that storage.
 include("${CMAKE_SOURCE_DIR}/cmake/EmbedWebAssets.cmake")
 
-set(NOTRIX_WEB_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/generated/WebAssets.generated.cpp")
-notrix_embed_web_assets(
+set(STIPPLE_WEB_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/generated/WebAssets.generated.cpp")
+stipple_embed_web_assets(
     "${CMAKE_CURRENT_SOURCE_DIR}/web"
-    "${NOTRIX_WEB_GENERATED}"
-    NOTRIX_WEB_SOURCES)
+    "${STIPPLE_WEB_GENERATED}"
+    STIPPLE_WEB_SOURCES)
 
 # Re-run configure when a UI source changes, so editing a page is enough to
 # rebuild it — without this the generated file would silently go stale.
 set_property(DIRECTORY APPEND
-    PROPERTY CMAKE_CONFIGURE_DEPENDS ${NOTRIX_WEB_SOURCES})
+    PROPERTY CMAKE_CONFIGURE_DEPENDS ${STIPPLE_WEB_SOURCES})
 
-add_library(notrix_core
-    ${NOTRIX_WEB_GENERATED}
+add_library(stipple_core
+    ${STIPPLE_WEB_GENERATED}
     src/web/StaticFiles.cpp
     src/graphics/Canvas.cpp
     src/demo/TestPattern.cpp
@@ -65,53 +65,53 @@ add_library(notrix_core
     src/mqtt/MqttService.cpp
 )
 
-target_include_directories(notrix_core
+target_include_directories(stipple_core
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
-target_link_libraries(notrix_core PUBLIC notrix_warnings)
+target_link_libraries(stipple_core PUBLIC stipple_warnings)
 
-add_library(notrix::core ALIAS notrix_core)
+add_library(stipple::core ALIAS stipple_core)
 
 # PNG encoding is a host/emulator convenience (golden-image failure snapshots,
-# emulator screenshots). It is deliberately NOT part of notrix_core so it can
+# emulator screenshots). It is deliberately NOT part of stipple_core so it can
 # never be linked into the memory-constrained device build by accident - and on
 # a device build it is not compiled at all, so "by accident" needs a deliberate
 # edit here first.
-if(NOT NOTRIX_DEVICE_BUILD)
-add_library(notrix_imageio
+if(NOT STIPPLE_DEVICE_BUILD)
+add_library(stipple_imageio
     imageio/src/Png.cpp
 )
 
-target_include_directories(notrix_imageio
+target_include_directories(stipple_imageio
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/imageio/include")
 
-target_link_libraries(notrix_imageio PUBLIC notrix_core)
+target_link_libraries(stipple_imageio PUBLIC stipple_core)
 
-add_library(notrix::imageio ALIAS notrix_imageio)
+add_library(stipple::imageio ALIAS stipple_imageio)
 endif()
 
 # The simulator adapter — the non-device half of the §53 boundary.
 #
-# A separate target on purpose: notrix_core must never depend on an adapter, and
+# A separate target on purpose: stipple_core must never depend on an adapter, and
 # keeping them apart is what makes that violation a link error rather than a
 # code review comment. The TC002 adapter becomes its sibling in Phase 7.
-add_library(notrix_platform_simulator
+add_library(stipple_platform_simulator
     src/platform/simulator/SimulatorPlatform.cpp
 )
 
-target_link_libraries(notrix_platform_simulator PUBLIC notrix_core)
+target_link_libraries(stipple_platform_simulator PUBLIC stipple_core)
 
-add_library(notrix::platform_simulator ALIAS notrix_platform_simulator)
+add_library(stipple::platform_simulator ALIAS stipple_platform_simulator)
 
 # The TC002 adapter — the device half of the §53 boundary, and the sibling the
 # comment above promised.
 #
 # Device-only because it is POSIX: it opens /dev/spidev0.0 and issues ioctls,
-# which neither the host test runner nor a browser can do. notrix_core must
+# which neither the host test runner nor a browser can do. stipple_core must
 # never depend on it, and keeping them separate targets is what makes that
 # violation a link error rather than a review comment.
-if(NOTRIX_DEVICE_BUILD)
-    add_library(notrix_platform_tc002
+if(STIPPLE_DEVICE_BUILD)
+    add_library(stipple_platform_tc002
         src/platform/tc002/Tc002Audio.cpp
         src/platform/tc002/Tc002Display.cpp
         src/platform/tc002/Tc002Hotspot.cpp
@@ -126,33 +126,33 @@ if(NOTRIX_DEVICE_BUILD)
         src/platform/tc002/WpaControl.cpp
     )
 
-    target_link_libraries(notrix_platform_tc002 PUBLIC notrix_core notrix_warnings ${CMAKE_DL_LIBS})
+    target_link_libraries(stipple_platform_tc002 PUBLIC stipple_core stipple_warnings ${CMAKE_DL_LIBS})
 
     # PUBLIC, so it reaches everything that links this library.
     #
     # Tc002Sntp resolves a hostname on a worker thread, so the whole platform
     # adapter now needs pthread - and at the glibc this device runs,
     # pthread_create still lives in libpthread rather than libc. It was first
-    # added to notrix_startup alone, which linked fine and then failed on CI
-    # at notrix_device: same library, different consumer, no -pthread.
+    # added to stipple_startup alone, which linked fine and then failed on CI
+    # at stipple_device: same library, different consumer, no -pthread.
     #
     # Putting it on the library rather than on each of the five targets that
     # link it means the next tool to be added cannot miss it.
-    target_compile_options(notrix_platform_tc002 PUBLIC -pthread)
-    target_link_options(notrix_platform_tc002 PUBLIC -pthread)
+    target_compile_options(stipple_platform_tc002 PUBLIC -pthread)
+    target_link_options(stipple_platform_tc002 PUBLIC -pthread)
 
-    add_library(notrix::platform_tc002 ALIAS notrix_platform_tc002)
+    add_library(stipple::platform_tc002 ALIAS stipple_platform_tc002)
 endif()
 
 # Smoke test for the target architecture. Small enough to push over ADB, and it
 # answers the questions that must be settled before anything is flashed: does the
 # core run on this CPU at all, and what does the binary actually depend on.
-if(NOTRIX_DEVICE_BUILD)
-    add_executable(notrix_device_smoke tools/device_smoke/main.cpp)
-    target_link_libraries(notrix_device_smoke PRIVATE
-        notrix_core
-        notrix_platform_simulator
-        notrix_warnings)
+if(STIPPLE_DEVICE_BUILD)
+    add_executable(stipple_device_smoke tools/device_smoke/main.cpp)
+    target_link_libraries(stipple_device_smoke PRIVATE
+        stipple_core
+        stipple_platform_simulator
+        stipple_warnings)
 
     # Statically linked, deliberately.
     #
@@ -172,16 +172,16 @@ if(NOTRIX_DEVICE_BUILD)
     # in a static binary. Nothing in core resolves a hostname; when the MQTT
     # transport arrives in Phase 7 and does, that is the moment to revisit this,
     # and the probe will have reported the real glibc version by then.
-    target_link_options(notrix_device_smoke PRIVATE -static)
+    target_link_options(stipple_device_smoke PRIVATE -static)
 endif()
 
 # Asks the vendor HAL what it offers without calling into it. Dynamically
 # linked on purpose - it must dlopen libzkhw.so, which a static binary cannot
 # do - so it needs the bullseye toolchain, whose glibc predates the
 # __libc_start_main re-versioning. See tooling/cross/Containerfile.bullseye.
-if(NOTRIX_DEVICE_BUILD)
-    add_executable(notrix_hal_probe tools/hal_probe/main.cpp)
-    target_link_libraries(notrix_hal_probe PRIVATE ${CMAKE_DL_LIBS} notrix_warnings)
+if(STIPPLE_DEVICE_BUILD)
+    add_executable(stipple_hal_probe tools/hal_probe/main.cpp)
+    target_link_libraries(stipple_hal_probe PRIVATE ${CMAKE_DL_LIBS} stipple_warnings)
 endif()
 
 # Asks the SigmaStar audio-out library what it is configured for. Read-only:
@@ -189,15 +189,15 @@ endif()
 # probe - it dlopens a vendor library, which a static binary cannot do - so it
 # needs the bullseye toolchain.
 #
-# notrix_warnings is deliberately not linked: it carries -Wold-style-cast and
+# stipple_warnings is deliberately not linked: it carries -Wold-style-cast and
 # friends, which GCC reports as "valid for C++ but not for C", and the device
 # preset turns warnings into errors.
-if(NOTRIX_DEVICE_BUILD)
+if(STIPPLE_DEVICE_BUILD)
     enable_language(C)
-    add_executable(notrix_audio_probe tools/audio_probe/main.c)
-    target_compile_options(notrix_audio_probe PRIVATE
+    add_executable(stipple_audio_probe tools/audio_probe/main.c)
+    target_compile_options(stipple_audio_probe PRIVATE
         -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
-    target_link_libraries(notrix_audio_probe PRIVATE ${CMAKE_DL_LIBS})
+    target_link_libraries(stipple_audio_probe PRIVATE ${CMAKE_DL_LIBS})
 endif()
 
 # The last unknown in the display protocol: channel order.
@@ -215,41 +215,41 @@ endif()
 # Static for the same reason as the smoke test, and it costs nothing here: this
 # talks to spidev through ioctl and write, and dlopens nothing.
 #
-# notrix_warnings is deliberately NOT linked. It carries -Wold-style-cast and
+# stipple_warnings is deliberately NOT linked. It carries -Wold-style-cast and
 # friends, which GCC reports as "valid for C++ but not for C" - a warning that
 # the device preset's warnings-as-errors would turn into a build failure.
-# NOTRIX itself, on the device.
+# STIPPLE itself, on the device.
 #
 # Runs ApplicationHost - the same startup, loop, boot record and safe-mode
 # fallback the emulator and the host tests run - over the TC002 platform
-# adapter. This is the firmware; notrix_device_panel below is the bring-up demo
+# adapter. This is the firmware; stipple_device_panel below is the bring-up demo
 # that preceded it and stays because it isolates the display from everything
 # else when something goes wrong.
-if(NOTRIX_DEVICE_BUILD)
-    add_executable(notrix_device tools/device/main.cpp)
-    target_link_libraries(notrix_device PRIVATE
-        notrix_core
-        notrix_platform_tc002
-        notrix_warnings)
+if(STIPPLE_DEVICE_BUILD)
+    add_executable(stipple_device tools/device/main.cpp)
+    target_link_libraries(stipple_device PRIVATE
+        stipple_core
+        stipple_platform_tc002
+        stipple_warnings)
 
     # The same firmware, as the library the TC002 framework loads.
     #
-    # /bin/zkgui dlopens whatever /res/etc/EasyUI.cfg names and NOTRIX takes
+    # /bin/zkgui dlopens whatever /res/etc/EasyUI.cfg names and STIPPLE takes
     # the process in a static constructor (ADR 0021). Built from the very
     # same translation unit as the executable, with one define, because a
     # device build that took a different path from the one tested over ADB
     # would be a second firmware wearing the first one's tests.
     #
-    # Named libnotrix.so rather than libzkgui.so on purpose: it does not
+    # Named libstipple.so rather than libzkgui.so on purpose: it does not
     # replace the vendor application, it is pointed at instead of it, and the
     # vendor's own library stays where it is.
-    add_library(notrix_startup SHARED tools/device/main.cpp)
-    set_target_properties(notrix_startup PROPERTIES OUTPUT_NAME notrix)
-    target_compile_definitions(notrix_startup PRIVATE NOTRIX_AS_LIBRARY)
-    target_link_libraries(notrix_startup PRIVATE
-        notrix_core
-        notrix_platform_tc002
-        notrix_warnings)
+    add_library(stipple_startup SHARED tools/device/main.cpp)
+    set_target_properties(stipple_startup PROPERTIES OUTPUT_NAME stipple)
+    target_compile_definitions(stipple_startup PRIVATE STIPPLE_AS_LIBRARY)
+    target_link_libraries(stipple_startup PRIVATE
+        stipple_core
+        stipple_platform_tc002
+        stipple_warnings)
 
     # The C++ runtime travels with us. The device ships libstdc++.so.6.0.26,
     # whose newest symbol set is GLIBCXX_3.4.26 - GCC 9. Every toolchain in
@@ -266,11 +266,11 @@ if(NOTRIX_DEVICE_BUILD)
     # the stock clock and left the device on the network.
     #
     # Static libgcc too, for the unwinder: a mixed pair is worse than either.
-    target_link_options(notrix_startup PRIVATE
+    target_link_options(stipple_startup PRIVATE
         -static-libstdc++
         -static-libgcc)
 
-    # -pthread comes from notrix_platform_tc002, which needs it for the SNTP
+    # -pthread comes from stipple_platform_tc002, which needs it for the SNTP
     # resolver thread and declares it PUBLIC. Worth knowing why it matters
     # here: libstdc++ reaches pthread through *weak* symbols, so without it
     # the link succeeds, the library loads, and std::thread fails at runtime.
@@ -288,51 +288,51 @@ if(NOTRIX_DEVICE_BUILD)
     # application reaches it the same way. A static binary would mean a device
     # that can never make a sound.
     #
-    # The cost is that notrix_device now depends on libraries that live on the
+    # The cost is that stipple_device now depends on libraries that live on the
     # device. That is a real dependency and it is on the device's own runtime,
     # which is present on every unit that can run the stock application at all.
-    if(NOTRIX_DEVICE_STATIC)
-        target_link_options(notrix_device PRIVATE -static)
+    if(STIPPLE_DEVICE_STATIC)
+        target_link_options(stipple_device PRIVATE -static)
     endif()
 endif()
 
-# NOTRIX core rendering on the real panel.
+# STIPPLE core rendering on the real panel.
 #
 # The first thing that puts *our* renderer on the device rather than bytes
 # written by hand against the wire: Framebuffer, Canvas and demo::drawTestPattern
 # are the same code the emulator and the golden tests run, with only the display
 # adapter swapped. Static for the same reason as the smoke test.
-if(NOTRIX_DEVICE_BUILD)
-    add_executable(notrix_device_panel tools/device_panel/main.cpp)
-    target_link_libraries(notrix_device_panel PRIVATE
-        notrix_core
-        notrix_platform_tc002
-        notrix_warnings)
-    target_link_options(notrix_device_panel PRIVATE -static)
+if(STIPPLE_DEVICE_BUILD)
+    add_executable(stipple_device_panel tools/device_panel/main.cpp)
+    target_link_libraries(stipple_device_panel PRIVATE
+        stipple_core
+        stipple_platform_tc002
+        stipple_warnings)
+    target_link_options(stipple_device_panel PRIVATE -static)
 endif()
 
-if(NOTRIX_DEVICE_BUILD)
+if(STIPPLE_DEVICE_BUILD)
     enable_language(C)
 
-    add_executable(notrix_panel_test tools/panel_test/main.c)
-    target_compile_options(notrix_panel_test PRIVATE
+    add_executable(stipple_panel_test tools/panel_test/main.c)
+    target_compile_options(stipple_panel_test PRIVATE
         -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
-    target_link_options(notrix_panel_test PRIVATE -static)
+    target_link_options(stipple_panel_test PRIVATE -static)
 
     # Prints what the physical controls actually send. /proc says event67
     # declares four keys; the device tree may well name more than the case has.
     # Safe to run alongside zkgui - evdev delivers to every reader.
-    add_executable(notrix_input_probe tools/input_probe/main.c)
-    target_compile_options(notrix_input_probe PRIVATE
+    add_executable(stipple_input_probe tools/input_probe/main.c)
+    target_compile_options(stipple_input_probe PRIVATE
         -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
-    target_link_options(notrix_input_probe PRIVATE -static)
+    target_link_options(stipple_input_probe PRIVATE -static)
 
     # Reads the MCU link. The only source of battery state on this device -
     # there is no power_supply class, no hwmon and no IIO.
-    add_executable(notrix_mcu_probe tools/mcu_probe/main.c)
-    target_compile_options(notrix_mcu_probe PRIVATE
+    add_executable(stipple_mcu_probe tools/mcu_probe/main.c)
+    target_compile_options(stipple_mcu_probe PRIVATE
         -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
-    target_link_options(notrix_mcu_probe PRIVATE -static)
+    target_link_options(stipple_mcu_probe PRIVATE -static)
 endif()
 
 # Brings the access point up, waits, and puts the network back on its own.
@@ -341,20 +341,20 @@ endif()
 # firmware's trigger is a *stored* setting, and a device that boots into
 # hotspot mode because a test left a flag behind is the failure this is meant
 # to avoid.
-if(NOTRIX_DEVICE_BUILD)
-    add_executable(notrix_hotspot_test tools/hotspot_test/main.cpp)
-    target_link_libraries(notrix_hotspot_test PRIVATE
-        notrix_platform_tc002
-        notrix_warnings)
+if(STIPPLE_DEVICE_BUILD)
+    add_executable(stipple_hotspot_test tools/hotspot_test/main.cpp)
+    target_link_libraries(stipple_hotspot_test PRIVATE
+        stipple_platform_tc002
+        stipple_warnings)
 endif()
 
 # Host-only frame previewer. Renders through the simulator adapter and writes
 # PNGs, so output can be inspected without an Emscripten toolchain.
-if(NOT EMSCRIPTEN AND NOT NOTRIX_DEVICE_BUILD)
-    add_executable(notrix_preview tools/preview/main.cpp)
-    target_link_libraries(notrix_preview PRIVATE
-        notrix_core
-        notrix_imageio
-        notrix_platform_simulator
-        notrix_warnings)
+if(NOT EMSCRIPTEN AND NOT STIPPLE_DEVICE_BUILD)
+    add_executable(stipple_preview tools/preview/main.cpp)
+    target_link_libraries(stipple_preview PRIVATE
+        stipple_core
+        stipple_imageio
+        stipple_platform_simulator
+        stipple_warnings)
 endif()

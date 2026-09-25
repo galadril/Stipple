@@ -23,7 +23,7 @@
     var UNLIT = '#16181d';
     var BOARD = '#08090b';
 
-    // Mirrors notrix::platform::RawInput and ButtonPhase.
+    // Mirrors stipple::platform::RawInput and ButtonPhase.
     var PHASE_DOWN = 0;
     var PHASE_UP = 1;
     var PHASE_TICK = 2;
@@ -170,46 +170,46 @@
 
     function renderFrame() {
         var start = performance.now();
-        core._notrix_render(nowMillis());
+        core._stipple_render(nowMillis());
         drawFramebuffer(readFramebuffer());
         renderMs = performance.now() - start;
     }
 
     function sendInput(source, phase) {
-        core._notrix_input(source, phase, nowMillis());
+        core._stipple_input(source, phase, nowMillis());
         renderFrame();
         syncPauseLabel();
     }
 
     function syncPauseLabel() {
-        el.play.textContent = core._notrix_is_paused() ? 'Resume rotation' : 'Pause rotation';
+        el.play.textContent = core._stipple_is_paused() ? 'Resume rotation' : 'Pause rotation';
     }
 
     // --- stats --------------------------------------------------------------
 
     function updateStats(now) {
-        el.statApp.textContent = core.UTF8ToString(core._notrix_active_name()) || '-';
+        el.statApp.textContent = core.UTF8ToString(core._stipple_active_name()) || '-';
 
-        if (core._notrix_showing_splash()) {
+        if (core._stipple_showing_splash()) {
             el.statDwell.textContent = 'booting';
         } else {
-            var dwell = core._notrix_dwell_millis(nowMillis()) / 1000;
-            var duration = core._notrix_active_duration_seconds();
+            var dwell = core._stipple_dwell_millis(nowMillis()) / 1000;
+            var duration = core._stipple_active_duration_seconds();
             el.statDwell.textContent = duration > 0
                 ? dwell.toFixed(1) + 's / ' + duration + 's'
                 : '-';
         }
 
-        var queued = core._notrix_notification_count();
-        var pending = core._notrix_notification_pending();
+        var queued = core._stipple_notification_count();
+        var pending = core._stipple_notification_pending();
         el.statQueue.textContent = queued === 0
             ? '0'
             : (queued - pending) + ' + ' + pending;
 
         // Dirty rendering made visible: a static screen should skip far more
         // frames than it draws.
-        var drawn = core._notrix_frames_rendered();
-        var skipped = core._notrix_frames_skipped();
+        var drawn = core._stipple_frames_rendered();
+        var skipped = core._stipple_frames_skipped();
         el.statFrames.textContent = drawn + ' / ' + (drawn + skipped);
 
         el.statRender.textContent = renderMs.toFixed(2) + ' ms';
@@ -256,7 +256,7 @@
     // twice while the input model was being corrected, and a browser has no way
     // to notice that its buttons have started sending the wrong events.
     function inputSource(name) {
-        return core.ccall('notrix_input_source', 'number', ['string'], [name]);
+        return core.ccall('stipple_input_source', 'number', ['string'], [name]);
     }
 
     function wireControls() {
@@ -275,7 +275,7 @@
         el.brightness.addEventListener('input', function () {
             var value = parseInt(el.brightness.value, 10);
             el.brightnessValue.textContent = String(value);
-            core._notrix_set_brightness(value);
+            core._stipple_set_brightness(value);
             renderFrame();
         });
 
@@ -287,7 +287,7 @@
                 var url = URL.createObjectURL(blob);
                 var link = document.createElement('a');
                 link.href = url;
-                link.download = 'notrix-' + nowMillis() + '.png';
+                link.download = 'stipple-' + nowMillis() + '.png';
                 link.click();
                 URL.revokeObjectURL(url);
             });
@@ -297,27 +297,27 @@
         // Rotary detents are momentary, so they arrive as a single Tick rather
         // than a Down/Up pair.
         // Clock faces, named by the core so the list cannot drift out of sync.
-        var themeCount = core._notrix_clock_theme_count();
+        var themeCount = core._stipple_clock_theme_count();
         for (var i = 0; i < themeCount; i++) {
             var option = document.createElement('option');
             option.value = String(i);
-            option.textContent = core.UTF8ToString(core._notrix_clock_theme_name(i));
+            option.textContent = core.UTF8ToString(core._stipple_clock_theme_name(i));
             el.clockTheme.appendChild(option);
         }
-        el.clockTheme.value = String(core._notrix_clock_theme());
+        el.clockTheme.value = String(core._stipple_clock_theme());
 
         el.clockTheme.addEventListener('change', function () {
-            core._notrix_set_clock_theme(parseInt(el.clockTheme.value, 10), nowMillis());
+            core._stipple_set_clock_theme(parseInt(el.clockTheme.value, 10), nowMillis());
             renderFrame();
         });
 
         el.notifyLow.addEventListener('click', function () {
-            core._notrix_notify(1, 4, nowMillis());   // Priority::Normal
+            core._stipple_notify(1, 4, nowMillis());   // Priority::Normal
             renderFrame();
         });
 
         el.notifyHigh.addEventListener('click', function () {
-            core._notrix_notify(3, 4, nowMillis());   // Priority::Urgent
+            core._stipple_notify(3, 4, nowMillis());   // Priority::Urgent
             renderFrame();
         });
 
@@ -385,7 +385,7 @@
         workCtx.drawImage(source, 0, 0, w, h);
 
         var data = workCtx.getImageData(0, 0, w, h).data;
-        var staging = core._notrix_icon_staging() + frameIndex * w * h * 3;
+        var staging = core._stipple_icon_staging() + frameIndex * w * h * 3;
         var heap = core.HEAPU8;
 
         for (var i = 0; i < w * h; i++) {
@@ -416,8 +416,8 @@
     }
 
     function writeId(id) {
-        var idBuffer = core._notrix_icon_id_buffer();
-        var capacity = core._notrix_icon_id_capacity();
+        var idBuffer = core._stipple_icon_id_buffer();
+        var capacity = core._stipple_icon_id_capacity();
         var bytes = new TextEncoder().encode(id).subarray(0, capacity);
         core.HEAPU8.set(bytes, idBuffer);
         core.HEAPU8[idBuffer + bytes.length] = 0;
@@ -484,22 +484,22 @@
     }
 
     function refreshIconStatus() {
-        var count = core._notrix_icon_count();
+        var count = core._stipple_icon_count();
         if (count === 0) {
             iconStatus('none stored');
             return;
         }
-        iconStatus(count + ' stored · ' + core._notrix_icon_bytes_used() + ' bytes');
+        iconStatus(count + ' stored · ' + core._stipple_icon_bytes_used() + ' bytes');
     }
 
     function commit(size) {
-        var result = core._notrix_icon_commit(size.width, size.height, size.frames || 1,
+        var result = core._stipple_icon_commit(size.width, size.height, size.frames || 1,
                                               size.frameMillis || 100, TRANSPARENT_KEY);
         if (result !== 0) {
             iconStatus('rejected by the device (code ' + result + ')');
             return false;
         }
-        core._notrix_show_icon_app(nowMillis());
+        core._stipple_show_icon_app(nowMillis());
         refreshIconStatus();
         renderFrame();
         return true;
@@ -587,7 +587,7 @@
     var lastLogCount = -1;
 
     function refreshLog() {
-        var count = core._notrix_log_count();
+        var count = core._stipple_log_count();
         if (count === lastLogCount) {
             return;   // the ring only ever grows between redraws
         }
@@ -604,7 +604,7 @@
         }
 
         for (var i = 0; i < count; i++) {
-            var raw = core.UTF8ToString(core._notrix_log_line(i));
+            var raw = core.UTF8ToString(core._stipple_log_line(i));
             var split = raw.indexOf('  ');
             var level = split > 0 ? raw.slice(0, split) : 'INFO';
             var message = split > 0 ? raw.slice(split + 2) : raw;
@@ -672,13 +672,13 @@
     // otherwise resolve against this page instead of the simulated device.
 
     function coreRequest(method, path, body) {
-        var status = core.ccall('notrix_http_request', 'number',
+        var status = core.ccall('stipple_http_request', 'number',
             ['string', 'string', 'string'], [method, path, body || '']);
-        return { status: status, body: core.UTF8ToString(core._notrix_http_body()) };
+        return { status: status, body: core.UTF8ToString(core._stipple_http_body()) };
     }
 
     // The iframe calls this through `parent`. Same-origin srcdoc, so it can.
-    window.NOTRIX_EMULATOR_REQUEST = function (method, path, body) {
+    window.STIPPLE_EMULATOR_REQUEST = function (method, path, body) {
         try {
             return Promise.resolve(coreRequest(method, path, body));
         } catch (error) {
@@ -699,8 +699,8 @@
 
         // Defined before the page's own script runs, so app.js sees it on load
         // and never tries a fetch that would hit this page's origin.
-        var shim = '<script>window.NOTRIX_BRIDGE=function(m,p,b){'
-            + 'return parent.NOTRIX_EMULATOR_REQUEST(m,p,b);};<\/script>';
+        var shim = '<script>window.STIPPLE_BRIDGE=function(m,p,b){'
+            + 'return parent.STIPPLE_EMULATOR_REQUEST(m,p,b);};<\/script>';
 
         var html = page.body
             .replace('<link rel="stylesheet" href="/app.css">', '<style>' + css + '</style>')
@@ -716,22 +716,22 @@
     function start(module) {
         core = module;
 
-        width = core._notrix_width();
-        height = core._notrix_height();
-        framebufferPtr = core._notrix_framebuffer();
-        core._notrix_init();
+        width = core._stipple_width();
+        height = core._stipple_height();
+        framebufferPtr = core._stipple_framebuffer();
+        core._stipple_init();
 
         // Give the device a real time; without it the clock honestly shows
         // "--:--" because the wall clock was never set.
         var offsetSeconds = -new Date().getTimezoneOffset() * 60;
-        core._notrix_set_wall_clock(Date.now() / 1000, offsetSeconds);
+        core._stipple_set_wall_clock(Date.now() / 1000, offsetSeconds);
 
         bloomCanvas.width = width;
         bloomCanvas.height = height;
         bloomData = bloomCtx.createImageData(width, height);
 
         el.geometry.textContent = width + ' × ' + height;
-        el.statCore.textContent = 'wasm · ' + core._notrix_app_count() + ' apps';
+        el.statCore.textContent = 'wasm · ' + core._stipple_app_count() + ' apps';
 
         resizeCanvas();
         wireControls();
@@ -751,12 +751,12 @@
         requestAnimationFrame(tick);
     }
 
-    if (window.__notrixCoreMissing || typeof createNotrixModule === 'undefined') {
+    if (window.__stippleCoreMissing || typeof createStippleModule === 'undefined') {
         coreUnavailable();
         return;
     }
 
-    createNotrixModule().then(start).catch(function (error) {
+    createStippleModule().then(start).catch(function (error) {
         el.statCore.textContent = 'error';
         showNotice('Failed to initialise the WebAssembly core: ' + error);
         resizeCanvas();

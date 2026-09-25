@@ -5,7 +5,7 @@
 
 ## Context
 
-`IPlatformServices` (blueprint §53) is the single seam between NOTRIX core and
+`IPlatformServices` (blueprint §53) is the single seam between STIPPLE core and
 the world. Some of what it exposes is universal — every platform has a panel, a
 clock, somewhere to put bytes, and some way for a person to poke it. Other parts
 are not: the simulator has no speaker, a device may ship without audio, and a
@@ -17,7 +17,7 @@ The tempting answer is a null-object: an `IAudioOutput` whose methods accept
 every call and quietly do nothing. Calling code stays simple, no null checks,
 no branches.
 
-That answer is wrong here, for a reason specific to this project. NOTRIX is
+That answer is wrong here, for a reason specific to this project. STIPPLE is
 being developed with no TC002 available (ADR 0011), so for six of the seven
 phases the *only* implementation of these interfaces is the simulator. A null
 object would let the entire notification-with-sound path be written, tested, and
@@ -58,12 +58,12 @@ Two supporting rules:
   hardware we do not have is not a branch we have tested.
 - Where the simulator *can* honestly stand in, it does, and says what it is
   doing. `SimulatorAudio` records playback requests and makes no sound: it
-  verifies that NOTRIX asked for the right sound at the right moment, which is
+  verifies that STIPPLE asked for the right sound at the right moment, which is
   our logic, while claiming nothing about the speaker.
   `SimulatorRebooter` counts reboot requests and reboots nothing.
 
 `IRebooter` is deliberately its own interface rather than a method on
-`IPlatformServices`. Rebooting is the most destructive thing NOTRIX can do to a
+`IPlatformServices`. Rebooting is the most destructive thing STIPPLE can do to a
 clock on someone's desk, and code that needs it should have to be handed it.
 
 ## Consequences

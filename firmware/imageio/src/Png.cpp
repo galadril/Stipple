@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/imageio/Png.h"
+#include "stipple/imageio/Png.h"
 
 #include <cstddef>
 #include <fstream>
 
-#include "notrix/core/Checksum.h"
+#include "stipple/core/Checksum.h"
 
-namespace notrix {
+namespace stipple {
 namespace imageio {
 namespace {
 
@@ -39,7 +39,7 @@ void writeChunk(std::vector<std::uint8_t>& out,
     }
     out.insert(out.end(), data.begin(), data.end());
 
-    pushBigEndian32(out, notrix::crc32(out.data() + crcStart, out.size() - crcStart));
+    pushBigEndian32(out, stipple::crc32(out.data() + crcStart, out.size() - crcStart));
 }
 
 /// Wrap raw bytes in a zlib stream made of stored deflate blocks.
@@ -146,4 +146,4 @@ bool writePng(const std::string& path, const Framebuffer& framebuffer, int scale
 }
 
 }  // namespace imageio
-}  // namespace notrix
+}  // namespace stipple

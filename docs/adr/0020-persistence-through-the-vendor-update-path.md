@@ -5,9 +5,9 @@
 
 ## Context
 
-NOTRIX runs from `/tmp`. A power cycle restores the stock application, which
+STIPPLE runs from `/tmp`. A power cycle restores the stock application, which
 has been exactly the right property while everything was being built — today
-alone it recovered the device three times. It is also why NOTRIX is a program
+alone it recovered the device three times. It is also why STIPPLE is a program
 you run rather than a firmware the device runs.
 
 Making it persist means writing flash, because nothing else will do:
@@ -105,10 +105,10 @@ for any device. There is still no *demonstrated* restore path: nobody has
 held the reset button on a device that needed it. Until somebody has, nothing
 gets flashed. That has not changed and is not negotiable.
 
-**The unproven part is no longer the flashing.** It is whether NOTRIX can be
+**The unproven part is no longer the flashing.** It is whether STIPPLE can be
 built into a `res` image the vendor host will load. Blueprint §7.1 says the
 application lives at `/res/lib/libzkgui.so` and `/bin/zkgui` loads it, which
-means NOTRIX has to become a shared library with whatever entry points that
+means STIPPLE has to become a shared library with whatever entry points that
 host calls. That is real work and nobody has tried it.
 
 **A safety net exists that did not before.** Keeping a captured, verified
@@ -147,7 +147,7 @@ downloads the image itself:
 
 ```json
 POST /update
-{"app": {"version": "0.1.0", "downloadUrl": "http://host/notrix.img"}}
+{"app": {"version": "0.1.0", "downloadUrl": "http://host/stipple.img"}}
 ```
 
 Unauthenticated. So the eventual install becomes: boot stock, serve the image
@@ -162,6 +162,6 @@ at all.
 
 **What this project must not copy is its security posture.** An
 unauthenticated remote firmware write available to anything on the LAN is
-exactly what NOTRIX should not offer. `/api/v1/system/restore-image` stages a
+exactly what STIPPLE should not offer. `/api/v1/system/restore-image` stages a
 file to the USB volume, behind the access password, and cannot flash. That
 asymmetry is deliberate and should survive whatever comes next.

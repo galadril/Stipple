@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/input/SetupHold.h"
+#include "stipple/input/SetupHold.h"
 
-namespace notrix {
+namespace stipple {
 namespace input {
 
 void SetupHold::handle(const platform::InputEvent& event) noexcept {
@@ -69,4 +69,4 @@ void SetupHold::reset() noexcept {
 }
 
 }  // namespace input
-}  // namespace notrix
+}  // namespace stipple

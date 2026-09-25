@@ -214,7 +214,7 @@ So the adapter does **not** need to reverse-engineer an SPI wire format. `ledc_*
 is the panel interface, with SPI underneath it as transport. `IFrameBufferDisplay`
 maps almost directly:
 
-| NOTRIX | Vendor |
+| STIPPLE | Vendor |
 |---|---|
 | `present(framebuffer)` | `ledc_set_group` / `ledc_set_led` |
 | `setBrightness(0-255)` | `BrightnessHelper::setBrightness` |
@@ -257,7 +257,7 @@ third-party port chose, not a constraint we share.
 
 ### The HAL, confirmed at runtime
 
-`notrix_hal_probe` ran on the device and resolved every symbol:
+`stipple_hal_probe` ran on the device and resolved every symbol:
 
 ```
 libzkhw.so loaded
@@ -379,7 +379,7 @@ unequal.
 
 ### GPIO 35 is the latch, and without it every frame is invisible
 
-**NOTRIX rendered on real hardware on 2026-09-20.** `demo::drawTestPattern`,
+**STIPPLE rendered on real hardware on 2026-09-20.** `demo::drawTestPattern`,
 through `Canvas` and the real `Framebuffer`, on the panel. The missing piece was
 not the frame format — that was already right — but a line nobody had looked at.
 
@@ -565,14 +565,14 @@ switched on**, and the switch is command `0x04`:
 ```
 
 Both values of the switch were captured going out of the vendor application as
-its visualiser appeared and was navigated away from. The bytes NOTRIX sends are
+its visualiser appeared and was navigated away from. The bytes STIPPLE sends are
 that capture verbatim, and `Tc002Mcu` sends the off frame when it closes the
 port — the enable outlives the process, and leaving it on would mean a device
-that had once run NOTRIX kept streaming audio to whatever ran next.
+that had once run STIPPLE kept streaming audio to whatever ran next.
 
 **The switch is sticky.** The MCU keeps streaming until something turns it off
 or the device loses power. That is the entire history of this feature: the
-vendor application enabled it, NOTRIX inherited a microphone it had never asked
+vendor application enabled it, STIPPLE inherited a microphone it had never asked
 for, the visualiser worked for a while, and a reboot took it away with nothing
 in the code having changed.
 
@@ -611,9 +611,9 @@ device work, the capture is not the witness to trust.
 
 A practical footnote, because it nearly cost a fourth wrong conclusion: the
 `LD_PRELOAD` shim caps itself at 600 records to protect a 36 MB device from
-filling tmpfs. Narrowed to the MCU link with `NOTRIX_SPY_ONLY=ttyS`, that cap is
+filling tmpfs. Narrowed to the MCU link with `STIPPLE_SPY_ONLY=ttyS`, that cap is
 reached in nine minutes and the log simply stops — which looked exactly like a
-device that had nothing more to say. `NOTRIX_SPY_MAX` raises it.
+device that had nothing more to say. `STIPPLE_SPY_MAX` raises it.
 
 
 Implemented as `platform::tc002::Tc002Mcu`, which reads only. The MCU also
@@ -668,8 +668,8 @@ rather than unknowns.**
 *The firmware is statically linked, and a static binary cannot `dlopen`.* That
 was the right call for bring-up — it removed the entire `GLIBC_2.34` question
 (see "This changes how the device binary must be linked"). Using either vendor
-library means a dynamically linked `notrix_device`, built with the bullseye
-toolchain whose executables ask only for `GLIBC_2.4`. `notrix_hal_probe`
+library means a dynamically linked `stipple_device`, built with the bullseye
+toolchain whose executables ask only for `GLIBC_2.4`. `stipple_hal_probe`
 already proves that combination loads and runs on this device, so the path is
 known to work; it is the trade that needs deciding, not the mechanism.
 
@@ -678,7 +678,7 @@ GPLv3 §1 excludes "System Libraries" — components that come with the operatin
 system the program runs on. `libzkmedia.so` and `libmi_ao.so` ship in this
 device's firmware image and are exactly that kind of platform component, which
 is the ordinary reading. It still deserves to be written down and decided
-deliberately rather than assumed, because it is the first time NOTRIX would
+deliberately rather than assumed, because it is the first time STIPPLE would
 link against anything it did not write.
 
 *A smaller third thing:* `SoundDevice` is a C++ class, so using it through
@@ -742,9 +742,9 @@ It does not make them true. It makes them worth testing first.
   and submit a new SSID and password."
 
   That last one matters for the provisioning gap. It does not close it — this is
-  the *stock* web server, which NOTRIX replaces — but it proves the platform
+  the *stock* web server, which STIPPLE replaces — but it proves the platform
   exposes Wi-Fi reconfiguration to a userspace HTTP handler. Whatever mechanism
-  that page uses is one NOTRIX can use too, and it is a far better answer than
+  that page uses is one STIPPLE can use too, and it is a far better answer than
   hoping for AP mode. Finding out what it calls is now a probe question.
 
 ## A second source
@@ -806,13 +806,13 @@ that the stock TC002 needs "a local bridge or custom app to become really
 useful", and that a TC001 running AWTRIX is still the better Home Assistant
 device today.
 
-That is a fair description of the gap NOTRIX is aimed at, and it is worth
+That is a fair description of the gap STIPPLE is aimed at, and it is worth
 keeping in view: text, notifications and a predictable MQTT surface are the
 things an owner actually misses. All three already work in the emulator.
 
 One practical detail: the stock firmware's own MQTT namespace looks like
 `ulanzi2_a435/custom/{app}` — `{prefix}_{last4}/custom/{app}`. Ours is
-`notrix/{deviceId}/...`, so the two cannot collide, and a device that has been
+`stipple/{deviceId}/...`, so the two cannot collide, and a device that has been
 flashed will simply stop answering on the old topics.
 
 ## Why this document exists
@@ -889,7 +889,7 @@ is worth confirming before Phase 7 plans around it.
 
 They stop and replace the **`zkswe` launcher service**.
 
-Blueprint §7.1 describes NOTRIX loading "as `libzkgui.so` inside that host". The
+Blueprint §7.1 describes STIPPLE loading "as `libzkgui.so` inside that host". The
 evidence points at replacing the launcher process rather than injecting a library
 into it. If that holds, the §53 boundary is unaffected — our platform adapter
 still sits underneath everything — but the Phase 7 entry point is a `main()`
@@ -933,7 +933,7 @@ They ship "certificate-verified HTTPS with the bundled OpenSSL 3.5.8". So the
 device can do real TLS, at the cost of carrying the library.
 
 This does not threaten ADR 0012. TLS belongs to the platform adapter, below the
-§53 boundary; `notrix_core` stays dependency-free either way. It does mean the
+§53 boundary; `stipple_core` stays dependency-free either way. It does mean the
 8 MiB res ceiling has to be budgeted against a bundled crypto library if we ever
 want HTTPS.
 
@@ -1052,7 +1052,7 @@ powering on launches the vendor application, which brings back the stock UI,
 updater and ADB. Independently, three crashes in a row at start-up triggers a
 launcher fallback on the fourth boot. Both matter to us directly: the second one
 means *our* application must not crash-loop silently, because the platform will
-quietly stop running it — and a NOTRIX that has been fallen back from looks
+quietly stop running it — and a STIPPLE that has been fallen back from looks
 identical to one that was never installed. Phase 7 should expect to surface that
 state rather than let the user guess.
 
@@ -1067,7 +1067,7 @@ directory that is kept out of the repository, and the install path reads the
 clock's own partition. Nothing vendor-derived is redistributed.
 
 That is the answer to §46 Q5's redistribution half, and it is a constraint on our
-release process rather than an implementation detail: **NOTRIX must never publish
+release process rather than an implementation detail: **STIPPLE must never publish
 a `restore-stock.img` or any vendor-derived blob as a release asset.** The
 restore image is something the installer *produces locally* from the device in
 front of it. A release can ship our payload and the tool; it cannot ship
@@ -1170,21 +1170,21 @@ address, which is what happened on the first live test: the access point
 disappeared, the station came back, and the device was unreachable until it was
 power-cycled. Restoring the network needs something to ask for an address.
 
-**NOTRIX does not hold its own lease.** It has been running on addresses
+**STIPPLE does not hold its own lease.** It has been running on addresses
 obtained by the vendor application before it started — every session so far
 began with `setprop ctl.stop zkswe` on a device that was already online. The
 address stays configured because nothing removes it, but nothing renews it
-either, so a NOTRIX device left alone will lose its network when the lease
+either, so a STIPPLE device left alone will lose its network when the lease
 expires. Nobody has seen it because no unit has run for a full lease period
 without being restarted.
 
-So a DHCP client is not a hotspot detail. It is a thing NOTRIX needs in order
+So a DHCP client is not a hotspot detail. It is a thing STIPPLE needs in order
 to be the application on this device at all, and it has to be written: there is
 nothing here to call.
 
 ### Confirmed while writing one
 
-NOTRIX now obtains and renews its own lease, and the live run settled three
+STIPPLE now obtains and renews its own lease, and the live run settled three
 things that were guesses beforehand.
 
 **`AF_PACKET` works on this kernel.** A `SOCK_DGRAM` packet socket binds and
@@ -1193,7 +1193,7 @@ receives; `/proc/net/packet` shows it with proto `0800` on `wlan0`, alongside
 from no address at all, which is what first boot needs.
 
 **The lease this device is issued is 86400 seconds.** That is the number
-behind the whole problem: a NOTRIX device left alone loses its network after a
+behind the whole problem: a STIPPLE device left alone loses its network after a
 day.
 
 **The router honours option 50.** Asking to keep the address already on the
@@ -1218,7 +1218,7 @@ mtd6, mounted rw. `/`, `/res` and `/config` are all read-only squashfs.
 
 **Nothing in init runs anything from `/data`.** `/etc/init.rc` lives on the
 read-only rootfs, and every service it declares points at `/bin` or `/res`.
-So a program in `/data` cannot be started at boot, which is why NOTRIX is
+So a program in `/data` cannot be started at boot, which is why STIPPLE is
 still a thing you run rather than a thing the device runs — and why
 persistence needs a write to mtd2 or mtd3.
 
@@ -1235,7 +1235,7 @@ it is also why that mode cannot be made to persist.
 ### The device can be flashed; it has no tool that does
 
 `/dev/mtd/mtd0` through `mtd7` exist as character devices, mode `crw-------`
-and owned by root, which NOTRIX runs as. The read-only aliases `mtdNro` are
+and owned by root, which STIPPLE runs as. The read-only aliases `mtdNro` are
 there too, which is what a restore-image capture should read from.
 
 So the missing piece is a program, not a capability: `MEMGETINFO`, then
@@ -1250,7 +1250,7 @@ image back on a device that has been deliberately broken. The gates stand.
 
 ## The device already knows how to flash itself
 
-Found while working out how NOTRIX could persist, and it made writing a
+Found while working out how STIPPLE could persist, and it made writing a
 flasher unnecessary. All of this is first-hand: read off a real unit and
 proven by rebuilding a factory image byte for byte.
 
@@ -1349,9 +1349,9 @@ string anywhere, so the path is constructed at runtime rather than stored -
 most plausibly from the program name, which would make `/bin/zkgui` load
 `/res/lib/libzkgui.so` by convention. That is a guess and is flagged as one.
 
-Still unknown, and it is the thing that decides whether NOTRIX can persist as
+Still unknown, and it is the thing that decides whether STIPPLE can persist as
 a drop-in replacement: **which symbol is looked up after the library is
-opened.** Until that is known, building NOTRIX as `libzkgui.so` is not
+opened.** Until that is known, building STIPPLE as `libzkgui.so` is not
 something anyone can attempt.
 
 ## The stock firmware will flash an image for you, over HTTP, unauthenticated
@@ -1373,7 +1373,7 @@ Supplying `version` makes it commit to the `app` branch and name the field
 precisely, which gives the shape:
 
 ```json
-{"app": {"version": "0.1.0", "downloadUrl": "http://host/notrix.img"}}
+{"app": {"version": "0.1.0", "downloadUrl": "http://host/stipple.img"}}
 ```
 
 with `mcu` as the sibling for MCU firmware.
@@ -1389,7 +1389,7 @@ and it installs it.
 
 It is also worth saying out loud that this is an unauthenticated remote
 firmware write, reachable by anything on the same network as a stock TC002.
-NOTRIX does not expose anything like it - `/api/v1/system/restore-image`
+STIPPLE does not expose anything like it - `/api/v1/system/restore-image`
 stages a file to the USB volume and cannot flash - and the difference is
 deliberate.
 
@@ -1403,10 +1403,10 @@ update. Applying one needs none of it.
 The vendor binary carries symbols namespaced `awtrix` - `awtrix::Updater`,
 `awtrix::ConfigWebServer`, and a path `../src/awtrix/ota/Updater.cpp`. Noted
 because it bears on licensing and on where the official Ulanzi sources sit,
-not because anything here derives from it. NOTRIX shares no code with it and
+not because anything here derives from it. STIPPLE shares no code with it and
 does not reference it in anything it ships.
 
-## Where NOTRIX could hook in, measured rather than guessed
+## Where STIPPLE could hook in, measured rather than guessed
 
 Two candidate hooks, both tested on hardware. One is ruled out, one is left
 standing, and the reason the standing one cannot be tested yet is the whole
@@ -1499,11 +1499,11 @@ pointed at `/tmp`:
 ```
 $ mount -o bind /tmp/EasyUI.cfg /res/etc/EasyUI.cfg
 $ setprop ctl.start zkswe
-$ cat /tmp/notrix-zkgui-stub.log
+$ cat /tmp/stipple-zkgui-stub.log
 [11586] static constructor ran - dlopen reached us
 ```
 
-`/proc/<pid>/maps` showed `/tmp/libnotrix.so` mapped and
+`/proc/<pid>/maps` showed `/tmp/libstipple.so` mapped and
 `/res/lib/libzkgui.so` absent. **A 7.6 KB library replaced the 7.5 MB vendor
 application outright**, and `/bin/zkgui` ran on top of it.
 
@@ -1514,11 +1514,11 @@ over in its constructor never reaches them.
 Unmounting restored the original, and a power cycle would have done the same.
 Any future change to the startup path should be tried this way before it is
 written to flash. See
-[ADR 0021](../adr/0021-notrix-as-the-startup-library.md).
+[ADR 0021](../adr/0021-stipple-as-the-startup-library.md).
 
 ## The application owns the Wi-Fi, all of it (2026-09-24)
 
-Measured after a flashed NOTRIX booted with no network *and* no setup
+Measured after a flashed STIPPLE booted with no network *and* no setup
 hotspot. Both symptoms have one cause, and it is not the one the earlier
 "there is no DHCP client on this device" section implies.
 
@@ -1582,11 +1582,11 @@ ls /sys/class/net/                lo  p2p0  wlan0
 
 The interface is **created by the module load**. Remove the driver and there
 is no `wlan0` to configure, to associate, or to hand to `hostapd` - which is
-why a NOTRIX that replaced the application had neither a network nor a setup
+why a STIPPLE that replaced the application had neither a network nor a setup
 hotspot. The hotspot was not failing to broadcast; it could not start, because
 its first step is `ifconfig wlan0 ...` on an interface that did not exist.
 
-### What NOTRIX has to do, and where
+### What STIPPLE has to do, and where
 
 `Tc002Hotspot::ensureRadio()` loads the pair if `/sys/class/net/wlan0` is
 absent, building the path from `uname()` rather than hard-coding `4.9.84`.
@@ -1607,7 +1607,7 @@ told us nothing about a cold boot.
 The general lesson is worth more than the specific bug: a test that reuses a
 running system's state cannot tell you what happens without it.
 
-## zkdaemon will delete NOTRIX if NOTRIX does not announce itself (2026-09-24)
+## zkdaemon will delete STIPPLE if STIPPLE does not announce itself (2026-09-24)
 
 The most consequential thing on this device, and the explanation for a revert
 that had been blamed on a stale upgrade flag.
@@ -1643,11 +1643,11 @@ reinstall from `/mnt/storage/update.img`.
 
 ### What that meant for the first flashed build
 
-NOTRIX replaced the application and never set the property, so:
+STIPPLE replaced the application and never set the property, so:
 
-1. NOTRIX flashed, booted, and ran - the shim and the panel both worked.
+1. STIPPLE flashed, booted, and ran - the shim and the panel both worked.
 2. `zkdaemon` waited, saw no `running`, and called it a failed application.
-3. `rm -rf /data/*` deleted **`/data/notrix/libnotrix.so`** and
+3. `rm -rf /data/*` deleted **`/data/stipple/libstipple.so`** and
    **`/data/misc/wifi/wpa_supplicant.conf`** in the same sweep.
 4. It reinstalled `/mnt/storage/update.img` - which at the time held the
    *stock* image, staged there as a safety net.
@@ -1656,18 +1656,18 @@ NOTRIX replaced the application and never set the property, so:
 Every observed symptom falls out of that: the unexplained progress bar, the
 revert, and the detail that had refused to reconcile - why *stock* also came
 up without Wi-Fi, when `/data` had obviously survived well enough to keep
-`libnotrix.so` from an earlier test. It had not survived. It had been emptied
+`libstipple.so` from an earlier test. It had not survived. It had been emptied
 and partly rewritten.
 
 It also reframes the earlier lockout. That was attributed to holding the reset
 button wiping `/data`; the button certainly does that, but auto recovery
 reaches the same `rm -rf /data/*` with nobody touching anything.
 
-### What NOTRIX has to do
+### What STIPPLE has to do
 
 `Tc002Platform::announceRunning()` sends `setprop sys.zkapp.state running`,
-and `notrixMain` calls it **before opening the panel, the MCU or the
-network** - none of which are worth losing NOTRIX over if they are slow or
+and `stippleMain` calls it **before opening the panel, the MCU or the
+network** - none of which are worth losing STIPPLE over if they are slow or
 fail.
 
 ### The consequence for staging an image

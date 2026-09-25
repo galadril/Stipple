@@ -4,7 +4,7 @@
 
 **Why this exists, and why it is not an MTD writer.**
 
-The obvious way to make NOTRIX persist is to write flash directly: the raw
+The obvious way to make STIPPLE persist is to write flash directly: the raw
 character devices are there, the part is NOR so there are no bad blocks, and
 it is about a hundred and fifty lines. It is also the wrong answer, because
 the failure mode is a clock nobody can recover without opening it.
@@ -20,7 +20,7 @@ would write:
 * ``/mnt/storage`` is the USB mass-storage volume, so putting an image there
   is drag-and-drop from any machine.
 
-So NOTRIX ships an ``update.img`` and uses the vendor's own path. That is the
+So STIPPLE ships an ``update.img`` and uses the vendor's own path. That is the
 difference between a restore procedure we hope works and one the device has
 been doing since it left the factory.
 

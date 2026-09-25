@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/mqtt/MqttBridge.h"
+#include "stipple/mqtt/MqttBridge.h"
 
 #include <utility>
 #include <vector>
 
-#include "notrix/api/JsonWriter.h"
-#include "notrix/config/Config.h"
-#include "notrix/core/Version.h"
+#include "stipple/api/JsonWriter.h"
+#include "stipple/config/Config.h"
+#include "stipple/core/Version.h"
 
-namespace notrix {
+namespace stipple {
 namespace platform {
 
 const char* mqttStateName(MqttState state) noexcept {
@@ -76,7 +76,7 @@ std::uint32_t Backoff::nextDelayMillis() noexcept {
 
 Topics Topics::build(std::string_view baseTopic, std::string_view deviceId) {
     Topics topics;
-    const std::string_view root = baseTopic.empty() ? std::string_view("notrix") : baseTopic;
+    const std::string_view root = baseTopic.empty() ? std::string_view("stipple") : baseTopic;
 
     topics.base = std::string(root);
     topics.base += '/';
@@ -90,7 +90,7 @@ Topics Topics::build(std::string_view baseTopic, std::string_view deviceId) {
 }
 
 std::string defaultClientId(std::string_view deviceId) {
-    return "notrix-" + std::string(deviceId);
+    return "stipple-" + std::string(deviceId);
 }
 
 std::string deviceIdFromName(std::string_view name) {
@@ -117,7 +117,7 @@ std::string deviceIdFromName(std::string_view name) {
     }
 
     // A device whose name is entirely punctuation would otherwise produce an
-    // empty topic segment, making `notrix//status` — legal MQTT, but a
+    // empty topic segment, making `stipple//status` — legal MQTT, but a
     // nightmare to subscribe to by hand.
     return id.empty() ? std::string("device") : id;
 }
@@ -234,8 +234,8 @@ std::vector<platform::MqttMessage> Bridge::discoveryMessages(const config::Confi
                                                              bool clear) const {
     std::vector<platform::MqttMessage> out;
 
-    const std::string node = "notrix_" + std::string(deviceId);
-    const std::string name = settings.deviceName.empty() ? std::string("NOTRIX")
+    const std::string node = "stipple_" + std::string(deviceId);
+    const std::string name = settings.deviceName.empty() ? std::string("STIPPLE")
                                                          : settings.deviceName;
 
     // Every entity carries the same device block, which is what makes Home
@@ -245,7 +245,7 @@ std::vector<platform::MqttMessage> Bridge::discoveryMessages(const config::Confi
     deviceWriter.beginObject()
         .key("identifiers").beginArray().value(node).endArray()
         .member("name", name)
-        .member("manufacturer", "NOTRIX")
+        .member("manufacturer", "STIPPLE")
         .member("model", "Ulanzi TC002")
         .member("sw_version", kVersion)
         .endObject();
@@ -394,4 +394,4 @@ platform::MqttConnectOptions Bridge::connectOptions(const config::Config& settin
 }
 
 }  // namespace mqtt
-}  // namespace notrix
+}  // namespace stipple

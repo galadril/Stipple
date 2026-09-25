@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/config/Config.h"
+#include "stipple/config/Config.h"
 
 #include <string>
 #include <vector>
 
-#include "notrix/json/Json.h"
+#include "stipple/json/Json.h"
 
-#include "notrix/app/AppRegistry.h"
-#include "notrix/apps/ClockApp.h"
-#include "notrix/core/Checksum.h"
-#include "notrix/platform/simulator/SimulatorPlatform.h"
+#include "stipple/app/AppRegistry.h"
+#include "stipple/apps/ClockApp.h"
+#include "stipple/core/Checksum.h"
+#include "stipple/platform/simulator/SimulatorPlatform.h"
 #include "support/TestFramework.h"
 
-using notrix::config::AppPreference;
-using notrix::config::Config;
-using notrix::config::ConfigStore;
-using notrix::config::kCurrentSchemaVersion;
-using notrix::config::LoadReport;
-using notrix::config::LoadStatus;
-using notrix::platform::simulator::SimulatorPlatform;
+using stipple::config::AppPreference;
+using stipple::config::Config;
+using stipple::config::ConfigStore;
+using stipple::config::kCurrentSchemaVersion;
+using stipple::config::LoadReport;
+using stipple::config::LoadStatus;
+using stipple::platform::simulator::SimulatorPlatform;
 
 namespace {
 
@@ -30,7 +30,7 @@ int status(LoadStatus value) {
 /// stored documents — including ones from older schema versions.
 std::string envelope(const std::string& body) {
     char hex[9];
-    notrix::crc32ToHex(notrix::crc32(body), hex);
+    stipple::crc32ToHex(stipple::crc32(body), hex);
     return std::string("{\"checksum\":\"") + hex + "\",\"body\":" + body + "}";
 }
 
@@ -38,7 +38,7 @@ std::string envelope(const std::string& body) {
 
 // --- round trip --------------------------------------------------------------
 
-NOTRIX_TEST(Config, SavesAndLoads) {
+STIPPLE_TEST(Config, SavesAndLoads) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -51,22 +51,22 @@ NOTRIX_TEST(Config, SavesAndLoads) {
     written.clock.twentyFourHour = false;
     written.clock.utcOffsetSeconds = 3600;
 
-    NOTRIX_CHECK(store.save(written));
+    STIPPLE_CHECK(store.save(written));
 
     Config read;
     const LoadReport report = store.load(read);
 
-    NOTRIX_CHECK_EQ(status(report.status), status(LoadStatus::Loaded));
-    NOTRIX_CHECK_EQ(read.deviceName, std::string("kitchen-clock"));
-    NOTRIX_CHECK_EQ(static_cast<int>(read.display.brightness), 200);
-    NOTRIX_CHECK_FALSE(read.display.power);
-    NOTRIX_CHECK_EQ(read.apps.defaultDurationSeconds, 12);
-    NOTRIX_CHECK_FALSE(read.apps.transitions);
-    NOTRIX_CHECK_FALSE(read.clock.twentyFourHour);
-    NOTRIX_CHECK_EQ(read.clock.utcOffsetSeconds, 3600);
+    STIPPLE_CHECK_EQ(status(report.status), status(LoadStatus::Loaded));
+    STIPPLE_CHECK_EQ(read.deviceName, std::string("kitchen-clock"));
+    STIPPLE_CHECK_EQ(static_cast<int>(read.display.brightness), 200);
+    STIPPLE_CHECK_FALSE(read.display.power);
+    STIPPLE_CHECK_EQ(read.apps.defaultDurationSeconds, 12);
+    STIPPLE_CHECK_FALSE(read.apps.transitions);
+    STIPPLE_CHECK_FALSE(read.clock.twentyFourHour);
+    STIPPLE_CHECK_EQ(read.clock.utcOffsetSeconds, 3600);
 }
 
-NOTRIX_TEST(Config, ClockStyleSurvivesARoundTrip) {
+STIPPLE_TEST(Config, ClockStyleSurvivesARoundTrip) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -81,46 +81,46 @@ NOTRIX_TEST(Config, ClockStyleSurvivesARoundTrip) {
     written.clock.dateSeparator = "dash";
     written.clock.dateYear = "twoDigit";
     written.clock.blinkPeriodMillis = 250;
-    NOTRIX_CHECK(store.save(written));
+    STIPPLE_CHECK(store.save(written));
 
     Config read;
-    NOTRIX_CHECK_EQ(status(store.load(read).status), status(LoadStatus::Loaded));
-    NOTRIX_CHECK_EQ(read.clock.theme, std::string("calendar"));
-    NOTRIX_CHECK_FALSE(read.clock.leadingZero);
-    NOTRIX_CHECK(read.clock.showAmPm);
-    NOTRIX_CHECK_EQ(static_cast<int>(read.clock.color), 0x123456);
-    NOTRIX_CHECK_EQ(static_cast<int>(read.clock.accentColor), 0xABCDEF);
-    NOTRIX_CHECK_EQ(static_cast<int>(read.clock.dateColor), 0x0000FF);
-    NOTRIX_CHECK_EQ(read.clock.dateOrder, std::string("yearMonthDay"));
-    NOTRIX_CHECK_EQ(read.clock.dateSeparator, std::string("dash"));
-    NOTRIX_CHECK_EQ(read.clock.dateYear, std::string("twoDigit"));
-    NOTRIX_CHECK_EQ(static_cast<int>(read.clock.blinkPeriodMillis), 250);
+    STIPPLE_CHECK_EQ(status(store.load(read).status), status(LoadStatus::Loaded));
+    STIPPLE_CHECK_EQ(read.clock.theme, std::string("calendar"));
+    STIPPLE_CHECK_FALSE(read.clock.leadingZero);
+    STIPPLE_CHECK(read.clock.showAmPm);
+    STIPPLE_CHECK_EQ(static_cast<int>(read.clock.color), 0x123456);
+    STIPPLE_CHECK_EQ(static_cast<int>(read.clock.accentColor), 0xABCDEF);
+    STIPPLE_CHECK_EQ(static_cast<int>(read.clock.dateColor), 0x0000FF);
+    STIPPLE_CHECK_EQ(read.clock.dateOrder, std::string("yearMonthDay"));
+    STIPPLE_CHECK_EQ(read.clock.dateSeparator, std::string("dash"));
+    STIPPLE_CHECK_EQ(read.clock.dateYear, std::string("twoDigit"));
+    STIPPLE_CHECK_EQ(static_cast<int>(read.clock.blinkPeriodMillis), 250);
 }
 
-NOTRIX_TEST(Config, EveryDefaultClockNameRoundTripsThroughTheAppLayer) {
+STIPPLE_TEST(Config, EveryDefaultClockNameRoundTripsThroughTheAppLayer) {
     // The settings API accepts only names that survive name -> enum -> name. A
     // default that did not round-trip would be rejected by the same endpoint
     // that reports it, which is a maddening bug to find from the outside.
     const Config defaults;
-    NOTRIX_CHECK_EQ(
-        std::string(notrix::apps::clockThemeName(
-            notrix::apps::clockThemeFromName(defaults.clock.theme))),
+    STIPPLE_CHECK_EQ(
+        std::string(stipple::apps::clockThemeName(
+            stipple::apps::clockThemeFromName(defaults.clock.theme))),
         defaults.clock.theme);
-    NOTRIX_CHECK_EQ(
-        std::string(notrix::apps::dateOrderName(
-            notrix::apps::dateOrderFromName(defaults.clock.dateOrder))),
+    STIPPLE_CHECK_EQ(
+        std::string(stipple::apps::dateOrderName(
+            stipple::apps::dateOrderFromName(defaults.clock.dateOrder))),
         defaults.clock.dateOrder);
-    NOTRIX_CHECK_EQ(
-        std::string(notrix::apps::dateSeparatorName(
-            notrix::apps::dateSeparatorFromName(defaults.clock.dateSeparator))),
+    STIPPLE_CHECK_EQ(
+        std::string(stipple::apps::dateSeparatorName(
+            stipple::apps::dateSeparatorFromName(defaults.clock.dateSeparator))),
         defaults.clock.dateSeparator);
-    NOTRIX_CHECK_EQ(
-        std::string(notrix::apps::dateYearName(
-            notrix::apps::dateYearFromName(defaults.clock.dateYear))),
+    STIPPLE_CHECK_EQ(
+        std::string(stipple::apps::dateYearName(
+            stipple::apps::dateYearFromName(defaults.clock.dateYear))),
         defaults.clock.dateYear);
 }
 
-NOTRIX_TEST(Config, AMalformedColourKeepsTheDefaultRatherThanFailingTheLoad) {
+STIPPLE_TEST(Config, AMalformedColourKeepsTheDefaultRatherThanFailingTheLoad) {
     // One bad field must not cost the user every other setting they have.
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
@@ -133,13 +133,13 @@ NOTRIX_TEST(Config, AMalformedColourKeepsTheDefaultRatherThanFailingTheLoad) {
     Config read;
     const LoadReport report = store.load(read);
 
-    NOTRIX_CHECK_EQ(status(report.status), status(LoadStatus::Loaded));
-    NOTRIX_CHECK_EQ(read.deviceName, std::string("kept"));
-    NOTRIX_CHECK_EQ(static_cast<int>(read.clock.color), 0xFFFFFF);   // default
-    NOTRIX_CHECK_EQ(static_cast<int>(read.clock.accentColor), 0x00FF00);  // applied
+    STIPPLE_CHECK_EQ(status(report.status), status(LoadStatus::Loaded));
+    STIPPLE_CHECK_EQ(read.deviceName, std::string("kept"));
+    STIPPLE_CHECK_EQ(static_cast<int>(read.clock.color), 0xFFFFFF);   // default
+    STIPPLE_CHECK_EQ(static_cast<int>(read.clock.accentColor), 0x00FF00);  // applied
 }
 
-NOTRIX_TEST(Config, BlinkPeriodIsClampedButZeroIsPreserved) {
+STIPPLE_TEST(Config, BlinkPeriodIsClampedButZeroIsPreserved) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -154,41 +154,41 @@ NOTRIX_TEST(Config, BlinkPeriodIsClampedButZeroIsPreserved) {
     };
 
     // 0 is not "unset"; it means hold the colon lit, so it must survive.
-    NOTRIX_CHECK_EQ(loadedBlink("0"), 0);
-    NOTRIX_CHECK_EQ(loadedBlink("-5"), 0);
-    NOTRIX_CHECK_EQ(loadedBlink("10"), 100);
-    NOTRIX_CHECK_EQ(loadedBlink("999999"), 60000);
-    NOTRIX_CHECK_EQ(loadedBlink("1500"), 1500);
+    STIPPLE_CHECK_EQ(loadedBlink("0"), 0);
+    STIPPLE_CHECK_EQ(loadedBlink("-5"), 0);
+    STIPPLE_CHECK_EQ(loadedBlink("10"), 100);
+    STIPPLE_CHECK_EQ(loadedBlink("999999"), 60000);
+    STIPPLE_CHECK_EQ(loadedBlink("1500"), 1500);
 }
 
-NOTRIX_TEST(Config, FirstBootUsesDefaults) {
+STIPPLE_TEST(Config, FirstBootUsesDefaults) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
     Config config;
     const LoadReport report = store.load(config);
 
-    NOTRIX_CHECK_EQ(status(report.status), status(LoadStatus::DefaultsMissing));
-    NOTRIX_CHECK_EQ(config.schemaVersion, kCurrentSchemaVersion);
-    NOTRIX_CHECK_EQ(config.deviceName, std::string("notrix"));
+    STIPPLE_CHECK_EQ(status(report.status), status(LoadStatus::DefaultsMissing));
+    STIPPLE_CHECK_EQ(config.schemaVersion, kCurrentSchemaVersion);
+    STIPPLE_CHECK_EQ(config.deviceName, std::string("stipple"));
 }
 
-NOTRIX_TEST(Config, DeviceNameWithAwkwardCharactersSurvives) {
+STIPPLE_TEST(Config, DeviceNameWithAwkwardCharactersSurvives) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
     Config written;
     written.deviceName = "he said \"hi\"\\\n\tdone";
-    NOTRIX_CHECK(store.save(written));
+    STIPPLE_CHECK(store.save(written));
 
     Config read;
     store.load(read);
-    NOTRIX_CHECK_EQ(read.deviceName, written.deviceName);
+    STIPPLE_CHECK_EQ(read.deviceName, written.deviceName);
 }
 
 // --- integrity ---------------------------------------------------------------
 
-NOTRIX_TEST(Config, DetectsCorruptedPayload) {
+STIPPLE_TEST(Config, DetectsCorruptedPayload) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -200,7 +200,7 @@ NOTRIX_TEST(Config, DetectsCorruptedPayload) {
     std::string stored;
     platform.storage().read(ConfigStore::kPrimaryKey, stored);
     const std::size_t digit = stored.find("77");
-    NOTRIX_CHECK(digit != std::string::npos);
+    STIPPLE_CHECK(digit != std::string::npos);
     stored[digit] = '8';
     platform.storage().write(ConfigStore::kPrimaryKey, stored);
 
@@ -209,11 +209,11 @@ NOTRIX_TEST(Config, DetectsCorruptedPayload) {
     // rather than loaded as if it were genuine.
     Config read;
     const LoadReport report = store.load(read);
-    NOTRIX_CHECK_EQ(status(report.status), status(LoadStatus::DefaultsCorrupt));
-    NOTRIX_CHECK_EQ(static_cast<int>(read.display.brightness), 128);
+    STIPPLE_CHECK_EQ(status(report.status), status(LoadStatus::DefaultsCorrupt));
+    STIPPLE_CHECK_EQ(static_cast<int>(read.display.brightness), 128);
 }
 
-NOTRIX_TEST(Config, RecoversFromBackupWhenPrimaryIsCorrupt) {
+STIPPLE_TEST(Config, RecoversFromBackupWhenPrimaryIsCorrupt) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -230,12 +230,12 @@ NOTRIX_TEST(Config, RecoversFromBackupWhenPrimaryIsCorrupt) {
     Config read;
     const LoadReport report = store.load(read);
 
-    NOTRIX_CHECK_EQ(status(report.status), status(LoadStatus::RecoveredFromBackup));
-    NOTRIX_CHECK(report.usedBackup);
-    NOTRIX_CHECK_EQ(read.deviceName, std::string("original"));
+    STIPPLE_CHECK_EQ(status(report.status), status(LoadStatus::RecoveredFromBackup));
+    STIPPLE_CHECK(report.usedBackup);
+    STIPPLE_CHECK_EQ(read.deviceName, std::string("original"));
 }
 
-NOTRIX_TEST(Config, BothCopiesCorruptFallsBackToDefaults) {
+STIPPLE_TEST(Config, BothCopiesCorruptFallsBackToDefaults) {
     // The rule that matters: a malformed configuration must never brick the
     // clock or cause a boot loop.
     SimulatorPlatform platform;
@@ -247,11 +247,11 @@ NOTRIX_TEST(Config, BothCopiesCorruptFallsBackToDefaults) {
     Config read;
     const LoadReport report = store.load(read);
 
-    NOTRIX_CHECK_EQ(status(report.status), status(LoadStatus::DefaultsCorrupt));
-    NOTRIX_CHECK_EQ(read.deviceName, std::string("notrix"));
+    STIPPLE_CHECK_EQ(status(report.status), status(LoadStatus::DefaultsCorrupt));
+    STIPPLE_CHECK_EQ(read.deviceName, std::string("stipple"));
 }
 
-NOTRIX_TEST(Config, TruncatedPayloadIsRejected) {
+STIPPLE_TEST(Config, TruncatedPayloadIsRejected) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -266,11 +266,11 @@ NOTRIX_TEST(Config, TruncatedPayloadIsRejected) {
         platform.storage().write(ConfigStore::kPrimaryKey, stored.substr(0, length));
         Config read;
         const LoadReport report = store.load(read);
-        NOTRIX_CHECK(report.status != LoadStatus::Loaded);
+        STIPPLE_CHECK(report.status != LoadStatus::Loaded);
     }
 }
 
-NOTRIX_TEST(Config, ArbitraryGarbageNeverCrashes) {
+STIPPLE_TEST(Config, ArbitraryGarbageNeverCrashes) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -284,13 +284,13 @@ NOTRIX_TEST(Config, ArbitraryGarbageNeverCrashes) {
         platform.storage().write(ConfigStore::kPrimaryKey, sample);
         Config read;
         store.load(read);
-        NOTRIX_CHECK(read.schemaVersion == kCurrentSchemaVersion);
+        STIPPLE_CHECK(read.schemaVersion == kCurrentSchemaVersion);
     }
 }
 
 // --- schema versions ---------------------------------------------------------
 
-NOTRIX_TEST(Config, MigratesBrightnessFromPercentToBytes) {
+STIPPLE_TEST(Config, MigratesBrightnessFromPercentToBytes) {
     // v1 stored brightness as 0-100. Loading one must convert, not clamp.
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
@@ -302,13 +302,13 @@ NOTRIX_TEST(Config, MigratesBrightnessFromPercentToBytes) {
     Config read;
     const LoadReport report = store.load(read);
 
-    NOTRIX_CHECK_EQ(status(report.status), status(LoadStatus::Migrated));
-    NOTRIX_CHECK_EQ(report.fromSchemaVersion, 1);
-    NOTRIX_CHECK_EQ(static_cast<int>(read.display.brightness), 128);
-    NOTRIX_CHECK_EQ(read.deviceName, std::string("old"));
+    STIPPLE_CHECK_EQ(status(report.status), status(LoadStatus::Migrated));
+    STIPPLE_CHECK_EQ(report.fromSchemaVersion, 1);
+    STIPPLE_CHECK_EQ(static_cast<int>(read.display.brightness), 128);
+    STIPPLE_CHECK_EQ(read.deviceName, std::string("old"));
 }
 
-NOTRIX_TEST(Config, MigrationCoversTheFullRange) {
+STIPPLE_TEST(Config, MigrationCoversTheFullRange) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -321,11 +321,11 @@ NOTRIX_TEST(Config, MigrationCoversTheFullRange) {
         return static_cast<int>(read.display.brightness);
     };
 
-    NOTRIX_CHECK_EQ(migratedBrightness(0), 0);
-    NOTRIX_CHECK_EQ(migratedBrightness(100), 255);
+    STIPPLE_CHECK_EQ(migratedBrightness(0), 0);
+    STIPPLE_CHECK_EQ(migratedBrightness(100), 255);
 }
 
-NOTRIX_TEST(Config, MigratedConfigIsRewrittenAtTheCurrentSchema) {
+STIPPLE_TEST(Config, MigratedConfigIsRewrittenAtTheCurrentSchema) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -334,17 +334,17 @@ NOTRIX_TEST(Config, MigratedConfigIsRewrittenAtTheCurrentSchema) {
 
     Config read;
     store.load(read);
-    NOTRIX_CHECK_EQ(read.schemaVersion, kCurrentSchemaVersion);
+    STIPPLE_CHECK_EQ(read.schemaVersion, kCurrentSchemaVersion);
 
     // Saving it back stores the new schema, so the migration happens once.
-    NOTRIX_CHECK(store.save(read));
+    STIPPLE_CHECK(store.save(read));
     Config again;
     const LoadReport report = store.load(again);
-    NOTRIX_CHECK_EQ(status(report.status), status(LoadStatus::Loaded));
-    NOTRIX_CHECK_EQ(static_cast<int>(again.display.brightness), 255);
+    STIPPLE_CHECK_EQ(status(report.status), status(LoadStatus::Loaded));
+    STIPPLE_CHECK_EQ(static_cast<int>(again.display.brightness), 255);
 }
 
-NOTRIX_TEST(Config, RefusesNewerSchema) {
+STIPPLE_TEST(Config, RefusesNewerSchema) {
     // Downgraded firmware must not guess at fields whose meaning has changed.
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
@@ -355,12 +355,12 @@ NOTRIX_TEST(Config, RefusesNewerSchema) {
     Config read;
     const LoadReport report = store.load(read);
 
-    NOTRIX_CHECK_EQ(status(report.status), status(LoadStatus::DefaultsFutureSchema));
-    NOTRIX_CHECK_EQ(report.fromSchemaVersion, 99);
-    NOTRIX_CHECK_EQ(read.deviceName, std::string("notrix"));
+    STIPPLE_CHECK_EQ(status(report.status), status(LoadStatus::DefaultsFutureSchema));
+    STIPPLE_CHECK_EQ(report.fromSchemaVersion, 99);
+    STIPPLE_CHECK_EQ(read.deviceName, std::string("stipple"));
 }
 
-NOTRIX_TEST(Config, IgnoresUnknownFields) {
+STIPPLE_TEST(Config, IgnoresUnknownFields) {
     // A config written by a newer minor build should still load.
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
@@ -373,13 +373,13 @@ NOTRIX_TEST(Config, IgnoresUnknownFields) {
     Config read;
     const LoadReport report = store.load(read);
 
-    NOTRIX_CHECK_EQ(status(report.status), status(LoadStatus::Loaded));
-    NOTRIX_CHECK_EQ(static_cast<int>(read.display.brightness), 90);
+    STIPPLE_CHECK_EQ(status(report.status), status(LoadStatus::Loaded));
+    STIPPLE_CHECK_EQ(static_cast<int>(read.display.brightness), 90);
 }
 
 // --- validation --------------------------------------------------------------
 
-NOTRIX_TEST(Config, ClampsOutOfRangeValues) {
+STIPPLE_TEST(Config, ClampsOutOfRangeValues) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -392,21 +392,21 @@ NOTRIX_TEST(Config, ClampsOutOfRangeValues) {
     Config read;
     store.load(read);
 
-    NOTRIX_CHECK_EQ(static_cast<int>(read.display.brightness), 255);
-    NOTRIX_CHECK_EQ(read.apps.defaultDurationSeconds, 1);
-    NOTRIX_CHECK_EQ(read.clock.utcOffsetSeconds, 14 * 3600);
+    STIPPLE_CHECK_EQ(static_cast<int>(read.display.brightness), 255);
+    STIPPLE_CHECK_EQ(read.apps.defaultDurationSeconds, 1);
+    STIPPLE_CHECK_EQ(read.clock.utcOffsetSeconds, 14 * 3600);
 }
 
-NOTRIX_TEST(Config, SaveRejectsOversizedPayload) {
+STIPPLE_TEST(Config, SaveRejectsOversizedPayload) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
     Config written;
     written.deviceName = std::string(platform.storage().maxValueBytes() + 1, 'n');
-    NOTRIX_CHECK_FALSE(store.save(written));
+    STIPPLE_CHECK_FALSE(store.save(written));
 }
 
-NOTRIX_TEST(Config, TokenBudgetHasHeadroom) {
+STIPPLE_TEST(Config, TokenBudgetHasHeadroom) {
     // Overflowing kMaxTokens makes a perfectly good configuration read as
     // corrupt, and the device silently falls back to defaults -- losing every
     // setting the user had. Each field added since this was written eats into
@@ -414,7 +414,7 @@ NOTRIX_TEST(Config, TokenBudgetHasHeadroom) {
     Config config;
     config.deviceName = std::string(64, 'n');
     config.mqtt.host = "broker.example.invalid";
-    config.mqtt.clientId = "notrix-kitchen";
+    config.mqtt.clientId = "stipple-kitchen";
     config.mqtt.username = "user";
     config.mqtt.password = "secret";
 
@@ -422,9 +422,9 @@ NOTRIX_TEST(Config, TokenBudgetHasHeadroom) {
     // actually looks like now. Each one is about seven tokens, so this is more
     // of the budget than everything above it put together - and leaving it out
     // would have made this test measure a document no real device writes.
-    for (int i = 0; i < notrix::config::kMaxRememberedApps; ++i) {
+    for (int i = 0; i < stipple::config::kMaxRememberedApps; ++i) {
         AppPreference preference;
-        preference.id = std::string(notrix::app::AppRegistry::kMaxIdBytes, 'a');
+        preference.id = std::string(stipple::app::AppRegistry::kMaxIdBytes, 'a');
         preference.enabled = (i % 2) == 0;
         preference.durationSeconds = 3600;
         config.apps.order.push_back(std::move(preference));
@@ -436,31 +436,31 @@ NOTRIX_TEST(Config, TokenBudgetHasHeadroom) {
     // budgets until it fits.
     int needed = 0;
     for (int budget = 1; budget <= ConfigStore::kMaxTokens; ++budget) {
-        std::vector<notrix::json::Token> tokens(static_cast<std::size_t>(budget));
-        notrix::json::Document document(tokens.data(), budget);
-        if (document.parse(payload) == notrix::json::Error::None) {
+        std::vector<stipple::json::Token> tokens(static_cast<std::size_t>(budget));
+        stipple::json::Document document(tokens.data(), budget);
+        if (document.parse(payload) == stipple::json::Error::None) {
             needed = budget;
             break;
         }
     }
 
-    NOTRIX_CHECK(needed > 0);  // it fits at all
+    STIPPLE_CHECK(needed > 0);  // it fits at all
     // Half the budget spare. Tighter than that and the next few settings would
     // silently push a real device over.
-    NOTRIX_CHECK(needed <= ConfigStore::kMaxTokens / 2);
+    STIPPLE_CHECK(needed <= ConfigStore::kMaxTokens / 2);
 
     // And the end-to-end proof, which is what actually matters.
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
-    NOTRIX_CHECK(store.save(config));
+    STIPPLE_CHECK(store.save(config));
 
     Config read;
-    NOTRIX_CHECK_EQ(status(store.load(read).status), status(LoadStatus::Loaded));
-    NOTRIX_CHECK_EQ(read.mqtt.host, config.mqtt.host);
-    NOTRIX_CHECK_EQ(read.deviceName, config.deviceName);
+    STIPPLE_CHECK_EQ(status(store.load(read).status), status(LoadStatus::Loaded));
+    STIPPLE_CHECK_EQ(read.mqtt.host, config.mqtt.host);
+    STIPPLE_CHECK_EQ(read.deviceName, config.deviceName);
 }
 
-NOTRIX_TEST(Config, MqttSettingsRoundTrip) {
+STIPPLE_TEST(Config, MqttSettingsRoundTrip) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -475,21 +475,21 @@ NOTRIX_TEST(Config, MqttSettingsRoundTrip) {
     written.mqtt.tls = true;
     written.mqtt.keepAliveSeconds = 45;
     written.mqtt.discovery = true;
-    NOTRIX_CHECK(store.save(written));
+    STIPPLE_CHECK(store.save(written));
 
     Config read;
-    NOTRIX_CHECK_EQ(status(store.load(read).status), status(LoadStatus::Loaded));
-    NOTRIX_CHECK(read.mqtt.enabled);
-    NOTRIX_CHECK_EQ(read.mqtt.host, std::string("broker.local"));
-    NOTRIX_CHECK_EQ(read.mqtt.port, 8883);
-    NOTRIX_CHECK_EQ(read.mqtt.baseTopic, std::string("home"));
+    STIPPLE_CHECK_EQ(status(store.load(read).status), status(LoadStatus::Loaded));
+    STIPPLE_CHECK(read.mqtt.enabled);
+    STIPPLE_CHECK_EQ(read.mqtt.host, std::string("broker.local"));
+    STIPPLE_CHECK_EQ(read.mqtt.port, 8883);
+    STIPPLE_CHECK_EQ(read.mqtt.baseTopic, std::string("home"));
     // The credential has to survive storage, or the device cannot reconnect.
-    NOTRIX_CHECK_EQ(read.mqtt.password, std::string("secret"));
-    NOTRIX_CHECK(read.mqtt.tls);
-    NOTRIX_CHECK_EQ(read.mqtt.keepAliveSeconds, 45);
+    STIPPLE_CHECK_EQ(read.mqtt.password, std::string("secret"));
+    STIPPLE_CHECK(read.mqtt.tls);
+    STIPPLE_CHECK_EQ(read.mqtt.keepAliveSeconds, 45);
 }
 
-NOTRIX_TEST(Config, MqttValuesAreClamped) {
+STIPPLE_TEST(Config, MqttValuesAreClamped) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -501,28 +501,28 @@ NOTRIX_TEST(Config, MqttValuesAreClamped) {
     Config read;
     store.load(read);
 
-    NOTRIX_CHECK_EQ(read.mqtt.port, 65535);
-    NOTRIX_CHECK_EQ(read.mqtt.keepAliveSeconds, 5);
+    STIPPLE_CHECK_EQ(read.mqtt.port, 65535);
+    STIPPLE_CHECK_EQ(read.mqtt.keepAliveSeconds, 5);
     // An empty base would publish to "/{deviceId}/status".
-    NOTRIX_CHECK_EQ(read.mqtt.baseTopic, std::string("notrix"));
+    STIPPLE_CHECK_EQ(read.mqtt.baseTopic, std::string("stipple"));
 }
 
-NOTRIX_TEST(Config, EveryStatusHasADescription) {
+STIPPLE_TEST(Config, EveryStatusHasADescription) {
     for (int i = 0; i <= static_cast<int>(LoadStatus::DefaultsFutureSchema); ++i) {
-        const char* text = notrix::config::describe(static_cast<LoadStatus>(i));
-        NOTRIX_CHECK(text != nullptr && text[0] != '\0');
+        const char* text = stipple::config::describe(static_cast<LoadStatus>(i));
+        STIPPLE_CHECK(text != nullptr && text[0] != '\0');
     }
 }
 
-NOTRIX_TEST(Config, RememberedAppsMatchWhatTheRegistryCanHold) {
+STIPPLE_TEST(Config, RememberedAppsMatchWhatTheRegistryCanHold) {
     // kMaxRememberedApps is duplicated rather than included, to keep
     // configuration from depending on the app layer for one number. That is
     // only safe if something notices when the two drift.
-    NOTRIX_CHECK_EQ(notrix::config::kMaxRememberedApps,
-                    notrix::app::AppRegistry::kMaxApps);
+    STIPPLE_CHECK_EQ(stipple::config::kMaxRememberedApps,
+                    stipple::app::AppRegistry::kMaxApps);
 }
 
-NOTRIX_TEST(Config, AppOrderSurvivesASaveAndLoad) {
+STIPPLE_TEST(Config, AppOrderSurvivesASaveAndLoad) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
@@ -537,20 +537,20 @@ NOTRIX_TEST(Config, AppOrderSurvivesASaveAndLoad) {
     second.id = "clock";
     written.apps.order.push_back(second);
 
-    NOTRIX_REQUIRE(store.save(written));
+    STIPPLE_REQUIRE(store.save(written));
 
     Config read;
     store.load(read);
 
-    NOTRIX_REQUIRE(read.apps.order.size() == 2);
-    NOTRIX_CHECK_EQ(read.apps.order[0].id, std::string("battery"));
-    NOTRIX_CHECK_FALSE(read.apps.order[0].enabled);
-    NOTRIX_CHECK_EQ(read.apps.order[0].durationSeconds, 12);
-    NOTRIX_CHECK_EQ(read.apps.order[1].id, std::string("clock"));
-    NOTRIX_CHECK(read.apps.order[1].enabled);
+    STIPPLE_REQUIRE(read.apps.order.size() == 2);
+    STIPPLE_CHECK_EQ(read.apps.order[0].id, std::string("battery"));
+    STIPPLE_CHECK_FALSE(read.apps.order[0].enabled);
+    STIPPLE_CHECK_EQ(read.apps.order[0].durationSeconds, 12);
+    STIPPLE_CHECK_EQ(read.apps.order[1].id, std::string("clock"));
+    STIPPLE_CHECK(read.apps.order[1].enabled);
 }
 
-NOTRIX_TEST(Config, AnOrderEntryWithNoIdIsSkippedOnLoad) {
+STIPPLE_TEST(Config, AnOrderEntryWithNoIdIsSkippedOnLoad) {
     // An entry naming nothing orders nothing, and keeping it would leave a
     // permanent no-op sitting in the user's arrangement. Driven through save()
     // rather than by hand-writing the document, because a stored document
@@ -568,16 +568,16 @@ NOTRIX_TEST(Config, AnOrderEntryWithNoIdIsSkippedOnLoad) {
     real.id = "clock";
     written.apps.order.push_back(real);
 
-    NOTRIX_REQUIRE(store.save(written));
+    STIPPLE_REQUIRE(store.save(written));
 
     Config read;
     store.load(read);
 
-    NOTRIX_REQUIRE(read.apps.order.size() == 1);
-    NOTRIX_CHECK_EQ(read.apps.order[0].id, std::string("clock"));
+    STIPPLE_REQUIRE(read.apps.order.size() == 1);
+    STIPPLE_CHECK_EQ(read.apps.order[0].id, std::string("clock"));
 }
 
-NOTRIX_TEST(Config, NightSettingsRoundTrip) {
+STIPPLE_TEST(Config, NightSettingsRoundTrip) {
     // Nesting matters: the serialiser wrote this at the top level while the
     // parser read it from inside "display", so it saved and never came back -
     // and nothing else in the suite would have noticed.
@@ -589,28 +589,28 @@ NOTRIX_TEST(Config, NightSettingsRoundTrip) {
     written.display.night.startMinutes = 23 * 60 + 15;
     written.display.night.endMinutes = 6 * 60 + 30;
     written.display.night.brightness = 9;
-    NOTRIX_REQUIRE(store.save(written));
+    STIPPLE_REQUIRE(store.save(written));
 
     Config read;
     store.load(read);
 
-    NOTRIX_CHECK(read.display.night.enabled);
-    NOTRIX_CHECK_EQ(read.display.night.startMinutes, 23 * 60 + 15);
-    NOTRIX_CHECK_EQ(read.display.night.endMinutes, 6 * 60 + 30);
-    NOTRIX_CHECK_EQ(static_cast<int>(read.display.night.brightness), 9);
+    STIPPLE_CHECK(read.display.night.enabled);
+    STIPPLE_CHECK_EQ(read.display.night.startMinutes, 23 * 60 + 15);
+    STIPPLE_CHECK_EQ(read.display.night.endMinutes, 6 * 60 + 30);
+    STIPPLE_CHECK_EQ(static_cast<int>(read.display.night.brightness), 9);
 }
 
-NOTRIX_TEST(Config, ATimeOutsideADayIsClamped) {
+STIPPLE_TEST(Config, ATimeOutsideADayIsClamped) {
     SimulatorPlatform platform;
     ConfigStore store(platform.storage());
 
     Config written;
     written.display.night.startMinutes = 99999;
     written.display.night.endMinutes = -5;
-    NOTRIX_REQUIRE(store.save(written));
+    STIPPLE_REQUIRE(store.save(written));
 
     Config read;
     store.load(read);
-    NOTRIX_CHECK(read.display.night.startMinutes >= 0 && read.display.night.startMinutes <= 1439);
-    NOTRIX_CHECK(read.display.night.endMinutes >= 0 && read.display.night.endMinutes <= 1439);
+    STIPPLE_CHECK(read.display.night.startMinutes >= 0 && read.display.night.startMinutes <= 1439);
+    STIPPLE_CHECK(read.display.night.endMinutes >= 0 && read.display.night.endMinutes <= 1439);
 }

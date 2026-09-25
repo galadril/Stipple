@@ -5,7 +5,7 @@
 
 ## Context
 
-The official Ulanzi TC002 source repository is GPL-3.0-or-later. NOTRIX runs
+The official Ulanzi TC002 source repository is GPL-3.0-or-later. STIPPLE runs
 inside the FlyThings application model and will, at minimum, be built against
 headers and interfaces from that ecosystem; it may end up incorporating or
 deriving from GPL-covered Ulanzi code.
@@ -18,7 +18,7 @@ Blueprint §5 requires this decision before substantial implementation.
 
 ## Decision
 
-NOTRIX is licensed **GPL-3.0-or-later**.
+STIPPLE is licensed **GPL-3.0-or-later**.
 
 - `LICENSE` holds the verbatim GPL-3.0 text.
 - Every source file carries `SPDX-License-Identifier: GPL-3.0-or-later`.
@@ -34,7 +34,7 @@ NOTRIX is licensed **GPL-3.0-or-later**.
   contributors.
 - Improvements to distributed derivatives stay available.
 - Commercial closed-source redistribution of a derived work is not possible.
-  Acceptable: NOTRIX is a community project, not a licensing play.
+  Acceptable: STIPPLE is a community project, not a licensing play.
 - Open question, carried from §46: which FlyThings SDK components may legally be
   redistributed in build containers and release artefacts. This affects
   packaging and CI caching, not the project licence, and is resolved in Phase 7.

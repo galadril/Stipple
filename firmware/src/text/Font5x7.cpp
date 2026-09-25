@@ -2,7 +2,7 @@
 //
 // The default 5x7 proportional face.
 //
-// These letterforms are authored for NOTRIX rather than copied from an existing
+// These letterforms are authored for STIPPLE rather than copied from an existing
 // font file, which keeps THIRD_PARTY_NOTICES.md accurate and avoids inheriting
 // anyone else's licence for a table that ships inside the firmware.
 //
@@ -23,9 +23,9 @@
 // deliberately absent and fall back to the tofu box. Serving them properly needs
 // the 8-row tier, which is a later font pack.
 
-#include "notrix/text/Font.h"
+#include "stipple/text/Font.h"
 
-namespace notrix {
+namespace stipple {
 namespace text {
 namespace {
 
@@ -182,4 +182,4 @@ const BitmapFont& font5x7() noexcept {
 }
 
 }  // namespace text
-}  // namespace notrix
+}  // namespace stipple

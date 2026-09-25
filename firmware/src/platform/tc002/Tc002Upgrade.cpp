@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/platform/tc002/Tc002Upgrade.h"
+#include "stipple/platform/tc002/Tc002Upgrade.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -7,7 +7,7 @@
 
 #include <cstdio>
 
-namespace notrix {
+namespace stipple {
 namespace platform {
 namespace tc002 {
 namespace {
@@ -122,4 +122,4 @@ bool Tc002Upgrade::rollback(std::string& problem) {
 
 }  // namespace tc002
 }  // namespace platform
-}  // namespace notrix
+}  // namespace stipple

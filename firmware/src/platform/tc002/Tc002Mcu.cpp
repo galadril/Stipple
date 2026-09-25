@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/platform/tc002/Tc002Mcu.h"
+#include "stipple/platform/tc002/Tc002Mcu.h"
 
-#include "notrix/platform/tc002/WriteAll.h"
+#include "stipple/platform/tc002/WriteAll.h"
 
 #include <fcntl.h>
 #include <termios.h>
@@ -9,7 +9,7 @@
 
 #include <cstring>
 
-namespace notrix {
+namespace stipple {
 namespace platform {
 namespace tc002 {
 
@@ -62,7 +62,7 @@ bool Tc002Mcu::open(const char* devicePath) {
 void Tc002Mcu::requestMicrophone() {
     // The MCU sends no audio until asked, and the ask is sticky - it keeps
     // streaming until told to stop or until power is lost. That is the whole
-    // history of this feature: the vendor application enabled it, NOTRIX
+    // history of this feature: the vendor application enabled it, STIPPLE
     // inherited a microphone it had never requested, the visualiser worked, and
     // a reboot silently took it away again.
     //
@@ -90,7 +90,7 @@ void Tc002Mcu::requestMicrophone() {
 void Tc002Mcu::close() noexcept {
     if (fd_ >= 0) {
         // Hand the microphone back. The enable outlives this process, so
-        // leaving it on would mean a device that had once run NOTRIX kept
+        // leaving it on would mean a device that had once run STIPPLE kept
         // streaming audio to whatever ran next, which is both impolite and the
         // kind of state that makes the next person's capture lie to them - as
         // it did to ours.
@@ -164,4 +164,4 @@ BatteryStatus Tc002Mcu::battery() const {
 
 }  // namespace tc002
 }  // namespace platform
-}  // namespace notrix
+}  // namespace stipple

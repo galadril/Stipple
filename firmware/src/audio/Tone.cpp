@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/audio/Tone.h"
+#include "stipple/audio/Tone.h"
 
-namespace notrix {
+namespace stipple {
 namespace audio {
 namespace {
 
@@ -110,4 +110,4 @@ int ToneGenerator::fill(std::int16_t* samples, int count) noexcept {
 }
 
 }  // namespace audio
-}  // namespace notrix
+}  // namespace stipple

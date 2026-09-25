@@ -3,7 +3,7 @@
 # Second ARMv7 cross-toolchain, for dynamically linked *executables*.
 #
 # The bookworm image next door is the main one and builds everything that
-# matters: notrix_core, and the eventual libnotrix.so that zkgui loads. Shared
+# matters: stipple_core, and the eventual libstipple.so that zkgui loads. Shared
 # libraries carry no startup files, so they only ask for GLIBC_2.4 and run
 # anywhere.
 #
@@ -32,7 +32,7 @@ FROM docker.io/library/debian@sha256:70509c95d1857a3704c0a5d92ee2e0adac95f612a93
 # something it never needed. Nothing here builds a Debian package.
 #
 # cmake and ninja are here because this image stopped being the one that
-# compiles a single file. notrix_device has to be dynamically linked to
+# compiles a single file. stipple_device has to be dynamically linked to
 # reach the speaker - /lib/libmi_ao.so is the only route to it, and a
 # static binary cannot dlopen - so the firmware itself is built here now.
 # The bookworm image still builds shared libraries and anything static.

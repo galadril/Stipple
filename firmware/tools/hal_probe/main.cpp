@@ -72,7 +72,7 @@ int report(void* handle, const char* group, const Symbol* symbols, int count) {
 }  // namespace
 
 int main() {
-    std::printf("NOTRIX HAL probe - resolves symbols, calls none of them\n");
+    std::printf("STIPPLE HAL probe - resolves symbols, calls none of them\n");
 
     const char* candidates[] = {"libzkhw.so", "/lib/libzkhw.so"};
     void* handle = nullptr;

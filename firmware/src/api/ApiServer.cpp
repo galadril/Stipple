@@ -1,32 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/api/ApiServer.h"
+#include "stipple/api/ApiServer.h"
 
-#include "notrix/update/ElfCheck.h"
+#include "stipple/update/ElfCheck.h"
 
-#include "notrix/update/UpdateImage.h"
+#include "stipple/update/UpdateImage.h"
 
 #include <vector>
 
-#include "notrix/api/JsonWriter.h"
-#include "notrix/app/AppRegistry.h"
-#include "notrix/core/Base64.h"
-#include "notrix/render/FrameScheduler.h"
-#include "notrix/render/Transition.h"
-#include "notrix/time/Timezone.h"
-#include "notrix/render/Overlay.h"
-#include "notrix/graphics/Framebuffer.h"
-#include "notrix/asset/IconStore.h"
-#include "notrix/app/Carousel.h"
-#include "notrix/apps/ClockApp.h"
-#include "notrix/apps/VisualizerApp.h"
-#include "notrix/config/Config.h"
-#include "notrix/core/Log.h"
-#include "notrix/core/Version.h"
-#include "notrix/json/Json.h"
-#include "notrix/notify/Notifications.h"
-#include "notrix/platform/PlatformServices.h"
+#include "stipple/api/JsonWriter.h"
+#include "stipple/app/AppRegistry.h"
+#include "stipple/core/Base64.h"
+#include "stipple/render/FrameScheduler.h"
+#include "stipple/render/Transition.h"
+#include "stipple/time/Timezone.h"
+#include "stipple/render/Overlay.h"
+#include "stipple/graphics/Framebuffer.h"
+#include "stipple/asset/IconStore.h"
+#include "stipple/app/Carousel.h"
+#include "stipple/apps/ClockApp.h"
+#include "stipple/apps/VisualizerApp.h"
+#include "stipple/config/Config.h"
+#include "stipple/core/Log.h"
+#include "stipple/core/Version.h"
+#include "stipple/json/Json.h"
+#include "stipple/notify/Notifications.h"
+#include "stipple/platform/PlatformServices.h"
 
-namespace notrix {
+namespace stipple {
 namespace api {
 namespace {
 
@@ -277,7 +277,7 @@ Response ApiServer::handleDisplayFrame(const Request& request) {
         return notFound("this build does not expose the framebuffer");
     }
 
-    // Raw RGB888, base64. Not PNG: notrix_imageio is deliberately absent from
+    // Raw RGB888, base64. Not PNG: stipple_imageio is deliberately absent from
     // the device build, and 2496 bytes is small enough that encoding anything
     // cleverer would cost more than it saved. The browser writes these straight
     // into an ImageData.
@@ -401,7 +401,7 @@ Response ApiServer::handleDevice(const Request& request) {
 
     JsonWriter writer;
     writer.beginObject();
-    writer.member("name", context_.config != nullptr ? context_.config->deviceName : "notrix");
+    writer.member("name", context_.config != nullptr ? context_.config->deviceName : "stipple");
     writer.member("platform",
                   context_.platform != nullptr ? context_.platform->name() : "unknown");
     writer.member("version", kVersion);
@@ -1471,8 +1471,8 @@ Response ApiServer::handleSettings(const Request& request) {
             // actually follow, or the clock would be quietly wrong for half
             // the year with nothing to show for it.
             const std::string spec = zone.toString();
-            notrix::timezone_::Timezone parsed;
-            if (!spec.empty() && !notrix::timezone_::Timezone::parse(spec, parsed)) {
+            stipple::timezone_::Timezone parsed;
+            if (!spec.empty() && !stipple::timezone_::Timezone::parse(spec, parsed)) {
                 return unprocessable("'clock.timezone' is not a POSIX timezone rule");
             }
             updated.clock.timezone = spec;
@@ -1939,4 +1939,4 @@ Response ApiServer::handleReboot(const Request& request) {
 }
 
 }  // namespace api
-}  // namespace notrix
+}  // namespace stipple

@@ -8,13 +8,13 @@
 #include <string>
 #include <vector>
 
-#include "notrix/imageio/Png.h"
+#include "stipple/imageio/Png.h"
 
-#ifndef NOTRIX_TESTDATA_DIR
-#    error "NOTRIX_TESTDATA_DIR must be defined by the build (see firmware/tests/CMakeLists.txt)"
+#ifndef STIPPLE_TESTDATA_DIR
+#    error "STIPPLE_TESTDATA_DIR must be defined by the build (see firmware/tests/CMakeLists.txt)"
 #endif
 
-namespace notrix {
+namespace stipple {
 namespace test {
 namespace {
 
@@ -30,17 +30,17 @@ bool envFlag(const char* name) {
 /// Rewrite fixtures even when they already exist — an explicit "I changed the
 /// renderer on purpose" switch.
 bool updateRequested() {
-    return envFlag("NOTRIX_UPDATE_GOLDEN");
+    return envFlag("STIPPLE_UPDATE_GOLDEN");
 }
 
 /// In CI a fixture that is absent means someone forgot to commit it. Locally it
 /// usually just means the test is new, so it is auto-created there instead.
 bool strictMode() {
-    return envFlag("NOTRIX_STRICT_GOLDEN");
+    return envFlag("STIPPLE_STRICT_GOLDEN");
 }
 
 fs::path testDataDir() {
-    return fs::path(NOTRIX_TESTDATA_DIR);
+    return fs::path(STIPPLE_TESTDATA_DIR);
 }
 
 std::vector<std::uint8_t> readFile(const fs::path& path) {
@@ -164,4 +164,4 @@ void checkGolden(const char* name, const Framebuffer& framebuffer, const char* f
 }
 
 }  // namespace test
-}  // namespace notrix
+}  // namespace stipple

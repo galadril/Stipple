@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/net/SntpMessage.h"
+#include "stipple/net/SntpMessage.h"
 
-namespace notrix {
+namespace stipple {
 namespace net {
 namespace sntp {
 namespace {
@@ -74,4 +74,4 @@ bool parse(const std::uint8_t* data, std::size_t length, Reply& out) noexcept {
 
 }  // namespace sntp
 }  // namespace net
-}  // namespace notrix
+}  // namespace stipple

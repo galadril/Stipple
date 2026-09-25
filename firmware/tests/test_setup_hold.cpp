@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/input/SetupHold.h"
+#include "stipple/input/SetupHold.h"
 
 #include "support/TestFramework.h"
 
-using notrix::input::SetupHold;
-using notrix::platform::ButtonPhase;
-using notrix::platform::InputEvent;
-using notrix::platform::RawInput;
+using stipple::input::SetupHold;
+using stipple::platform::ButtonPhase;
+using stipple::platform::InputEvent;
+using stipple::platform::RawInput;
 
 namespace {
 
@@ -33,19 +33,19 @@ bool holdFor(SetupHold& hold, std::uint64_t at, std::uint64_t until) {
 
 }  // namespace
 
-NOTRIX_TEST(SetupHold, KnobHeldLongEnoughFires) {
+STIPPLE_TEST(SetupHold, KnobHeldLongEnoughFires) {
     SetupHold hold;
-    NOTRIX_CHECK(holdFor(hold, 1000, 1000 + SetupHold::kHoldMillis));
+    STIPPLE_CHECK(holdFor(hold, 1000, 1000 + SetupHold::kHoldMillis));
 }
 
-NOTRIX_TEST(SetupHold, ShortPressDoesNotFire) {
+STIPPLE_TEST(SetupHold, ShortPressDoesNotFire) {
     SetupHold hold;
     // The settings toggle lives at 500 ms on this same button. A gesture that
     // fired anywhere near it would make the settings screen unusable.
-    NOTRIX_CHECK(!holdFor(hold, 1000, 1900));
+    STIPPLE_CHECK(!holdFor(hold, 1000, 1900));
 }
 
-NOTRIX_TEST(SetupHold, FiresExactlyOncePerHold) {
+STIPPLE_TEST(SetupHold, FiresExactlyOncePerHold) {
     SetupHold hold;
     hold.handle(event(RawInput::RotaryPress, ButtonPhase::Down, 0));
 
@@ -55,17 +55,17 @@ NOTRIX_TEST(SetupHold, FiresExactlyOncePerHold) {
             ++fires;
         }
     }
-    NOTRIX_CHECK_EQ(fires, 1);
+    STIPPLE_CHECK_EQ(fires, 1);
 }
 
-NOTRIX_TEST(SetupHold, ReleasingRearmsIt) {
+STIPPLE_TEST(SetupHold, ReleasingRearmsIt) {
     SetupHold hold;
-    NOTRIX_CHECK(holdFor(hold, 0, SetupHold::kHoldMillis));
+    STIPPLE_CHECK(holdFor(hold, 0, SetupHold::kHoldMillis));
     hold.handle(event(RawInput::RotaryPress, ButtonPhase::Up, SetupHold::kHoldMillis));
-    NOTRIX_CHECK(holdFor(hold, 20000, 20000 + SetupHold::kHoldMillis));
+    STIPPLE_CHECK(holdFor(hold, 20000, 20000 + SetupHold::kHoldMillis));
 }
 
-NOTRIX_TEST(SetupHold, ReleasingEarlyCancels) {
+STIPPLE_TEST(SetupHold, ReleasingEarlyCancels) {
     SetupHold hold;
     hold.handle(event(RawInput::RotaryPress, ButtonPhase::Down, 0));
     hold.tick(1000);
@@ -77,11 +77,11 @@ NOTRIX_TEST(SetupHold, ReleasingEarlyCancels) {
             fired = true;
         }
     }
-    NOTRIX_CHECK(!fired);
-    NOTRIX_CHECK(!hold.counting());
+    STIPPLE_CHECK(!fired);
+    STIPPLE_CHECK(!hold.counting());
 }
 
-NOTRIX_TEST(SetupHold, OtherButtonsAreIgnored) {
+STIPPLE_TEST(SetupHold, OtherButtonsAreIgnored) {
     SetupHold hold;
     // KeyMiddle is a separate button bound to Back. A hidden five-second
     // meaning there would be a trap rather than a feature.
@@ -95,45 +95,45 @@ NOTRIX_TEST(SetupHold, OtherButtonsAreIgnored) {
                 fired = true;
             }
         }
-        NOTRIX_CHECK(!fired);
+        STIPPLE_CHECK(!fired);
     }
-    NOTRIX_CHECK(!hold.counting());
+    STIPPLE_CHECK(!hold.counting());
 }
 
-NOTRIX_TEST(SetupHold, DetentsCannotBeHeld) {
+STIPPLE_TEST(SetupHold, DetentsCannotBeHeld) {
     SetupHold hold;
     hold.handle(event(RawInput::RotaryRight, ButtonPhase::Tick, 0));
     hold.handle(event(RawInput::RotaryPress, ButtonPhase::Tick, 0));
-    NOTRIX_CHECK(!hold.counting());
-    NOTRIX_CHECK(!hold.tick(SetupHold::kHoldMillis * 2));
+    STIPPLE_CHECK(!hold.counting());
+    STIPPLE_CHECK(!hold.tick(SetupHold::kHoldMillis * 2));
 }
 
-NOTRIX_TEST(SetupHold, CountdownRunsDownAndStopsAtZero) {
+STIPPLE_TEST(SetupHold, CountdownRunsDownAndStopsAtZero) {
     SetupHold hold;
     hold.handle(event(RawInput::RotaryPress, ButtonPhase::Down, 1000));
-    NOTRIX_CHECK_EQ(hold.remainingMillis(1000), SetupHold::kHoldMillis);
-    NOTRIX_CHECK_EQ(hold.remainingMillis(3000), SetupHold::kHoldMillis - 2000);
-    NOTRIX_CHECK_EQ(hold.remainingMillis(1000 + SetupHold::kHoldMillis), 0u);
+    STIPPLE_CHECK_EQ(hold.remainingMillis(1000), SetupHold::kHoldMillis);
+    STIPPLE_CHECK_EQ(hold.remainingMillis(3000), SetupHold::kHoldMillis - 2000);
+    STIPPLE_CHECK_EQ(hold.remainingMillis(1000 + SetupHold::kHoldMillis), 0u);
 }
 
-NOTRIX_TEST(SetupHold, SurvivesTheClockSteppingBackwards) {
+STIPPLE_TEST(SetupHold, SurvivesTheClockSteppingBackwards) {
     SetupHold hold;
     hold.handle(event(RawInput::RotaryPress, ButtonPhase::Down, 10000000));
     // Must not underflow into an instant fire.
-    NOTRIX_CHECK(!hold.tick(5000));
-    NOTRIX_CHECK_EQ(hold.remainingMillis(5000), 0u);
-    NOTRIX_CHECK(hold.tick(10000000 + SetupHold::kHoldMillis));
+    STIPPLE_CHECK(!hold.tick(5000));
+    STIPPLE_CHECK_EQ(hold.remainingMillis(5000), 0u);
+    STIPPLE_CHECK(hold.tick(10000000 + SetupHold::kHoldMillis));
 }
 
-NOTRIX_TEST(SetupHold, ResetForgetsAHoldInProgress) {
+STIPPLE_TEST(SetupHold, ResetForgetsAHoldInProgress) {
     SetupHold hold;
     hold.handle(event(RawInput::RotaryPress, ButtonPhase::Down, 0));
     hold.reset();
-    NOTRIX_CHECK(!hold.counting());
-    NOTRIX_CHECK(!hold.tick(SetupHold::kHoldMillis * 2));
+    STIPPLE_CHECK(!hold.counting());
+    STIPPLE_CHECK(!hold.tick(SetupHold::kHoldMillis * 2));
 }
 
-NOTRIX_TEST(SetupHold, AnOrdinaryPressNeverShowsTheCountdown) {
+STIPPLE_TEST(SetupHold, AnOrdinaryPressNeverShowsTheCountdown) {
     // The bug this exists for: the countdown appeared on the press itself, so
     // every normal use of the knob - pausing the carousel, opening settings,
     // starting the stopwatch - flashed SETUP across the panel on the way.
@@ -142,38 +142,38 @@ NOTRIX_TEST(SetupHold, AnOrdinaryPressNeverShowsTheCountdown) {
 
     for (std::uint64_t now = 1000; now < 1000 + SetupHold::kRevealMillis; now += 25) {
         hold.tick(now);
-        NOTRIX_CHECK(!hold.counting());
+        STIPPLE_CHECK(!hold.counting());
     }
 
     // Released before the reveal: the panel never mentioned it.
     hold.handle(event(RawInput::RotaryPress, ButtonPhase::Up, 1000 + 600));
-    NOTRIX_CHECK(!hold.counting());
+    STIPPLE_CHECK(!hold.counting());
 }
 
-NOTRIX_TEST(SetupHold, TheCountdownAppearsOnceTheHoldIsDeliberate) {
+STIPPLE_TEST(SetupHold, TheCountdownAppearsOnceTheHoldIsDeliberate) {
     SetupHold hold;
     hold.handle(event(RawInput::RotaryPress, ButtonPhase::Down, 1000));
 
     hold.tick(1000 + SetupHold::kRevealMillis - 1);
-    NOTRIX_CHECK(!hold.counting());
+    STIPPLE_CHECK(!hold.counting());
 
     hold.tick(1000 + SetupHold::kRevealMillis);
-    NOTRIX_CHECK(hold.counting());
+    STIPPLE_CHECK(hold.counting());
 }
 
-NOTRIX_TEST(SetupHold, TheRevealIsClearOfTheLongPressThreshold) {
+STIPPLE_TEST(SetupHold, TheRevealIsClearOfTheLongPressThreshold) {
     // The mapper calls anything over 500 ms a long press, and a long press on
     // this button opens settings. Showing the countdown before that point
     // would put SETUP on screen every time somebody opened the menu.
-    NOTRIX_CHECK(SetupHold::kRevealMillis > 500);
+    STIPPLE_CHECK(SetupHold::kRevealMillis > 500);
     // And it still has to leave most of the hold visible, or the countdown
     // would appear and fire almost together.
-    NOTRIX_CHECK(SetupHold::kRevealMillis < SetupHold::kHoldMillis / 2);
+    STIPPLE_CHECK(SetupHold::kRevealMillis < SetupHold::kHoldMillis / 2);
 }
 
-NOTRIX_TEST(SetupHold, StillFiresAtTheFullHoldDespiteTheReveal) {
+STIPPLE_TEST(SetupHold, StillFiresAtTheFullHoldDespiteTheReveal) {
     SetupHold hold;
-    NOTRIX_CHECK(holdFor(hold, 1000, 1000 + SetupHold::kHoldMillis));
+    STIPPLE_CHECK(holdFor(hold, 1000, 1000 + SetupHold::kHoldMillis));
     // And stops showing the countdown the moment it has fired.
-    NOTRIX_CHECK(!hold.counting());
+    STIPPLE_CHECK(!hold.counting());
 }

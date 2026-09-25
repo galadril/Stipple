@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/api/JsonWriter.h"
+#include "stipple/api/JsonWriter.h"
 
-namespace notrix {
+namespace stipple {
 namespace api {
 
 void appendJsonString(std::string& out, std::string_view text) {
@@ -137,4 +137,4 @@ JsonWriter& JsonWriter::rawMember(std::string_view name, std::string_view json) 
 }
 
 }  // namespace api
-}  // namespace notrix
+}  // namespace stipple

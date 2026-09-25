@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/render/Transition.h"
+#include "stipple/render/Transition.h"
 
 #include <cstdint>
 
-#include "notrix/core/Rgb.h"
+#include "stipple/core/Rgb.h"
 
-namespace notrix {
+namespace stipple {
 namespace render {
 namespace {
 
@@ -190,4 +190,4 @@ void composite(Framebuffer& out,
 }
 
 }  // namespace render
-}  // namespace notrix
+}  // namespace stipple

@@ -4,8 +4,8 @@
 #include <sstream>
 #include <string>
 
-#include "notrix/core/Geometry.h"
-#include "notrix/core/Rgb.h"
+#include "stipple/core/Geometry.h"
+#include "stipple/core/Rgb.h"
 
 // A ~120-line test runner rather than a vendored framework.
 //
@@ -15,7 +15,7 @@
 // for assertions and a main(). If the suite ever outgrows this, swapping it is
 // an isolated change behind these macros.
 
-namespace notrix {
+namespace stipple {
 namespace test {
 
 using TestFunction = void (*)();
@@ -58,56 +58,56 @@ struct Registrar {
 };
 
 }  // namespace test
-}  // namespace notrix
+}  // namespace stipple
 
-#define NOTRIX_TEST(suite, name)                                                                   \
-    static void notrix_test_##suite##_##name();                                                    \
-    static const ::notrix::test::Registrar notrix_registrar_##suite##_##name(                      \
-        #suite, #name, &notrix_test_##suite##_##name);                                             \
-    static void notrix_test_##suite##_##name()
+#define STIPPLE_TEST(suite, name)                                                                   \
+    static void stipple_test_##suite##_##name();                                                    \
+    static const ::stipple::test::Registrar stipple_registrar_##suite##_##name(                      \
+        #suite, #name, &stipple_test_##suite##_##name);                                             \
+    static void stipple_test_##suite##_##name()
 
-#define NOTRIX_CHECK(expr)                                                                         \
+#define STIPPLE_CHECK(expr)                                                                         \
     do {                                                                                           \
         if (!(expr)) {                                                                             \
-            ::notrix::test::Registry::instance().fail(__FILE__, __LINE__,                          \
+            ::stipple::test::Registry::instance().fail(__FILE__, __LINE__,                          \
                                                       std::string("expected true: ") + #expr);     \
         }                                                                                          \
     } while (false)
 
-/// Like NOTRIX_CHECK, but abandons the rest of the test when it fails.
+/// Like STIPPLE_CHECK, but abandons the rest of the test when it fails.
 ///
-/// NOTRIX_CHECK deliberately records and carries on, so one test can report
+/// STIPPLE_CHECK deliberately records and carries on, so one test can report
 /// several problems at once. That is the right default — until the thing being
 /// checked is a pointer the following lines dereference, at which point carrying
 /// on turns a readable failure into a segfault with no output at all.
 ///
 /// Use this for preconditions: "the message exists", "the app was found".
-#define NOTRIX_REQUIRE(expr)                                                                       \
+#define STIPPLE_REQUIRE(expr)                                                                       \
     do {                                                                                           \
         if (!(expr)) {                                                                             \
-            ::notrix::test::Registry::instance().fail(__FILE__, __LINE__,                          \
+            ::stipple::test::Registry::instance().fail(__FILE__, __LINE__,                          \
                                                       std::string("required: ") + #expr);          \
             return;                                                                                \
         }                                                                                          \
     } while (false)
 
-#define NOTRIX_CHECK_FALSE(expr)                                                                   \
+#define STIPPLE_CHECK_FALSE(expr)                                                                   \
     do {                                                                                           \
         if ((expr)) {                                                                              \
-            ::notrix::test::Registry::instance().fail(__FILE__, __LINE__,                          \
+            ::stipple::test::Registry::instance().fail(__FILE__, __LINE__,                          \
                                                       std::string("expected false: ") + #expr);    \
         }                                                                                          \
     } while (false)
 
-#define NOTRIX_CHECK_EQ(actual, expected)                                                          \
+#define STIPPLE_CHECK_EQ(actual, expected)                                                          \
     do {                                                                                           \
-        const auto& notrix_actual = (actual);                                                      \
-        const auto& notrix_expected = (expected);                                                  \
-        if (!(notrix_actual == notrix_expected)) {                                                 \
-            std::ostringstream notrix_stream;                                                      \
-            notrix_stream << #actual << " == " << #expected << "\n           actual:   "           \
-                          << ::notrix::test::describe(notrix_actual) << "\n           expected: "  \
-                          << ::notrix::test::describe(notrix_expected);                            \
-            ::notrix::test::Registry::instance().fail(__FILE__, __LINE__, notrix_stream.str());    \
+        const auto& stipple_actual = (actual);                                                      \
+        const auto& stipple_expected = (expected);                                                  \
+        if (!(stipple_actual == stipple_expected)) {                                                 \
+            std::ostringstream stipple_stream;                                                      \
+            stipple_stream << #actual << " == " << #expected << "\n           actual:   "           \
+                          << ::stipple::test::describe(stipple_actual) << "\n           expected: "  \
+                          << ::stipple::test::describe(stipple_expected);                            \
+            ::stipple::test::Registry::instance().fail(__FILE__, __LINE__, stipple_stream.str());    \
         }                                                                                          \
     } while (false)

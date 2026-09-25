@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/platform/tc002/Tc002Platform.h"
+#include "stipple/platform/tc002/Tc002Platform.h"
 
 #include <fcntl.h>
 #include <ifaddrs.h>
@@ -22,11 +22,11 @@
 #include <string>
 #include <utility>
 
-#include "notrix/platform/tc002/WirelessStats.h"
-#include "notrix/platform/tc002/WpaCommands.h"
-#include "notrix/platform/tc002/WpaReplies.h"
+#include "stipple/platform/tc002/WirelessStats.h"
+#include "stipple/platform/tc002/WpaCommands.h"
+#include "stipple/platform/tc002/WpaReplies.h"
 
-namespace notrix {
+namespace stipple {
 namespace platform {
 namespace tc002 {
 namespace {
@@ -706,4 +706,4 @@ void Tc002Platform::announceRunning() const {
 
 }  // namespace tc002
 }  // namespace platform
-}  // namespace notrix
+}  // namespace stipple

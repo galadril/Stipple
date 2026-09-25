@@ -1,4 +1,4 @@
-# 0017 — One meaning per control: navigating NOTRIX from the device
+# 0017 — One meaning per control: navigating STIPPLE from the device
 
 - **Status:** Accepted, implemented
 - **Date:** 2026-09-21

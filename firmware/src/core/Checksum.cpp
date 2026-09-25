@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/core/Checksum.h"
+#include "stipple/core/Checksum.h"
 
 #include <array>
 
-namespace notrix {
+namespace stipple {
 namespace {
 
 const std::array<std::uint32_t, 256>& table() {
@@ -47,4 +47,4 @@ void crc32ToHex(std::uint32_t value, char out[9]) noexcept {
     out[8] = '\0';
 }
 
-}  // namespace notrix
+}  // namespace stipple

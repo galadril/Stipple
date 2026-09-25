@@ -84,9 +84,9 @@ def main(argv=None) -> int:
     # Copied on the device first and then pulled as an ordinary file: this
     # adbd predates `exec-out`, and a binary stream through `adb shell` comes
     # back with its line endings helpfully corrupted.
-    adb(["shell", f"cat {RES_NODE} > /tmp/notrix-res-capture.bin"], args.target)
-    adb(["pull", "/tmp/notrix-res-capture.bin", str(out / "res-raw.bin")], args.target)
-    adb(["shell", "rm -f /tmp/notrix-res-capture.bin"], args.target)
+    adb(["shell", f"cat {RES_NODE} > /tmp/stipple-res-capture.bin"], args.target)
+    adb(["pull", "/tmp/stipple-res-capture.bin", str(out / "res-raw.bin")], args.target)
+    adb(["shell", "rm -f /tmp/stipple-res-capture.bin"], args.target)
 
     raw = (out / "res-raw.bin").read_bytes()
     if raw[:4] != b"hsqs":

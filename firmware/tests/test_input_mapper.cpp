@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/input/InputMapper.h"
+#include "stipple/input/InputMapper.h"
 
 #include "support/TestFramework.h"
 
-using notrix::input::Action;
-using notrix::input::ActionEvent;
-using notrix::input::ButtonBinding;
-using notrix::input::InputMapper;
-using notrix::input::InputMapperConfig;
-using notrix::platform::ButtonPhase;
-using notrix::platform::InputEvent;
-using notrix::platform::RawInput;
+using stipple::input::Action;
+using stipple::input::ActionEvent;
+using stipple::input::ButtonBinding;
+using stipple::input::InputMapper;
+using stipple::input::InputMapperConfig;
+using stipple::platform::ButtonPhase;
+using stipple::platform::InputEvent;
+using stipple::platform::RawInput;
 
 namespace {
 
@@ -46,32 +46,32 @@ ActionEvent rotate(InputMapper& mapper, bool clockwise, std::uint64_t timestampM
 // the mapper so much as the claim in ADR 0016 about which controls the TC002
 // actually has — if that turns out to be wrong, these are what should fail.
 
-NOTRIX_TEST(InputMapper, NavigationLivesOnTheKnob) {
+STIPPLE_TEST(InputMapper, NavigationLivesOnTheKnob) {
     InputMapper mapper;
 
-    NOTRIX_CHECK_EQ(actionCode(rotate(mapper, true, 0).action), actionCode(Action::AppNext));
+    STIPPLE_CHECK_EQ(actionCode(rotate(mapper, true, 0).action), actionCode(Action::AppNext));
     mapper.reset();
-    NOTRIX_CHECK_EQ(actionCode(rotate(mapper, false, 0).action), actionCode(Action::AppPrevious));
+    STIPPLE_CHECK_EQ(actionCode(rotate(mapper, false, 0).action), actionCode(Action::AppPrevious));
 
     // Press acts on the selected thing; hold is the way into settings and back
     // out (ADR 0017). Dismissing a notification moved to the middle button,
     // which is the one control that always means "back".
-    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::RotaryPress, 0, 50).action),
+    STIPPLE_CHECK_EQ(actionCode(press(mapper, RawInput::RotaryPress, 0, 50).action),
                     actionCode(Action::AppAction));
-    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::RotaryPress, 1000, 900).action),
+    STIPPLE_CHECK_EQ(actionCode(press(mapper, RawInput::RotaryPress, 1000, 900).action),
                     actionCode(Action::SettingsToggle));
 }
 
-NOTRIX_TEST(InputMapper, MinusAndPlusAdjustWhateverIsSelected) {
+STIPPLE_TEST(InputMapper, MinusAndPlusAdjustWhateverIsSelected) {
     // These used to tap volume, on hardware that reports no audio output - so
     // the two most obviously pressable buttons on the device did nothing at
     // all. They now adjust, and what they adjust depends on the mode: the
     // panel while browsing, the chosen setting inside settings (ADR 0017).
     InputMapper mapper;
 
-    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMinus, 0, 50).action),
+    STIPPLE_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMinus, 0, 50).action),
                     actionCode(Action::AdjustDown));
-    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyPlus, 1000, 50).action),
+    STIPPLE_CHECK_EQ(actionCode(press(mapper, RawInput::KeyPlus, 1000, 50).action),
                     actionCode(Action::AdjustUp));
 
     // Holding reaches brightness instead. The one place a long press means
@@ -79,26 +79,26 @@ NOTRIX_TEST(InputMapper, MinusAndPlusAdjustWhateverIsSelected) {
     // are "turn this up", the direction is the same, and a slip of the thumb
     // changes the other quantity by one step rather than doing something
     // unrelated.
-    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMinus, 2000, 900).action),
+    STIPPLE_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMinus, 2000, 900).action),
                     actionCode(Action::BrightnessDown));
-    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyPlus, 3000, 900).action),
+    STIPPLE_CHECK_EQ(actionCode(press(mapper, RawInput::KeyPlus, 3000, 900).action),
                     actionCode(Action::BrightnessUp));
 }
 
-NOTRIX_TEST(InputMapper, TheMiddleButtonIsAlwaysBack) {
+STIPPLE_TEST(InputMapper, TheMiddleButtonIsAlwaysBack) {
     // It used to duplicate the knob's AppNext, which wasted the one control
     // free to mean something else. Back, whether tapped or held: a gesture
     // whose meaning depends on how long you held it is a gesture people get
     // wrong.
     InputMapper mapper;
 
-    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMiddle, 0, 50).action),
+    STIPPLE_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMiddle, 0, 50).action),
                     actionCode(Action::Back));
-    NOTRIX_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMiddle, 1000, 900).action),
+    STIPPLE_CHECK_EQ(actionCode(press(mapper, RawInput::KeyMiddle, 1000, 900).action),
                     actionCode(Action::Back));
 }
 
-NOTRIX_TEST(InputMapper, EachControlTracksItsOwnPressIndependently) {
+STIPPLE_TEST(InputMapper, EachControlTracksItsOwnPressIndependently) {
     // Four controls now share a press-start array; an off-by-one in buttonIndex
     // would let one button consume another's timestamp.
     InputMapper mapper;
@@ -114,21 +114,21 @@ NOTRIX_TEST(InputMapper, EachControlTracksItsOwnPressIndependently) {
     for (std::size_t i = 0; i < 4; ++i) {
         // Each was held for a different span; none may be reported as long.
         mapper.handle(InputEvent({buttons[i], ButtonPhase::Up, 40u + i * 10u}), result);
-        NOTRIX_CHECK_FALSE(result.longPress);
+        STIPPLE_CHECK_FALSE(result.longPress);
     }
 }
 
-NOTRIX_TEST(InputMapper, MinusAndPlusNeverDisagreeAboutDirection) {
+STIPPLE_TEST(InputMapper, MinusAndPlusNeverDisagreeAboutDirection) {
     // A layout where − raised something would be a genuine usability bug, and an
     // easy one to introduce while remapping.
     const InputMapperConfig config;
-    NOTRIX_CHECK_EQ(actionCode(config.keyMinus.shortPress), actionCode(Action::AdjustDown));
-    NOTRIX_CHECK_EQ(actionCode(config.keyMinus.longPress), actionCode(Action::BrightnessDown));
-    NOTRIX_CHECK_EQ(actionCode(config.keyPlus.shortPress), actionCode(Action::AdjustUp));
-    NOTRIX_CHECK_EQ(actionCode(config.keyPlus.longPress), actionCode(Action::BrightnessUp));
+    STIPPLE_CHECK_EQ(actionCode(config.keyMinus.shortPress), actionCode(Action::AdjustDown));
+    STIPPLE_CHECK_EQ(actionCode(config.keyMinus.longPress), actionCode(Action::BrightnessDown));
+    STIPPLE_CHECK_EQ(actionCode(config.keyPlus.shortPress), actionCode(Action::AdjustUp));
+    STIPPLE_CHECK_EQ(actionCode(config.keyPlus.longPress), actionCode(Action::BrightnessUp));
 }
 
-NOTRIX_TEST(InputMapper, EveryPhysicalControlIsReachable) {
+STIPPLE_TEST(InputMapper, EveryPhysicalControlIsReachable) {
     // A control the mapper does not recognise is a button that does nothing on a
     // finished device, which is the hardest kind of bug to notice from code.
     const RawInput controls[] = {RawInput::KeyMinus,    RawInput::KeyPlus,
@@ -147,31 +147,31 @@ NOTRIX_TEST(InputMapper, EveryPhysicalControlIsReachable) {
             fired = mapper.handle(InputEvent({control, ButtonPhase::Up, 50}), result);
         }
 
-        NOTRIX_CHECK(fired);
-        NOTRIX_CHECK(actionCode(result.action) != actionCode(Action::None));
+        STIPPLE_CHECK(fired);
+        STIPPLE_CHECK(actionCode(result.action) != actionCode(Action::None));
     }
 }
 
 // --- presses -----------------------------------------------------------------
 
-NOTRIX_TEST(InputMapper, ShortPressEmitsTheShortAction) {
+STIPPLE_TEST(InputMapper, ShortPressEmitsTheShortAction) {
     InputMapper mapper;
     const ActionEvent result = press(mapper, RawInput::KeyPlus, 1000, 50);
 
-    NOTRIX_CHECK_EQ(actionCode(result.action), actionCode(Action::AdjustUp));
-    NOTRIX_CHECK_FALSE(result.longPress);
-    NOTRIX_CHECK_EQ(result.repeat, 1);
+    STIPPLE_CHECK_EQ(actionCode(result.action), actionCode(Action::AdjustUp));
+    STIPPLE_CHECK_FALSE(result.longPress);
+    STIPPLE_CHECK_EQ(result.repeat, 1);
 }
 
-NOTRIX_TEST(InputMapper, LongPressEmitsTheLongAction) {
+STIPPLE_TEST(InputMapper, LongPressEmitsTheLongAction) {
     InputMapper mapper;
     const ActionEvent result = press(mapper, RawInput::RotaryPress, 1000, 900);
 
-    NOTRIX_CHECK_EQ(actionCode(result.action), actionCode(Action::SettingsToggle));
-    NOTRIX_CHECK(result.longPress);
+    STIPPLE_CHECK_EQ(actionCode(result.action), actionCode(Action::SettingsToggle));
+    STIPPLE_CHECK(result.longPress);
 }
 
-NOTRIX_TEST(InputMapper, PressIsDecidedOnReleaseNotOnPressDown) {
+STIPPLE_TEST(InputMapper, PressIsDecidedOnReleaseNotOnPressDown) {
     // Nothing may fire while a button is still held, or a long press would also
     // trigger the short action on its way down.
     InputMapper mapper;
@@ -179,19 +179,19 @@ NOTRIX_TEST(InputMapper, PressIsDecidedOnReleaseNotOnPressDown) {
     const bool fired =
         mapper.handle(InputEvent({RawInput::KeyPlus, ButtonPhase::Down, 100}), result);
 
-    NOTRIX_CHECK_FALSE(fired);
-    NOTRIX_CHECK_EQ(actionCode(result.action), actionCode(Action::None));
+    STIPPLE_CHECK_FALSE(fired);
+    STIPPLE_CHECK_EQ(actionCode(result.action), actionCode(Action::None));
 }
 
-NOTRIX_TEST(InputMapper, ThresholdIsInclusive) {
+STIPPLE_TEST(InputMapper, ThresholdIsInclusive) {
     InputMapper mapper;
     const std::uint32_t threshold = mapper.config().longPressMillis;
 
-    NOTRIX_CHECK(press(mapper, RawInput::RotaryPress, 0, threshold).longPress);
-    NOTRIX_CHECK_FALSE(press(mapper, RawInput::RotaryPress, 0, threshold - 1).longPress);
+    STIPPLE_CHECK(press(mapper, RawInput::RotaryPress, 0, threshold).longPress);
+    STIPPLE_CHECK_FALSE(press(mapper, RawInput::RotaryPress, 0, threshold - 1).longPress);
 }
 
-NOTRIX_TEST(InputMapper, LongPressFallsBackWhenOnlyAShortBindingExists) {
+STIPPLE_TEST(InputMapper, LongPressFallsBackWhenOnlyAShortBindingExists) {
     // A control bound only on short press should still do the obvious thing when
     // held, rather than feeling like a dead button.
     InputMapperConfig config;
@@ -200,28 +200,28 @@ NOTRIX_TEST(InputMapper, LongPressFallsBackWhenOnlyAShortBindingExists) {
 
     const ActionEvent result = press(mapper, RawInput::KeyMinus, 0, 5000);
 
-    NOTRIX_CHECK_EQ(actionCode(result.action), actionCode(Action::AppPrevious));
-    NOTRIX_CHECK_FALSE(result.longPress);
+    STIPPLE_CHECK_EQ(actionCode(result.action), actionCode(Action::AppPrevious));
+    STIPPLE_CHECK_FALSE(result.longPress);
 }
 
-NOTRIX_TEST(InputMapper, ReleaseWithoutPressIsIgnored) {
+STIPPLE_TEST(InputMapper, ReleaseWithoutPressIsIgnored) {
     // A duplicate or orphaned Up must not synthesise an action.
     InputMapper mapper;
     ActionEvent result;
-    NOTRIX_CHECK_FALSE(mapper.handle(InputEvent({RawInput::KeyPlus, ButtonPhase::Up, 500}), result));
+    STIPPLE_CHECK_FALSE(mapper.handle(InputEvent({RawInput::KeyPlus, ButtonPhase::Up, 500}), result));
 }
 
-NOTRIX_TEST(InputMapper, ResetDiscardsAnInFlightPress) {
+STIPPLE_TEST(InputMapper, ResetDiscardsAnInFlightPress) {
     InputMapper mapper;
     ActionEvent result;
 
     mapper.handle(InputEvent({RawInput::KeyPlus, ButtonPhase::Down, 100}), result);
     mapper.reset();
 
-    NOTRIX_CHECK_FALSE(mapper.handle(InputEvent({RawInput::KeyPlus, ButtonPhase::Up, 200}), result));
+    STIPPLE_CHECK_FALSE(mapper.handle(InputEvent({RawInput::KeyPlus, ButtonPhase::Up, 200}), result));
 }
 
-NOTRIX_TEST(InputMapper, BackwardsTimestampDoesNotBecomeALongPress) {
+STIPPLE_TEST(InputMapper, BackwardsTimestampDoesNotBecomeALongPress) {
     // A clock that stepped backwards must not underflow into a huge duration.
     InputMapper mapper;
     ActionEvent result;
@@ -229,21 +229,21 @@ NOTRIX_TEST(InputMapper, BackwardsTimestampDoesNotBecomeALongPress) {
     mapper.handle(InputEvent({RawInput::RotaryPress, ButtonPhase::Down, 10000}), result);
     mapper.handle(InputEvent({RawInput::RotaryPress, ButtonPhase::Up, 5000}), result);
 
-    NOTRIX_CHECK_FALSE(result.longPress);
-    NOTRIX_CHECK_EQ(actionCode(result.action), actionCode(Action::AppAction));
+    STIPPLE_CHECK_FALSE(result.longPress);
+    STIPPLE_CHECK_EQ(actionCode(result.action), actionCode(Action::AppAction));
 }
 
-NOTRIX_TEST(InputMapper, UnboundButtonProducesNothing) {
+STIPPLE_TEST(InputMapper, UnboundButtonProducesNothing) {
     InputMapperConfig config;
     config.keyMinus = ButtonBinding{Action::None, Action::None};
     InputMapper mapper(config);
 
     ActionEvent result;
     mapper.handle(InputEvent({RawInput::KeyMinus, ButtonPhase::Down, 0}), result);
-    NOTRIX_CHECK_FALSE(mapper.handle(InputEvent({RawInput::KeyMinus, ButtonPhase::Up, 50}), result));
+    STIPPLE_CHECK_FALSE(mapper.handle(InputEvent({RawInput::KeyMinus, ButtonPhase::Up, 50}), result));
 }
 
-NOTRIX_TEST(InputMapper, EachButtonTracksItsOwnPressIndependently) {
+STIPPLE_TEST(InputMapper, EachButtonTracksItsOwnPressIndependently) {
     // Interleaved presses must not steal each other's start time.
     InputMapper mapper;
     ActionEvent result;
@@ -252,41 +252,41 @@ NOTRIX_TEST(InputMapper, EachButtonTracksItsOwnPressIndependently) {
     mapper.handle(InputEvent({RawInput::KeyPlus, ButtonPhase::Down, 100}), result);
 
     mapper.handle(InputEvent({RawInput::KeyPlus, ButtonPhase::Up, 150}), result);
-    NOTRIX_CHECK_FALSE(result.longPress);  // held 50 ms
+    STIPPLE_CHECK_FALSE(result.longPress);  // held 50 ms
 
     mapper.handle(InputEvent({RawInput::KeyMinus, ButtonPhase::Up, 900}), result);
-    NOTRIX_CHECK(result.longPress);  // held 900 ms
-    NOTRIX_CHECK_EQ(actionCode(result.action), actionCode(Action::BrightnessDown));
+    STIPPLE_CHECK(result.longPress);  // held 900 ms
+    STIPPLE_CHECK_EQ(actionCode(result.action), actionCode(Action::BrightnessDown));
 }
 
 // --- rotary ------------------------------------------------------------------
 
-NOTRIX_TEST(InputMapper, RotaryDirectionMapsToCarouselMovement) {
+STIPPLE_TEST(InputMapper, RotaryDirectionMapsToCarouselMovement) {
     InputMapper mapper;
-    NOTRIX_CHECK_EQ(actionCode(rotate(mapper, true, 0).action), actionCode(Action::AppNext));
+    STIPPLE_CHECK_EQ(actionCode(rotate(mapper, true, 0).action), actionCode(Action::AppNext));
 
     mapper.reset();
-    NOTRIX_CHECK_EQ(actionCode(rotate(mapper, false, 0).action), actionCode(Action::AppPrevious));
+    STIPPLE_CHECK_EQ(actionCode(rotate(mapper, false, 0).action), actionCode(Action::AppPrevious));
 }
 
-NOTRIX_TEST(InputMapper, SlowRotationDoesNotAccelerate) {
+STIPPLE_TEST(InputMapper, SlowRotationDoesNotAccelerate) {
     InputMapper mapper;
     const std::uint64_t gap = mapper.config().rotaryAccelerationWindowMillis + 50;
 
-    NOTRIX_CHECK_EQ(rotate(mapper, true, 0).repeat, 1);
-    NOTRIX_CHECK_EQ(rotate(mapper, true, gap).repeat, 1);
-    NOTRIX_CHECK_EQ(rotate(mapper, true, gap * 2).repeat, 1);
+    STIPPLE_CHECK_EQ(rotate(mapper, true, 0).repeat, 1);
+    STIPPLE_CHECK_EQ(rotate(mapper, true, gap).repeat, 1);
+    STIPPLE_CHECK_EQ(rotate(mapper, true, gap * 2).repeat, 1);
 }
 
-NOTRIX_TEST(InputMapper, FastRotationAccelerates) {
+STIPPLE_TEST(InputMapper, FastRotationAccelerates) {
     InputMapper mapper;
 
-    NOTRIX_CHECK_EQ(rotate(mapper, true, 0).repeat, 1);
-    NOTRIX_CHECK_EQ(rotate(mapper, true, 10).repeat, 2);
-    NOTRIX_CHECK_EQ(rotate(mapper, true, 20).repeat, 3);
+    STIPPLE_CHECK_EQ(rotate(mapper, true, 0).repeat, 1);
+    STIPPLE_CHECK_EQ(rotate(mapper, true, 10).repeat, 2);
+    STIPPLE_CHECK_EQ(rotate(mapper, true, 20).repeat, 3);
 }
 
-NOTRIX_TEST(InputMapper, AccelerationIsCapped) {
+STIPPLE_TEST(InputMapper, AccelerationIsCapped) {
     // A fast spin must not skip an unbounded number of apps.
     InputMapper mapper;
     const int cap = mapper.config().maxRotaryRepeat;
@@ -295,10 +295,10 @@ NOTRIX_TEST(InputMapper, AccelerationIsCapped) {
     for (int i = 0; i < 50; ++i) {
         result = rotate(mapper, true, static_cast<std::uint64_t>(i) * 5u);
     }
-    NOTRIX_CHECK_EQ(result.repeat, cap);
+    STIPPLE_CHECK_EQ(result.repeat, cap);
 }
 
-NOTRIX_TEST(InputMapper, ReversingDirectionResetsAcceleration) {
+STIPPLE_TEST(InputMapper, ReversingDirectionResetsAcceleration) {
     // Correcting an overshoot should be precise, not fling the carousel back.
     InputMapper mapper;
 
@@ -306,26 +306,26 @@ NOTRIX_TEST(InputMapper, ReversingDirectionResetsAcceleration) {
     rotate(mapper, true, 10);
     rotate(mapper, true, 20);
 
-    NOTRIX_CHECK_EQ(rotate(mapper, false, 30).repeat, 1);
+    STIPPLE_CHECK_EQ(rotate(mapper, false, 30).repeat, 1);
 }
 
-NOTRIX_TEST(InputMapper, RotaryAccelerationIsConfigurable) {
+STIPPLE_TEST(InputMapper, RotaryAccelerationIsConfigurable) {
     InputMapperConfig config;
     config.rotaryAccelerationWindowMillis = 5;
     InputMapper mapper(config);
 
-    NOTRIX_CHECK_EQ(rotate(mapper, true, 0).repeat, 1);
-    NOTRIX_CHECK_EQ(rotate(mapper, true, 50).repeat, 1);  // outside the tighter window
+    STIPPLE_CHECK_EQ(rotate(mapper, true, 0).repeat, 1);
+    STIPPLE_CHECK_EQ(rotate(mapper, true, 50).repeat, 1);  // outside the tighter window
 }
 
-NOTRIX_TEST(InputMapper, RotaryPressIsSeparateFromRotation) {
+STIPPLE_TEST(InputMapper, RotaryPressIsSeparateFromRotation) {
     // Pushing the encoder must not disturb rotation acceleration state.
     InputMapper mapper;
 
     rotate(mapper, true, 0);
-    NOTRIX_CHECK_EQ(rotate(mapper, true, 10).repeat, 2);
+    STIPPLE_CHECK_EQ(rotate(mapper, true, 10).repeat, 2);
 
     press(mapper, RawInput::RotaryPress, 15, 20);
 
-    NOTRIX_CHECK_EQ(rotate(mapper, true, 40).repeat, 3);
+    STIPPLE_CHECK_EQ(rotate(mapper, true, 40).repeat, 3);
 }

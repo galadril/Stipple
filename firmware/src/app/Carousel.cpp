@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/app/Carousel.h"
+#include "stipple/app/Carousel.h"
 
-namespace notrix {
+namespace stipple {
 namespace app {
 
 std::uint64_t Carousel::durationMillis(const App& app) const noexcept {
@@ -136,4 +136,4 @@ bool Carousel::previous(std::uint64_t nowMillis) {
 }
 
 }  // namespace app
-}  // namespace notrix
+}  // namespace stipple

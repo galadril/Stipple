@@ -4,7 +4,7 @@
 #
 # Targets the SigmaStar SSD21x / Cortex-A7 described in the blueprint. Deliberately
 # describes only the *architecture*, not the vendor runtime: nothing here knows
-# about FlyThings, because notrix_core must cross-compile without any of that
+# about FlyThings, because stipple_core must cross-compile without any of that
 # existing. Being able to build the core for ARM is what proves the §53 boundary
 # holds, and that proof should not wait on a device adapter.
 
@@ -21,9 +21,9 @@ set(CMAKE_CXX_COMPILER arm-linux-gnueabihf-g++)
 # They fire on any std::vector iterator and say nothing about this code: the
 # change only matters when linking objects built by compilers from either side
 # of that boundary, and everything here is built by one.
-set(NOTRIX_ARM_FLAGS "-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -Wno-psabi")
-set(CMAKE_C_FLAGS_INIT "${NOTRIX_ARM_FLAGS}")
-set(CMAKE_CXX_FLAGS_INIT "${NOTRIX_ARM_FLAGS}")
+set(STIPPLE_ARM_FLAGS "-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -Wno-psabi")
+set(CMAKE_C_FLAGS_INIT "${STIPPLE_ARM_FLAGS}")
+set(CMAKE_CXX_FLAGS_INIT "${STIPPLE_ARM_FLAGS}")
 
 # Look for libraries and headers in the sysroot, but find programs on the host:
 # without this, CMake tries to run ARM binaries during configuration checks.

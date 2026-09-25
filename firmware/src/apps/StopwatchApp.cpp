@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/apps/StopwatchApp.h"
+#include "stipple/apps/StopwatchApp.h"
 
 #include <cstdio>
 
-#include "notrix/graphics/Canvas.h"
-#include "notrix/graphics/Framebuffer.h"
-#include "notrix/text/Text.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/graphics/Framebuffer.h"
+#include "stipple/text/Text.h"
 
-namespace notrix {
+namespace stipple {
 namespace apps {
 namespace {
 
@@ -130,4 +130,4 @@ void renderStopwatch(Canvas& canvas,
 }
 
 }  // namespace apps
-}  // namespace notrix
+}  // namespace stipple

@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/mqtt/MqttService.h"
+#include "stipple/mqtt/MqttService.h"
 
 #include <string>
 
 #include <vector>
 
-#include "notrix/api/ApiServer.h"
-#include "notrix/api/JsonWriter.h"
-#include "notrix/config/Config.h"
-#include "notrix/core/Log.h"
+#include "stipple/api/ApiServer.h"
+#include "stipple/api/JsonWriter.h"
+#include "stipple/config/Config.h"
+#include "stipple/core/Log.h"
 
-namespace notrix {
+namespace stipple {
 namespace mqtt {
 namespace {
 
@@ -313,4 +313,4 @@ void MqttService::onMessage(const MqttMessage& message) {
 }
 
 }  // namespace mqtt
-}  // namespace notrix
+}  // namespace stipple

@@ -17,7 +17,7 @@ as the decisions are actually made.
 |---|---|---|
 | 0001 | Project scope | Accepted |
 | 0002 | GPL-3.0-or-later licence | Accepted |
-| 0003 | Framebuffer renderer owned by NOTRIX | Accepted |
+| 0003 | Framebuffer renderer owned by STIPPLE | Accepted |
 | 0004 | FlyThings runtime boundary | Pending — needs hardware |
 | 0005 | Headless build | Pending — needs hardware |
 | 0006 | Temporary ADB development | Pending — needs hardware |

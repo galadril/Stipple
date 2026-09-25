@@ -1,12 +1,12 @@
 # MQTT
 
-Optional, and off by default. A NOTRIX device is fully usable with no broker at
+Optional, and off by default. A STIPPLE device is fully usable with no broker at
 all, and fully usable from MQTT with no HTTP client (blueprint §20). It will
 never connect to a broker nobody configured.
 
 ## Topics
 
-`{baseTopic}/{deviceId}/...`, where `baseTopic` defaults to `notrix` and
+`{baseTopic}/{deviceId}/...`, where `baseTopic` defaults to `stipple` and
 `deviceId` is derived from the device name — lower-cased, with anything that is
 not a letter or digit folded to `-`. "Kitchen Clock" becomes `kitchen-clock`.
 
@@ -43,8 +43,8 @@ An empty payload on `cmd/apps/{id}` deletes, because publishing an empty retaine
 message is how MQTT conventionally says "this is gone".
 
 ```bash
-mosquitto_pub -t 'notrix/kitchen-clock/cmd/notify' -m '{"text":"Dinner"}'
-mosquitto_pub -t 'notrix/kitchen-clock/cmd/settings' -m '{"display":{"power":false}}'
+mosquitto_pub -t 'stipple/kitchen-clock/cmd/notify' -m '{"text":"Dinner"}'
+mosquitto_pub -t 'stipple/kitchen-clock/cmd/settings' -m '{"display":{"power":false}}'
 ```
 
 **Anything HTTP refuses, MQTT refuses identically** — the routing happens before

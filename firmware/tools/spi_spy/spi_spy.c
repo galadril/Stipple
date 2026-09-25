@@ -32,9 +32,9 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-/// Overridable with NOTRIX_SPY_LOG, so two captures can be taken without one
+/// Overridable with STIPPLE_SPY_LOG, so two captures can be taken without one
 /// overwriting the other.
-#define LOG_PATH "/tmp/notrix-spi.log"
+#define LOG_PATH "/tmp/stipple-spi.log"
 
 // Whole frames, but few of them. The first attempt kept 160 bytes of 400
 // frames and recorded nothing but the dark left edge of the panel - the lit
@@ -43,15 +43,15 @@
 #define MAX_RECORDS 600
 
 /// The cap exists because an unfiltered capture takes 3072 bytes forty times a
-/// second, and /tmp is RAM on a device with 36 MB of it. With NOTRIX_SPY_ONLY
+/// second, and /tmp is RAM on a device with 36 MB of it. With STIPPLE_SPY_ONLY
 /// narrowing the watch to one slow link, the same cap is the wrong tool: it
 /// stopped a capture of the MCU after nine minutes, silently, right before the
-/// thing it was taken to see. NOTRIX_SPY_MAX raises it deliberately, which is
+/// thing it was taken to see. STIPPLE_SPY_MAX raises it deliberately, which is
 /// the only way it should ever be raised.
 static int record_limit(void) {
     static int cached = -1;
     if (cached < 0) {
-        const char* text = getenv("NOTRIX_SPY_MAX");
+        const char* text = getenv("STIPPLE_SPY_MAX");
         cached = (text != NULL && text[0] != 0) ? atoi(text) : MAX_RECORDS;
         if (cached < 1) {
             cached = MAX_RECORDS;
@@ -134,14 +134,14 @@ static void note(const char* format, ...) {
 /// candidate. Watching everything costs log volume, which is cheap; watching
 /// too little costs a day, which is not.
 ///
-/// NOTRIX_SPY_ONLY narrows it to paths containing a given substring. Watching
+/// STIPPLE_SPY_ONLY narrows it to paths containing a given substring. Watching
 /// everything is right when hunting for an unknown enable; it is wrong when the
 /// hunt is for something slow and the log has to run for minutes, because
 /// spidev takes 3072 bytes forty times a second and /tmp is RAM on a device
 /// with 36 MB of it. A capture that fills tmpfs does not just truncate, it
 /// takes the running application down with it.
 static int interesting(const char* path) {
-    const char* only = getenv("NOTRIX_SPY_ONLY");
+    const char* only = getenv("STIPPLE_SPY_ONLY");
     if (only != NULL && only[0] != '\0') {
         return strstr(path, only) != NULL;
     }

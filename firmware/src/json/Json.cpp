@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/json/Json.h"
+#include "stipple/json/Json.h"
 
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 
-namespace notrix {
+namespace stipple {
 namespace json {
 namespace {
 
@@ -711,4 +711,4 @@ std::string Value::toString(std::string_view fallback) const {
 }
 
 }  // namespace json
-}  // namespace notrix
+}  // namespace stipple

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/render/Overlay.h"
+#include "stipple/render/Overlay.h"
 
-#include "notrix/graphics/Framebuffer.h"
+#include "stipple/graphics/Framebuffer.h"
 
-namespace notrix {
+namespace stipple {
 namespace render {
 namespace {
 
@@ -323,4 +323,4 @@ void drawOverlay(Framebuffer& frame,
 }
 
 }  // namespace render
-}  // namespace notrix
+}  // namespace stipple

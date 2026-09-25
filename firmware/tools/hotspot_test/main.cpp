@@ -26,8 +26,8 @@
 
 #include <unistd.h>
 
-#include "notrix/platform/tc002/Tc002Dhcp.h"
-#include "notrix/platform/tc002/Tc002Hotspot.h"
+#include "stipple/platform/tc002/Tc002Dhcp.h"
+#include "stipple/platform/tc002/Tc002Hotspot.h"
 
 namespace {
 
@@ -41,7 +41,7 @@ std::uint64_t monotonicMillis() {
 }  // namespace
 
 int main(int argc, char** argv) {
-    const std::string ssid = argc > 1 ? argv[1] : "NOTRIX-setup";
+    const std::string ssid = argc > 1 ? argv[1] : "STIPPLE-setup";
     const int seconds = argc > 2 ? std::atoi(argv[2]) : 180;
 
     std::printf("starting '%s' for %ds; the network will drop and come back\n",
@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
     //
     // stdout is whatever the caller redirected it to, and the child keeps
     // that fd after the parent has gone. Run it as:
-    //   /tmp/notrix_hotspot_test NOTRIX-setup 180 > /tmp/hotspot.out 2>&1
+    //   /tmp/stipple_hotspot_test STIPPLE-setup 180 > /tmp/hotspot.out 2>&1
     const auto say = [](const char* what) {
         std::printf("[%llu] %s\n",
                     static_cast<unsigned long long>(monotonicMillis()), what);
@@ -113,8 +113,8 @@ int main(int argc, char** argv) {
     // Last time this tool stopped the access point, restarted wpa_supplicant
     // and left a device nobody could reach: an association is not an address,
     // and on this platform nothing else asks for one.
-    notrix::platform::tc002::Tc002Dhcp dhcp;
-    const bool haveDhcp = dhcp.begin("wlan0", "notrix", monotonicMillis());
+    stipple::platform::tc002::Tc002Dhcp dhcp;
+    const bool haveDhcp = dhcp.begin("wlan0", "stipple", monotonicMillis());
     say(haveDhcp ? "dhcp client ready" : "dhcp client would not start");
     {
         const std::string opening = dhcp.takeEvent();
@@ -124,7 +124,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    notrix::platform::tc002::Tc002Hotspot hotspot;
+    stipple::platform::tc002::Tc002Hotspot hotspot;
     hotspot.useDhcp(&dhcp);
 
     const std::uint64_t startedAt = monotonicMillis();

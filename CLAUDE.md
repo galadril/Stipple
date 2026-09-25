@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Phases 0–7 are done. NOTRIX runs on real TC002 hardware: it renders through the real `Canvas` and `Framebuffer` onto the panel, reads the buttons and knob, serves its web UI and API over HTTP, and talks to a broker over MQTT.
+Phases 0–7 are done. STIPPLE runs on real TC002 hardware: it renders through the real `Canvas` and `Framebuffer` onto the panel, reads the buttons and knob, serves its web UI and API over HTTP, and talks to a broker over MQTT.
 
-What exists: `notrix_core` (framebuffer, Canvas, font/text, scenes, icon store, app carousel, notifications, config, frame scheduler, ring log, `ApplicationHost`, the `/api/v1/*` server, the embedded device web UI and the MQTT bridge), `notrix_imageio` (dependency-free PNG encoder), **both** platform adapters — `simulator` and `tc002` (`Tc002Display`, `Tc002Input`, `Tc002Mcu`, `Tc002HttpServer`, `Tc002MqttClient`, `Tc002Platform`) — a host test suite with golden-image comparison, and a WebAssembly browser emulator that serves the real config page through the real router.
+What exists: `stipple_core` (framebuffer, Canvas, font/text, scenes, icon store, app carousel, notifications, config, frame scheduler, ring log, `ApplicationHost`, the `/api/v1/*` server, the embedded device web UI and the MQTT bridge), `stipple_imageio` (dependency-free PNG encoder), **both** platform adapters — `simulator` and `tc002` (`Tc002Display`, `Tc002Input`, `Tc002Mcu`, `Tc002HttpServer`, `Tc002MqttClient`, `Tc002Platform`) — a host test suite with golden-image comparison, and a WebAssembly browser emulator that serves the real config page through the real router.
 
 `tooling/` exists: `probe/` (read-only device reconnaissance, ABI checking), `imgtool/` (reads, verifies and builds `update.img` containers, and captures a verified restore image from a live device — neither writes to one) and `cross/` (two pinned container toolchains — bookworm for libraries and static executables, bullseye for dynamic ones, because bookworm's executables demand `GLIBC_2.34` and the device has 2.30). Directories for `sdk/`, `installer/` and `integrations/` do not exist yet. The device UI lives in `firmware/web/` and is compiled into the binary by `cmake/EmbedWebAssets.cmake`; there is no top-level `web/`.
 
@@ -14,7 +14,7 @@ What exists: `notrix_core` (framebuffer, Canvas, font/text, scenes, icon store, 
 
 **The panel needs GPIO 35 strobed.** Writing 3072 bytes to `/dev/spidev0.0` only fills the driver chips' shift registers; GPIO 35 low-before/high-after latches them onto the panel. Without the strobe every write succeeds, returns 3072 and lights nothing. That one fact explains most of the bring-up's confusing days.
 
-**Read `NOTRIX-PROJECT-BLUEPRINT.md` before any architectural work.** It is the single source of truth for scope, staging and naming. Sections worth re-reading per task: §6 (repo layout), §7–§15 (runtime architecture), §19–§21 (API/MQTT/config), §37 (stage roadmap), §46 (open research questions), §53 (the core architectural boundary).
+**Read `private/STIPPLE-PROJECT-BLUEPRINT.md` before any architectural work.** It is not in the public repository - it predates the hardware and is contradicted by the findings doc in enough places that publishing it would mislead people. It is the single source of truth for scope, staging and naming. Sections worth re-reading per task: §6 (repo layout), §7–§15 (runtime architecture), §19–§21 (API/MQTT/config), §37 (stage roadmap), §46 (open research questions), §53 (the core architectural boundary).
 
 **The phase order was deliberately not the blueprint's stage order.** With no device to hand, the simulator moved to the front and bring-up to the back — see `docs/adr/0011-simulator-first-development-order.md`. That paid off: when hardware arrived, every layer above `IPlatformServices` already worked and had tests, so bring-up was writing one adapter rather than debugging a whole system through a 52×16 window.
 
@@ -29,9 +29,9 @@ What exists: `notrix_core` (framebuffer, Canvas, font/text, scenes, icon store, 
 | 6 | MQTT and device web UI | no |
 | 7 | TC002 bring-up, device adapter | **yes** — done |
 
-## What NOTRIX is
+## What STIPPLE is
 
-Open-source replacement *user application* for the Ulanzi TC002 pixel clock (52×16 RGB matrix, 832 pixels). The device is a SigmaStar SSD21x / dual-core ARMv7 Cortex-A7 with 36 MB RAM and glibc 2.30, running a FlyThings / EasyUI runtime. **Confirmed on hardware:** `/bin/zkgui` (9.5 KB) is the EasyUI host and loads the application from `/res/lib/libzkgui.so` (7.14 MB) at runtime — so the NOTRIX application really does load as `libzkgui.so` inside that host, exactly as blueprint §7.1 says. The LED panel is reached through the vendor HAL (`ledc_set_led` / `ledc_set_group` in `libzkhw.so`), not by driving SPI directly. See `docs/research/tc002-platform-findings.md`. Stage 1 replaces the app experience only — **not** the bootloader, kernel or Linux platform services.
+Open-source replacement *user application* for the Ulanzi TC002 pixel clock (52×16 RGB matrix, 832 pixels). The device is a SigmaStar SSD21x / dual-core ARMv7 Cortex-A7 with 36 MB RAM and glibc 2.30, running a FlyThings / EasyUI runtime. **Confirmed on hardware:** `/bin/zkgui` (9.5 KB) is the EasyUI host and loads the application from `/res/lib/libzkgui.so` (7.14 MB) at runtime — so the STIPPLE application really does load as `libzkgui.so` inside that host, exactly as blueprint §7.1 says. The LED panel is reached through the vendor HAL (`ledc_set_led` / `ledc_set_group` in `libzkhw.so`), not by driving SPI directly. See `docs/research/tc002-platform-findings.md`. Stage 1 replaces the app experience only — **not** the bootloader, kernel or Linux platform services.
 
 It is not an ESP32 firmware, not a port of AWTRIX 3 or AWTRIX NG, and must not incorporate AWTRIX source. AWTRIX may be studied as a product/API/UX reference only; concepts (custom apps, notifications, rotation, indicators, MQTT) get reimplemented independently.
 
@@ -62,7 +62,7 @@ It is not an ESP32 firmware, not a port of AWTRIX 3 or AWTRIX NG, and must not i
 ## The architectural boundary that matters most
 
 ```
-                        NOTRIX CORE
+                        STIPPLE CORE
 ┌─────────────────────────────────────────────────────────┐
 │ Apps / Notifications / Scheduler / API / MQTT           │
 │                         ↓                               │
@@ -74,13 +74,13 @@ It is not an ESP32 firmware, not a port of AWTRIX 3 or AWTRIX NG, and must not i
       adapter                     adapter
 ```
 
-Render path: `Application → Scene → Renderer → 52×16 RGB framebuffer → TC002 display adapter → PageBase::sendLedData(...)`. NOTRIX owns the full framebuffer; do not depend on Ulanzi's DIY text/layout renderer for the core experience.
+Render path: `Application → Scene → Renderer → 52×16 RGB framebuffer → TC002 display adapter → PageBase::sendLedData(...)`. STIPPLE owns the full framebuffer; do not depend on Ulanzi's DIY text/layout renderer for the core experience.
 
 The public/native API is declarative **scenes** (JSON elements: pixel, line, rectangle, text, icon, bitmap, sprite, progress, graph, animation, group), not low-level internals.
 
 **One API surface: `/api/v1/*`.** There is no AWTRIX compatibility layer and none is planned — blueprint §19.2 and the compatibility half of §3.5 are withdrawn, and blueprint Stage 7 is dropped. See `docs/adr/0015-no-awtrix-compatibility-layer.md`. Any `/api/*` path outside `/api/v1/*` answers 404 saying so explicitly. If compatibility is ever wanted it belongs outside the firmware as a translating proxy, never as device routes.
 
-MQTT namespace is `notrix/{deviceId}/...`, off by default. Commands are translated into `api::Request` objects and answered by the same `ApiServer` as HTTP, so the two surfaces cannot drift — see `docs/mqtt.md`. `Tc002MqttClient` implements the transport on hardware; the simulator has an in-memory broker for tests.
+MQTT namespace is `stipple/{deviceId}/...`, off by default. Commands are translated into `api::Request` objects and answered by the same `ApiServer` as HTTP, so the two surfaces cannot drift — see `docs/mqtt.md`. `Tc002MqttClient` implements the transport on hardware; the simulator has an in-memory broker for tests.
 
 ## Non-obvious constraints
 
@@ -90,7 +90,7 @@ MQTT namespace is `notrix/{deviceId}/...`, off by default. Commands are translat
 - App ordering must never be inferred from filesystem enumeration or associative-container iteration; the app manager owns explicit ordering.
 - Configuration is versioned (`schemaVersion`) with transactional writes, checksum, backup copy and migration code. Malformed JSON must never brick the device or cause a boot loop.
 - Logging is a ring buffer — avoid flash writes. Never expose Wi-Fi passwords or secrets via diagnostics.
-- Naming uses `notrix`, never the GitHub owner (`galadril`). Keep the owner out of firmware identifiers, MQTT topics, API names, package names, update manifests and persistent device config so a future transfer to an org is infrastructure-only. CI derives ownership from `${GITHUB_REPOSITORY_OWNER}`.
+- Naming uses `stipple`, never the GitHub owner (`galadril`). Keep the owner out of firmware identifiers, MQTT topics, API names, package names, update manifests and persistent device config so a future transfer to an org is infrastructure-only. CI derives ownership from `${GITHUB_REPOSITORY_OWNER}`.
 
 ## Running on the device
 
@@ -99,14 +99,14 @@ power cycle restores the stock application and nothing touches flash.
 
 ```powershell
 # cross-build (podman/docker + the pinned toolchain in tooling/cross/)
-podman run --rm -v "${PWD}:/src" notrix-cross:bookworm bash -c `
-  "cmake --preset device-arm && cmake --build --preset device-arm --target notrix_device"
+podman run --rm -v "${PWD}:/src" stipple-cross:bookworm bash -c `
+  "cmake --preset device-arm && cmake --build --preset device-arm --target stipple_device"
 
 adb connect 192.168.1.238:5555
-adb push build/device-arm/firmware/notrix_device /tmp/
-adb shell chmod +x /tmp/notrix_device
+adb push build/device-arm/firmware/stipple_device /tmp/
+adb shell chmod +x /tmp/stipple_device
 adb shell setprop ctl.stop zkswe      # release the panel from the vendor app
-adb shell /tmp/notrix_device          # hold this session open; it runs in the foreground
+adb shell /tmp/stipple_device          # hold this session open; it runs in the foreground
 ```
 
 `setprop ctl.start zkswe` puts the stock application back, and so does a reboot.
@@ -150,20 +150,20 @@ CI is `.github/workflows/ci.yml`; `release.yml` calls it via `workflow_call` on
 a `v*` tag so a release cannot pass weaker gates than main. A release packages
 the emulator only, states in its notes that no installable firmware exists, and
 is always a prerelease while on 0.x. The tag, `project(VERSION)` in
-`CMakeLists.txt` and `kVersion` in `firmware/include/notrix/core/Version.h` must
+`CMakeLists.txt` and `kVersion` in `firmware/include/stipple/core/Version.h` must
 agree or the workflow fails before building — bump all three together. The Pages
-job is opt-in behind the `NOTRIX_PAGES` repository variable and stays skipped
+job is opt-in behind the `STIPPLE_PAGES` repository variable and stays skipped
 until someone sets it.
 
 ## Build and test architecture
 
-**Targets.** `notrix_core` is portable C++17 above the §53 boundary — it must compile unchanged for host, WASM and ARM, and may not include a platform header. `notrix_imageio` (PNG) is deliberately a separate target so it can never be linked into the memory-constrained device build.
+**Targets.** `stipple_core` is portable C++17 above the §53 boundary — it must compile unchanged for host, WASM and ARM, and may not include a platform header. `stipple_imageio` (PNG) is deliberately a separate target so it can never be linked into the memory-constrained device build.
 
 **The device UI is compiled in.** `firmware/web/*.html|css|js` become a C++ asset table via `cmake/EmbedWebAssets.cmake`, served by `web::StaticFiles` for any path outside `/api/`. A device whose storage has failed is exactly when its config page is needed, so the page must not live on that storage. Assets must be text — the generator emits raw string literals, deliberately using no tool beyond CMake so the Phase 7 cross-toolchain stays dependency-free. Editing a file under `firmware/web/` triggers a reconfigure.
 
 **No external dependencies**, by decision — see `docs/adr/0012-dependency-free-core.md`. The test harness (`firmware/tests/support/`) and PNG encoder are in-tree for this reason. Do not add a dependency to the core without an ADR. JSON in Phase 4 is the one open case where a library may be the right answer, since it parses untrusted network input.
 
-**Golden-image tests.** `NOTRIX_CHECK_GOLDEN(name, framebuffer)` compares against `firmware/tests/testdata/<name>.rgb`. A *missing* fixture is auto-created locally with a reviewable PNG; a *mismatch* always fails. `NOTRIX_STRICT_GOLDEN=1` (set in CI) makes missing fixtures fail too. Failures write 8× actual/expected PNGs to `testdata/_failed/`. Never regenerate a fixture without looking at the PNG — a blindly updated golden records the bug instead of catching it.
+**Golden-image tests.** `STIPPLE_CHECK_GOLDEN(name, framebuffer)` compares against `firmware/tests/testdata/<name>.rgb`. A *missing* fixture is auto-created locally with a reviewable PNG; a *mismatch* always fails. `STIPPLE_STRICT_GOLDEN=1` (set in CI) makes missing fixtures fail too. Failures write 8× actual/expected PNGs to `testdata/_failed/`. Never regenerate a fixture without looking at the PNG — a blindly updated golden records the bug instead of catching it.
 
 **Warnings.** `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wold-style-cast` (or `/W4 /permissive-`), errors in CI. Sanitizers are host-only.
 

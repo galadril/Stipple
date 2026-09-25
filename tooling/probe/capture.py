@@ -19,8 +19,8 @@ exactly when it should be taken.
 
 Usage:
     python.exe tooling/probe/capture.py 192.168.1.238
-    python.exe tooling/probe/capture.py 192.168.1.238 --out D:/notrix-backups
-    python.exe tooling/probe/capture.py --verify D:/notrix-backups/tc002-...
+    python.exe tooling/probe/capture.py 192.168.1.238 --out D:/stipple-backups
+    python.exe tooling/probe/capture.py --verify D:/stipple-backups/tc002-...
 """
 
 from __future__ import annotations
@@ -226,8 +226,8 @@ def do_verify(folder: Path) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("address", nargs="?", help="device IP, or host:port")
-    parser.add_argument("--out", default="../notrix-backups",
-                        help="where to write (default: ../notrix-backups, outside the repo)")
+    parser.add_argument("--out", default="../stipple-backups",
+                        help="where to write (default: ../stipple-backups, outside the repo)")
     parser.add_argument("--verify", metavar="FOLDER",
                         help="re-hash an existing capture instead of taking one")
     args = parser.parse_args()

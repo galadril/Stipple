@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "notrix/platform/tc002/Tc002Audio.h"
+#include "stipple/platform/tc002/Tc002Audio.h"
 
 #include <dlfcn.h>
 
 #include <cstring>
 
-namespace notrix {
+namespace stipple {
 namespace platform {
 namespace tc002 {
 namespace {
@@ -218,4 +218,4 @@ void Tc002Audio::setVolume(std::uint8_t volume) {
 
 }  // namespace tc002
 }  // namespace platform
-}  // namespace notrix
+}  // namespace stipple

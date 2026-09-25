@@ -16,11 +16,11 @@
 #include <fstream>
 #include <string>
 
-#include "notrix/demo/TestPattern.h"
-#include "notrix/graphics/Canvas.h"
-#include "notrix/imageio/Png.h"
-#include "notrix/platform/simulator/SimulatorPlatform.h"
-#include "notrix/text/Text.h"
+#include "stipple/demo/TestPattern.h"
+#include "stipple/graphics/Canvas.h"
+#include "stipple/imageio/Png.h"
+#include "stipple/platform/simulator/SimulatorPlatform.h"
+#include "stipple/text/Text.h"
 
 namespace {
 
@@ -28,24 +28,24 @@ constexpr int kFrameCount = 98;  // one full scan-bar period
 constexpr int kScale = 10;
 constexpr int kFrameIntervalMillis = 33;  // ~30 FPS, per blueprint §9.4
 
-using notrix::Canvas;
-using notrix::Framebuffer;
-using notrix::Rect;
-using notrix::platform::simulator::SimulatorPlatform;
+using stipple::Canvas;
+using stipple::Framebuffer;
+using stipple::Rect;
+using stipple::platform::simulator::SimulatorPlatform;
 
 /// Composes a frame: the bring-up pattern with a text overlay on top, which
 /// together exercise every primitive plus the font engine.
 void renderFrame(Canvas& canvas, int frame) {
-    notrix::demo::drawTestPattern(canvas, frame);
+    stipple::demo::drawTestPattern(canvas, frame);
 
-    notrix::text::TextStyle style;
-    style.font = &notrix::text::font5x7();
-    style.color = notrix::rgb(255, 255, 255);
-    style.hAlign = notrix::text::HAlign::Center;
-    style.vAlign = notrix::text::VAlign::Middle;
+    stipple::text::TextStyle style;
+    style.font = &stipple::text::font5x7();
+    style.color = stipple::rgb(255, 255, 255);
+    style.hAlign = stipple::text::HAlign::Center;
+    style.vAlign = stipple::text::VAlign::Middle;
 
     // Box is the full font height; a shorter one would clip the last glyph row.
-    notrix::text::draw(canvas, "NOTRIX", Rect{0, 0, 52, 7}, style);
+    stipple::text::draw(canvas, "STIPPLE", Rect{0, 0, 52, 7}, style);
 }
 
 bool writeIndexPage(const std::string& directory) {
@@ -55,7 +55,7 @@ bool writeIndexPage(const std::string& directory) {
     }
 
     page << "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n"
-            "<title>NOTRIX preview</title>\n<style>\n"
+            "<title>STIPPLE preview</title>\n<style>\n"
             "body{background:#0a0b0d;color:#e8eaed;font-family:system-ui,sans-serif;"
             "display:flex;min-height:100vh;margin:0;align-items:center;"
             "justify-content:center;flex-direction:column;gap:18px}\n"
@@ -64,8 +64,8 @@ bool writeIndexPage(const std::string& directory) {
             "p{color:#868d98;font-size:13px;margin:0;text-align:center;max-width:34em;"
             "line-height:1.5}\n"
             "code{color:#ffb347}\n</style></head><body>\n"
-            "<img id=\"panel\" src=\"frame-000.png\" alt=\"NOTRIX panel preview\">\n"
-            "<p>Frame dump rendered by <code>notrix_core</code> on the host. "
+            "<img id=\"panel\" src=\"frame-000.png\" alt=\"STIPPLE panel preview\">\n"
+            "<p>Frame dump rendered by <code>stipple_core</code> on the host. "
             "This is a preview, not the emulator &mdash; there is no input and nothing "
             "is interactive. Build the real emulator with <code>.\\dev.ps1 emulator</code>.</p>\n"
             "<script>\n"
@@ -99,9 +99,9 @@ int main(int argc, char** argv) {
         std::snprintf(name, sizeof(name), "/frame-%03d.png", frame);
 
         const std::string path = directory + name;
-        if (!notrix::imageio::writePng(path, platform.simulatedDisplay().lastFrame(), kScale)) {
+        if (!stipple::imageio::writePng(path, platform.simulatedDisplay().lastFrame(), kScale)) {
             std::fprintf(stderr,
-                         "notrix_preview: could not write %s\n"
+                         "stipple_preview: could not write %s\n"
                          "  (does the output directory exist?)\n",
                          path.c_str());
             return 1;
@@ -109,7 +109,7 @@ int main(int argc, char** argv) {
     }
 
     if (!writeIndexPage(directory)) {
-        std::fprintf(stderr, "notrix_preview: could not write index.html\n");
+        std::fprintf(stderr, "stipple_preview: could not write index.html\n");
         return 1;
     }
 
