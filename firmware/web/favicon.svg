@@ -1,29 +1,36 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later
 
-     A pixel clock, drawn as pixels.
+     Lit pixels on an unlit panel - the same mark the website uses, so the
+     page you read before buying and the page you configure with afterwards
+     are recognisably one product.
+
+     The three lit pixels are the firmware's own three colours: the splash
+     cyan, a running stopwatch, a stopped one.
 
      SVG rather than an .ico because the asset table embedded in the firmware
      takes text only - the generator emits raw string literals, deliberately
      using no tool beyond CMake. An icon is also the one image a browser asks
-     for whether or not anybody offered it, so not having one is not an option:
-     it is a 404 in the device's own log every time somebody opens the page.
+     for whether or not anybody offered it, so not having one is not an
+     option: it is a 404 in the device's own log every time somebody opens
+     the page.
 
      Sixteen units square, so every rectangle lands on a whole pixel at the
      sizes a browser actually renders this. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"
      shape-rendering="crispEdges">
-  <rect width="16" height="16" rx="3" fill="#0d1117"/>
-  <!-- 1 -->
-  <rect x="2" y="4" width="1" height="1" fill="#e6edf3"/>
-  <rect x="3" y="4" width="1" height="7" fill="#e6edf3"/>
-  <rect x="2" y="10" width="3" height="1" fill="#e6edf3"/>
-  <!-- colon, in the accent the clock itself uses -->
-  <rect x="6" y="6" width="1" height="1" fill="#00beff"/>
-  <rect x="6" y="9" width="1" height="1" fill="#00beff"/>
-  <!-- 0 -->
-  <rect x="9" y="4" width="3" height="1" fill="#e6edf3"/>
-  <rect x="9" y="5" width="1" height="5" fill="#e6edf3"/>
-  <rect x="11" y="5" width="1" height="5" fill="#e6edf3"/>
-  <rect x="9" y="10" width="3" height="1" fill="#e6edf3"/>
+  <rect width="16" height="16" fill="#000000"/>
+  <!-- The unlit ones, which are what make the lit ones read as a panel. -->
+  <g fill="#0c2a35">
+    <rect x="2"  y="2"  width="2" height="2"/>
+    <rect x="6"  y="2"  width="2" height="2"/>
+    <rect x="10" y="2"  width="2" height="2"/>
+    <rect x="2"  y="6"  width="2" height="2"/>
+    <rect x="10" y="6"  width="2" height="2"/>
+    <rect x="2"  y="10" width="2" height="2"/>
+    <rect x="6"  y="10" width="2" height="2"/>
+  </g>
+  <rect x="6"  y="6"  width="2" height="2" fill="#00c8ff"/>
+  <rect x="10" y="10" width="2" height="2" fill="#00e68c"/>
+  <rect x="12" y="4"  width="2" height="2" fill="#ffb000"/>
 </svg>
