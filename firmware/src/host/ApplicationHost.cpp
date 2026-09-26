@@ -1760,6 +1760,17 @@ bool ApplicationHost::refreshActiveScene() {
 
         if (!sceneReady_) {
             logger_.warn(lastTickMillis_, "active app has an unusable scene");
+        } else if (scene_.issueCount() > 0) {
+            // The first issue, with the element it belongs to. Saying only
+            // that something was wrong leaves somebody pushing scenes from an
+            // integration to guess which of them, and why.
+            const scene::Issue& first = scene_.issueAt(0);
+            std::string detail = active->id;
+            detail += ": element ";
+            detail += std::to_string(first.elementIndex);
+            detail += ": ";
+            detail += first.message;
+            logger_.warn(lastTickMillis_, detail);
         }
     }
     return sceneReady_;
@@ -1924,6 +1935,18 @@ void ApplicationHost::renderFrame(std::uint64_t nowMillis) {
     }
 
     if (refreshActiveScene()) {
+        // A scene whose elements all failed validation says so.
+        //
+        // It used to render black, which is indistinguishable from a working
+        // app with nothing to show, from a crashed device and from a dead
+        // panel. A Domoticz push produced exactly that: every element
+        // rejected, the load still successful, and no way to tell from the
+        // outside. ADR 0013.
+        if (!scene_.anyRenderable()) {
+            apps::renderUnavailable(canvas, "EMPTY", "SCENE");
+            return;
+        }
+
         // Scroll position is measured from when the app appeared, so each app
         // starts reading from the beginning of its text.
         scene_.render(canvas, carousel_.dwellMillis(nowMillis));

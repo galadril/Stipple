@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "stipple/scene/Scene.h"
 
+#include <cstdio>
 #include <string>
 
 #include "stipple/graphics/Canvas.h"
@@ -356,4 +357,144 @@ STIPPLE_TEST(Scene, DashboardMatchesGolden) {
     STIPPLE_CHECK_EQ(scene.scene.issueCount(), 0);
 
     STIPPLE_CHECK_GOLDEN("scene-dashboard", scene.render());
+}
+
+STIPPLE_TEST(Scene, ScenesPushedFromDomoticzRenderSomething) {
+    // The exact scene text a Domoticz integration put on a real device, which
+    // showed a black panel. Captured off that device over the API.
+    struct Case { const char* what; const char* json; };
+    const Case cases[] = {
+        {"plain ascii", R"({"elements":[{"type":"text","text":"HELLO","x":2,"y":4,"color":"#00c8ff"}]})"},
+        {"degree sign", "{\"elements\":[{\"color\":\"#FF9D00\",\"text\":\"22.2\xC2\xB0""C\",\"type\":\"text\",\"x\":2,\"y\":4}]}"},
+        {"superscript", "{\"elements\":[{\"color\":\"#FF8000\",\"text\":\"0.00 m\xC2\xB3\",\"type\":\"text\",\"x\":2,\"y\":4}]}"},
+    };
+
+    for (const Case& each : cases) {
+        stipple::json::Token tokens[256];
+        stipple::scene::Scene scene(tokens, 256);
+        const bool loaded = scene.load(each.json);
+
+        std::printf("    [scene] %-12s load=%-6s elements=%d issues=%d\n",
+                    each.what, loaded ? "ok" : "FAILED",
+                    loaded ? scene.elementCount() : -1,
+                    loaded ? scene.issueCount() : -1);
+        for (int i = 0; loaded && i < scene.issueCount(); ++i) {
+            std::printf("            issue: element %d: %s\n",
+                        scene.issueAt(i).elementIndex, scene.issueAt(i).message);
+        }
+
+        STIPPLE_CHECK(loaded);
+        if (!loaded) { continue; }
+
+        Framebuffer framebuffer;
+        Canvas canvas(framebuffer);
+        scene.render(canvas, 0);
+
+        int lit = 0;
+        for (int y = 0; y < Framebuffer::kHeight; ++y) {
+            for (int x = 0; x < Framebuffer::kWidth; ++x) {
+                if (framebuffer.at(x, y) != stipple::colors::kBlack) { ++lit; }
+            }
+        }
+        std::printf("            lit %d pixels\n", lit);
+        STIPPLE_CHECK(lit > 0);
+    }
+}
+
+STIPPLE_TEST(Scene, AnElementMayGiveXAndYInsteadOfARect) {
+    // `pixel` and `line` always took plain x and y, so an integration writing
+    // {"type":"text","x":2,"y":4} is being consistent with the elements
+    // beside it. It used to be rejected, and the panel went black.
+    stipple::json::Token tokens[128];
+    stipple::scene::Scene scene(tokens, 128);
+
+    STIPPLE_REQUIRE(scene.load(
+        R"({"elements":[{"type":"text","text":"HI","x":2,"y":4,"color":"#00c8ff"}]})"));
+    STIPPLE_CHECK_EQ(scene.issueCount(), 0);
+    STIPPLE_CHECK(scene.anyRenderable());
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    scene.render(canvas, 0);
+
+    int lit = 0;
+    for (int y = 0; y < Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            if (framebuffer.at(x, y) != stipple::colors::kBlack) { ++lit; }
+        }
+    }
+    STIPPLE_CHECK(lit > 0);
+
+    // A missing width means "to the edge", which is what placing something at
+    // a corner means - and for text the box decides whether it scrolls, so a
+    // too-small default would make short text crawl for no reason.
+    STIPPLE_CHECK(!scene.animates());
+}
+
+STIPPLE_TEST(Scene, RectStillWinsWhenBothAreGiven) {
+    // The explicit form is the documented one, so it is not overridden by a
+    // stray x from a template that emits both.
+    stipple::json::Token tokens[128];
+    stipple::scene::Scene scene(tokens, 128);
+    STIPPLE_REQUIRE(scene.load(
+        R"({"elements":[{"type":"rect","rect":[0,0,4,4],"x":40,"y":12,"fill":true,"color":"#00FF00"}]})"));
+    STIPPLE_CHECK_EQ(scene.issueCount(), 0);
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    scene.render(canvas, 0);
+
+    STIPPLE_CHECK(framebuffer.at(1, 1) != stipple::colors::kBlack);
+    STIPPLE_CHECK(framebuffer.at(41, 13) == stipple::colors::kBlack);
+}
+
+STIPPLE_TEST(Scene, AnIconMayBeNamedByIdAsWellAsIcon) {
+    // The field an integration reaches for. A Domoticz push used `id`
+    // throughout and every icon in the scene silently drew nothing.
+    stipple::asset::IconStore icons;
+    stipple::asset::Icon dot;
+    dot.id = "2355";
+    dot.width = 2;
+    dot.height = 2;
+    dot.frameCount = 1;
+    dot.pixels = {stipple::rgb(255, 0, 0), stipple::rgb(255, 0, 0),
+                  stipple::rgb(255, 0, 0), stipple::rgb(255, 0, 0)};
+    STIPPLE_REQUIRE(icons.put(dot) == stipple::asset::IconStore::PutResult::Added);
+
+    stipple::json::Token tokens[128];
+    stipple::scene::Scene scene(tokens, 128);
+    scene.setIconStore(&icons);
+
+    STIPPLE_REQUIRE(scene.load(R"({"elements":[{"type":"icon","id":"2355","x":0,"y":4}]})"));
+    STIPPLE_CHECK_EQ(scene.issueCount(), 0);
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+    scene.render(canvas, 0);
+    STIPPLE_CHECK(framebuffer.at(0, 4) == stipple::rgb(255, 0, 0));
+}
+
+STIPPLE_TEST(Scene, ASceneWhereEverythingFailedKnowsItCannotDraw) {
+    // The signal the host uses to say EMPTY SCENE instead of going black.
+    stipple::json::Token tokens[128];
+    stipple::scene::Scene scene(tokens, 128);
+
+    STIPPLE_REQUIRE(scene.load(R"({"elements":[{"type":"text"},{"type":"text"}]})"));
+    STIPPLE_CHECK(scene.issueCount() > 0);
+    STIPPLE_CHECK(!scene.anyRenderable());
+
+    // One good element among bad ones still draws - a single malformed
+    // element must not blank a screen that otherwise works.
+    stipple::json::Token more[128];
+    stipple::scene::Scene mixed(more, 128);
+    STIPPLE_REQUIRE(mixed.load(
+        R"({"elements":[{"type":"text"},{"type":"text","text":"OK","x":1,"y":4}]})"));
+    STIPPLE_CHECK(mixed.issueCount() > 0);
+    STIPPLE_CHECK(mixed.anyRenderable());
+
+    // And an empty element list is not renderable either.
+    stipple::json::Token none[64];
+    stipple::scene::Scene empty(none, 64);
+    STIPPLE_REQUIRE(empty.load(R"({"elements":[]})"));
+    STIPPLE_CHECK(!empty.anyRenderable());
 }

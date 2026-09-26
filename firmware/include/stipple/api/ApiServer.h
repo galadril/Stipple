@@ -4,8 +4,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "stipple/api/Http.h"
+#include "stipple/json/Json.h"
 
 namespace stipple {
 
@@ -30,6 +32,10 @@ namespace script {
 class IScriptRunner;
 struct Script;
 }  // namespace script
+
+namespace api {
+class JsonWriter;
+}
 
 namespace log {
 class RingLog;
@@ -145,6 +151,15 @@ public:
         context_.scripts = runner;
     }
 
+public:
+    /// Tokens for validating a scene as it arrives.
+    ///
+    /// The same budget the host renders with, so the API cannot accept a
+    /// scene the renderer would later reject for being too complex. Six
+    /// kilobytes, held rather than taken from the stack: this runs on the
+    /// thread that also draws the panel.
+    static constexpr int kSceneTokens = 512;
+
 private:
     /// Checks the token when one is configured.
     ///
@@ -172,6 +187,21 @@ private:
 
     Response handleAssetCollection(const Request& request);
     Response handleAssetItem(const Request& request, const std::string& id);
+    /// Parse a scene and describe what is wrong with it.
+    ///
+    /// Fills `warnings` with what failed validation, and returns false when
+    /// *none* of the elements survived - a scene that can only ever draw a
+    /// black panel.
+    ///
+    /// This exists because the scene was previously taken on trust: anything
+    /// that was a JSON object was stored and answered 201. A Domoticz
+    /// integration sent perfectly reasonable elements in a shape the renderer
+    /// did not accept, got a cheerful success for every one of them, and had
+    /// no way to discover why its panel was black.
+    bool describeScene(std::string_view json, std::vector<std::string>& warnings);
+
+    json::Token sceneTokens_[kSceneTokens];
+
     Response handleScriptCollection(const Request& request);
     Response handleScriptItem(const Request& request, const std::string& id);
 

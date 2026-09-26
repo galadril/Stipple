@@ -679,3 +679,19 @@ textarea.code:focus {
 @media (max-width: 720px) {
     .editor { grid-template-columns: 1fr; }
 }
+
+/* Delete, on apps that came from somewhere else.
+ *
+ * Outlined rather than filled, and red only on hover. It sits in a row of
+ * ordinary controls next to Show and the arrows, and a permanently red button
+ * in that company reads as a warning about the app rather than as one action
+ * among several. */
+.btn-danger {
+    padding: 4px 9px;
+    line-height: 1;
+    color: var(--muted);
+}
+.btn-danger:hover, .btn-danger:focus-visible {
+    border-color: var(--danger);
+    color: var(--danger);
+}

@@ -69,6 +69,38 @@ target_compile_definitions(stipple_tests PRIVATE
 target_compile_definitions(stipple_tests PRIVATE
     STIPPLE_SCRIPTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../scripts")
 
+# The published scripts, listed for the test at configure time.
+#
+# They were written out by hand in test_shop_scripts.cpp so that a file going
+# missing would fail loudly rather than being silently skipped - which a
+# directory scan at runtime would do, reporting "no scripts found, nothing to
+# check, all good".
+#
+# Generating the list gives a stronger property and drops the chore. The page
+# and the test now come from the same directory, so the shop cannot list a
+# script the suite does not run - which is what the hand-written list was
+# guarding, done by construction instead of by vigilance.
+#
+# What it does not do is notice a deletion: CONFIGURE_DEPENDS re-runs cmake,
+# so removing a file removes it from the list and from the page together.
+# That is what deleting a script means, and the case worth failing on - an
+# empty directory - is caught below.
+file(GLOB STIPPLE_SHOP_SCRIPTS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/*.be")
+
+if(NOT STIPPLE_SHOP_SCRIPTS)
+    message(FATAL_ERROR "no scripts in scripts/ - the shop tests would pass by testing nothing")
+endif()
+
+set(STIPPLE_SHOP_SCRIPT_LIST "")
+foreach(script IN LISTS STIPPLE_SHOP_SCRIPTS)
+    get_filename_component(name "${script}" NAME)
+    string(APPEND STIPPLE_SHOP_SCRIPT_LIST "\"${name}\",")
+endforeach()
+
+target_compile_definitions(stipple_tests PRIVATE
+    STIPPLE_SHOP_SCRIPT_LIST=${STIPPLE_SHOP_SCRIPT_LIST})
+
 if(MSVC)
     # The golden harness reads STIPPLE_UPDATE_GOLDEN / STIPPLE_STRICT_GOLDEN with
     # std::getenv, which MSVC deprecates in favour of the non-portable

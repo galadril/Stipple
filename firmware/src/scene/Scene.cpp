@@ -104,6 +104,57 @@ bool parseRect(const json::Value& value, Rect& out) noexcept {
     return true;
 }
 
+/// Which stored icon an element wants, written either way.
+///
+///     {"type": "icon", "icon": "mail"}
+///     {"type": "icon", "id": "mail"}
+///
+/// `icon` is the documented field. `id` is accepted because it is what
+/// integrations reach for - a Domoticz push used it throughout, and every
+/// icon in the scene silently drew nothing.
+json::Value iconName(const json::Value& element) noexcept {
+    const json::Value named = element["icon"];
+    return named.isString() ? named : element["id"];
+}
+
+/// Where an element goes, written either way.
+///
+///     {"rect": [2, 4, 40, 7]}          explicit box
+///     {"x": 2, "y": 4}                 a corner, and the rest of the panel
+///     {"x": 2, "y": 4, "w": 40}        a corner and a width
+///
+/// The second form exists because it is what people write. `pixel` and `line`
+/// already took plain `x` and `y`, so an integration sending
+/// `{"type":"text","x":2,"y":4}` is being consistent with the elements beside
+/// it - and it got a rejected element and a black panel for it. That happened
+/// to a real Domoticz push, and the whole scene was silently empty.
+///
+/// A missing width or height means "to the edge", which is what somebody
+/// placing text at a corner means. It also matters for text specifically: the
+/// box is what decides whether a line scrolls, so defaulting it too small
+/// would make short text scroll for no reason.
+bool parseBox(const json::Value& element, Rect& out) noexcept {
+    if (parseRect(element["rect"], out)) {
+        return true;
+    }
+
+    const json::Value x = element["x"];
+    const json::Value y = element["y"];
+    if (!x.isNumber() || !y.isNumber()) {
+        return false;
+    }
+
+    const int left = clampToPanel(x.toInt());
+    const int top = clampToPanel(y.toInt());
+
+    const json::Value w = element["w"];
+    const json::Value h = element["h"];
+    out = Rect{left, top,
+               w.isNumber() ? clampToPanel(w.toInt()) : Framebuffer::kWidth - left,
+               h.isNumber() ? clampToPanel(h.toInt()) : Framebuffer::kHeight - top};
+    return true;
+}
+
 // --- element types -----------------------------------------------------------
 
 ElementType elementTypeFromName(std::string_view name) noexcept {
@@ -181,6 +232,37 @@ int Scene::elementCount() const noexcept {
         return 0;
     }
     return document_.root()["elements"].size();
+}
+
+bool Scene::anyRenderable() const noexcept {
+    if (!loaded_) {
+        return false;
+    }
+    const int count = elementCount();
+    if (count == 0) {
+        return false;
+    }
+
+    // More issues than could be recorded means the picture is incomplete, and
+    // guessing "empty" from partial evidence would put a warning on a panel
+    // that might have been fine.
+    if (issueOverflow_) {
+        return true;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        bool flagged = false;
+        for (int j = 0; j < issueCount_; ++j) {
+            if (issues_[j].elementIndex == i) {
+                flagged = true;
+                break;
+            }
+        }
+        if (!flagged) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool Scene::load(std::string_view json, const json::Limits& limits) {
@@ -272,8 +354,9 @@ void Scene::validateElement(const json::Value& element, int reportIndex, int dep
         case ElementType::Progress:
         case ElementType::Graph:
         case ElementType::Group:
-            if (!parseRect(element["rect"], rect)) {
-                addIssue(reportIndex, "element requires 'rect' as [x, y, w, h]");
+            if (!parseBox(element, rect)) {
+                addIssue(reportIndex,
+                         "element needs 'rect' as [x, y, w, h], or 'x' and 'y'");
             }
             break;
         case ElementType::Pixel:
@@ -311,12 +394,13 @@ void Scene::validateElement(const json::Value& element, int reportIndex, int dep
     }
 
     if (kind == ElementType::Icon) {
-        if (!element["icon"].isString()) {
-            addIssue(reportIndex, "icon element requires a string 'icon' naming a stored icon");
+        if (!iconName(element).isString()) {
+            addIssue(reportIndex,
+                     "icon element needs a string 'icon' (or 'id') naming a stored icon");
         } else if (icons_ == nullptr) {
             addIssue(reportIndex, "icon element used but no icon store is attached");
         } else {
-            const asset::Icon* icon = icons_->find(element["icon"].toString());
+            const asset::Icon* icon = icons_->find(iconName(element).toString());
             if (icon == nullptr) {
                 // Named-but-missing is worth reporting: silently drawing nothing
                 // looks identical to a layout bug.
@@ -410,7 +494,7 @@ void Scene::renderElement(Canvas& canvas,
 
         case ElementType::Rect: {
             Rect rect;
-            if (!parseRect(element["rect"], rect)) {
+            if (!parseBox(element, rect)) {
                 break;
             }
             if (element["fill"].toBool(false)) {
@@ -423,7 +507,7 @@ void Scene::renderElement(Canvas& canvas,
 
         case ElementType::Text: {
             Rect rect;
-            if (!parseRect(element["rect"], rect)) {
+            if (!parseBox(element, rect)) {
                 break;
             }
             text::TextStyle style;
@@ -466,7 +550,7 @@ void Scene::renderElement(Canvas& canvas,
 
         case ElementType::Progress: {
             Rect rect;
-            if (!parseRect(element["rect"], rect) || rect.empty()) {
+            if (!parseBox(element, rect) || rect.empty()) {
                 break;
             }
 
@@ -492,7 +576,7 @@ void Scene::renderElement(Canvas& canvas,
 
         case ElementType::Graph: {
             Rect rect;
-            if (!parseRect(element["rect"], rect) || rect.empty()) {
+            if (!parseBox(element, rect) || rect.empty()) {
                 break;
             }
 
@@ -547,7 +631,7 @@ void Scene::renderElement(Canvas& canvas,
             if (icons_ == nullptr) {
                 break;
             }
-            const asset::Icon* icon = icons_->find(element["icon"].toString());
+            const asset::Icon* icon = icons_->find(iconName(element).toString());
             if (icon == nullptr) {
                 break;
             }
@@ -605,7 +689,7 @@ void Scene::renderElement(Canvas& canvas,
 
         case ElementType::Group: {
             Rect rect;
-            if (!parseRect(element["rect"], rect)) {
+            if (!parseBox(element, rect)) {
                 break;
             }
             // Children use panel coordinates and are clipped to the group, so a

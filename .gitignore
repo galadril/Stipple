@@ -90,3 +90,10 @@ site/emulator/
 # committed: half a megabyte of binaries rewritten whenever a script changes
 # is repository weight for something reproducible in a minute.
 site/shop/*.gif
+
+# Integration scripts that run somewhere else.
+#
+# A Domoticz or Home Assistant script talks to Stipple over the API; it is not
+# part of Stipple and does not ship with it. Keeping one here would invite the
+# question of who maintains it against an API that is still moving.
+tooling/domoticz/

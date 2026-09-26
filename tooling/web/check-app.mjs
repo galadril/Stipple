@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Catches the failure that got this written: a call to a function that no
-// longer exists.
+// Two checks on the device's web UI, which has no build step and no test
+// runner, so nothing else is looking.
 //
-// `node --check` only parses - it happily accepts a call to something
-// undefined, because that is a runtime error in JavaScript. The device web UI
-// has no build step and no test runner, so nothing else was looking, and an
-// edit that removed two functions shipped a page that died on load with
-// "wireControls is not defined".
+// **Does it parse.** An edit that put a real newline inside a string literal
+// shipped a configuration page that would not load at all. That page is the
+// one thing you need when the device is misbehaving, and it is compiled into
+// the firmware.
+//
+// **Does it call anything that does not exist.** Parsing alone happily
+// accepts that, because it is a runtime error in JavaScript - and an edit
+// that removed two functions shipped a page dying on load with
+// "wireControls is not defined", which is what got this written.
 //
 //     node tooling/web/check-app.mjs
 //
@@ -34,6 +38,26 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const path = join(here, '..', '..', 'firmware', 'web', 'app.js');
 const source = readFileSync(path, 'utf8');
+
+// Does it parse at all?
+//
+// This check was built to catch calls to functions that no longer exist, and
+// said nothing about syntax - so an edit that put a real newline inside a
+// string literal shipped a page that would not load. The device's web UI is
+// the one thing you need when the device is misbehaving, and it is compiled
+// into the firmware, so a broken app.js is a flash away from being fixed.
+//
+// `new Function` parses without running: a syntax error throws here, a call
+// to something undefined does not. Both matter, and they are different
+// checks.
+try {
+    // eslint-disable-next-line no-new-func
+    new Function(source);
+} catch (error) {
+    console.error(`app.js does not parse: ${error.message}`);
+    console.error('The device would serve a configuration page that dies on load.');
+    process.exit(1);
+}
 
 /// Replace every comment, string and regex literal with whitespace, keeping
 /// the length and the line structure so anything reported still lines up.

@@ -16,6 +16,7 @@
 #include "stipple/render/Overlay.h"
 #include "stipple/graphics/Framebuffer.h"
 #include "stipple/asset/IconStore.h"
+#include "stipple/scene/Scene.h"
 #include "stipple/script/IScriptRunner.h"
 #include "stipple/app/Carousel.h"
 #include "stipple/apps/ClockApp.h"
@@ -657,6 +658,60 @@ Response ApiServer::handleLogs(const Request& request) {
 
 // --- apps --------------------------------------------------------------------
 
+namespace {
+
+/// 422 with the validation detail attached.
+///
+/// The shape is the project's usual error object plus a `warnings` array, so
+/// a client already branching on `error.code` keeps working and one that
+/// wants to know *which* element was wrong can find out.
+Response sceneRefused(const std::vector<std::string>& warnings) {
+    JsonWriter writer;
+    writer.beginObject().key("error").beginObject()
+        .member("code", "unprocessable")
+        .member("message", "no element in 'scene' can be drawn")
+        .endObject();
+    writer.key("warnings").beginArray();
+    for (const std::string& warning : warnings) {
+        writer.value(warning);
+    }
+    writer.endArray();
+    writer.endObject();
+    return Response{422, "application/json", writer.take(), {}, {}, {}};
+}
+
+}  // namespace
+
+bool ApiServer::describeScene(std::string_view json, std::vector<std::string>& warnings) {
+    scene::Scene scene(sceneTokens_, kSceneTokens);
+    if (context_.icons != nullptr) {
+        // With the store attached, a scene naming an icon that is not there
+        // is reported rather than quietly drawing nothing.
+        scene.setIconStore(context_.icons);
+    }
+
+    const bool loaded = scene.load(json);
+
+    for (int i = 0; i < scene.issueCount(); ++i) {
+        const scene::Issue& issue = scene.issueAt(i);
+        std::string detail;
+        if (issue.elementIndex >= 0) {
+            // Named by element, because "something is wrong" sends whoever
+            // wrote the integration through every element by hand.
+            detail = "element ";
+            detail += std::to_string(issue.elementIndex);
+            detail += ": ";
+        }
+        detail += issue.message;
+        warnings.push_back(std::move(detail));
+    }
+    if (scene.issueOverflow()) {
+        warnings.emplace_back("...and more; not all of them were recorded");
+    }
+
+    return loaded && scene.anyRenderable();
+}
+
 Response ApiServer::handleAppCollection(const Request& request, std::uint64_t nowMillis) {
     if (context_.apps == nullptr) {
         return serverError("app registry unavailable");
@@ -702,11 +757,25 @@ Response ApiServer::handleAppCollection(const Request& request, std::uint64_t no
     // out of a successful parse it is valid by construction, which is what lets
     // GET echo it back verbatim without a reserialise round trip.
     const json::Value scene = root["scene"];
+    std::vector<std::string> warnings;
+    bool renderable = true;
     if (scene.valid()) {
         if (!scene.isObject()) {
             return unprocessable("'scene' must be a JSON object");
         }
         entry.sceneJson = std::string(scene.raw());
+
+        // Checked here rather than taken on trust.
+        //
+        // This used to store anything that was a JSON object and answer 201.
+        // An integration sending elements in a shape the renderer does not
+        // accept got a success for every one of them and a black panel, with
+        // nothing anywhere saying why.
+        renderable = describeScene(entry.sceneJson, warnings);
+    }
+
+    if (!renderable) {
+        return sceneRefused(warnings);
     }
 
     if (context_.apps->find(entry.id) != nullptr) {
@@ -891,11 +960,20 @@ Response ApiServer::handleAppItem(const Request& request,
     entry.builtin = existing != nullptr ? existing->builtin : app::Builtin::None;
 
     const json::Value scene = root["scene"];
+    std::vector<std::string> warnings;
     if (scene.valid()) {
         if (!scene.isObject()) {
             return unprocessable("'scene' must be a JSON object");
         }
         entry.sceneJson = std::string(scene.raw());
+
+        // Validated on the way in, the same as POST. This is the verb an
+        // integration actually uses to refresh a value, so a scene that
+        // stopped rendering would otherwise go unnoticed until somebody
+        // happened to look at the panel.
+        if (!describeScene(entry.sceneJson, warnings)) {
+            return sceneRefused(warnings);
+        }
     } else if (existing != nullptr) {
         entry.sceneJson = existing->sceneJson;  // omitting 'scene' keeps the current one
     }
