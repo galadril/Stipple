@@ -58,6 +58,40 @@ def read_frames(path):
     return [data[i * FRAME_BYTES:(i + 1) * FRAME_BYTES] for i in range(count)]
 
 
+def lit_count(frame):
+    # bytes(3) is three zero bytes: an unlit pixel. No escape, so nothing
+    # between here and the file can mangle it.
+    return sum(1 for i in range(0, len(frame), 3) if frame[i:i + 3] != bytes(3))
+
+
+def open_on_content(frames):
+    """Rotate past an empty opening, and no further.
+
+    A card shows its GIF's first frame until the animation decodes, and for
+    anything that scrolls or fades in that frame is blank - Selenograph's
+    caption travels in from the right, so its preview opened on a black
+    rectangle advertising a script that draws a moon.
+
+    Rotated rather than truncated: every frame is still there and the loop
+    still runs the whole cycle, it just starts elsewhere.
+
+    The rule is deliberately dumb. The first version picked the *busiest*
+    frame, which sounds better and is worse: Flappy's densest frame is its
+    game-over screen, so the preview for a game opened on the words "score 0".
+    Density is not interest. Skipping frames that are all but empty is the
+    most this can know.
+    """
+    floor = 5  # fewer lit pixels than this is not a picture of anything
+
+    first = 0
+    while first < len(frames) - 1 and lit_count(frames[first]) < floor:
+        first += 1
+
+    if first == 0 or lit_count(frames[first]) < floor:
+        return frames, 0  # nothing anywhere; the shop test is what complains
+    return frames[first:] + frames[:first], first
+
+
 def quantise(frames):
     """A palette of at most 256 colours, and the frames indexed against it.
 
@@ -261,14 +295,16 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     for path in sources:
         frames = read_frames(path)
+        frames, rotated = open_on_content(frames)
         palette, indexed, exact = quantise(frames)
         gif = build_gif(palette, indexed)
 
         target = OUT / (path.stem + ".gif")
         target.write_bytes(gif)
-        print("build-previews: %-16s %3d frames, %3d colours%s, %6d bytes"
+        print("build-previews: %-16s %3d frames, %3d colours%s, %6d bytes%s"
               % (target.name, len(frames), len(palette),
-                 "" if exact else " (quantised)", len(gif)))
+                 "" if exact else " (quantised)", len(gif),
+                 "" if not rotated else "  (opens %d frames in)" % rotated))
     return 0
 
 

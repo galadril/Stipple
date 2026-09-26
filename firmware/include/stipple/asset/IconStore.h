@@ -55,9 +55,24 @@ struct Icon {
 /// either forbid the first or permit far too much of the second.
 class IconStore {
 public:
-    /// 12 KB. Roughly five times the framebuffer — deliberately modest until
-    /// Phase 7 measures real headroom on the device.
-    static constexpr std::size_t kMaxTotalBytes = 12u * 1024u;
+    /// 64 KB, set against a measurement rather than a guess.
+    ///
+    /// This was 12 KB and said so: "deliberately modest until Phase 7
+    /// measures real headroom on the device." That measurement has now been
+    /// taken, on a TC002 running Stipple with scripts loaded:
+    ///
+    ///     MemTotal      33168 kB
+    ///     MemAvailable  14304 kB
+    ///     Stipple RSS    7824 kB
+    ///
+    /// So 64 KB is under half a percent of what is actually available, and
+    /// 12 KB was refusing sixteen-pixel icons on a panel sixteen pixels tall
+    /// for no reason anyone could point at.
+    ///
+    /// Still a total rather than a per-icon limit: sixty-four 8x8 glyphs and
+    /// eight eight-frame animations cost the same RAM, and a per-icon cap
+    /// would either forbid the first or permit far too much of the second.
+    static constexpr std::size_t kMaxTotalBytes = 64u * 1024u;
     static constexpr int kMaxIcons = 64;
     static constexpr int kMaxDimension = 32;
     static constexpr int kMaxFrames = 16;

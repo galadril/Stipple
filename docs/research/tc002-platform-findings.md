@@ -423,6 +423,42 @@ second source".
 The same source gives the MCU link's baud rate as **1,500,000**, which the
 capture could not show.
 
+### Free memory, measured at last
+
+Read off a unit running Stipple 0.2.0 with two scripts loaded, 2026-09-26.
+This had been an open question since the beginning and was guessed at in
+several places.
+
+```
+MemTotal:          33168 kB
+MemFree:            1824 kB
+MemAvailable:      14304 kB
+Buffers:            3076 kB
+Cached:            10924 kB
+```
+
+and the application itself:
+
+```
+VmSize:  89316 kB     (address space, most of it never resident)
+VmRSS:    7824 kB     (what it is actually holding)
+```
+
+**`MemAvailable` is the number that matters**, not `MemFree`. Free memory sits
+near zero on any healthy Linux because the kernel spends it on cache;
+`MemAvailable` is the kernel's own estimate of what a new allocation could
+have, and it is 14 MB.
+
+So the budgets written when nobody had measured were far too cautious. The
+icon store was capped at 12 KB - under a tenth of a percent of what is there -
+which refused 16x16 icons on a panel 16 pixels tall. It is 64 KB now.
+
+Two things this does *not* license. The 8 MiB `res` partition is unchanged and
+is still the binding constraint on what can be flashed. And `VmRSS` grows with
+every script: one interpreter is about 4 KB, so the sixteen-script cap is
+about 64 KB of interpreter, which is affordable precisely because it was
+measured too.
+
 ### The controls, read off the hardware
 
 Measured 2026-09-20 with `firmware/tools/input_probe`, by pressing each control
