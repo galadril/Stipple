@@ -6,7 +6,7 @@
 namespace stipple {
 
 /// Semantic version of the firmware (blueprint §34). 0.x while in development.
-inline constexpr std::string_view kVersion = "0.2.0";
+inline constexpr std::string_view kVersion = "0.2.1";
 
 /// Native API contract version, exposed as `/api/v1`. Bumped only for a
 /// breaking change; additive fields do not move it.
