@@ -434,3 +434,107 @@ STIPPLE_TEST(ShopScripts, InstructionCostProbe) {
                     stipple::script::ScriptHost::kInstructionBudget);
     }
 }
+
+// Coming back after a long time off the carousel.
+//
+// now_ms() is the device clock, so a script off screen for hours sees that
+// whole gap as one delta the moment it is shown again. One that catches up in
+// a loop - an iteration per elapsed second - does tens of thousands of them in
+// a single frame and loses it.
+//
+// That is what happened to Hootie on a real device while every test here
+// passed, because nothing here ever left a script off screen: the probes draw
+// every frame.
+STIPPLE_TEST(ShopScripts, SurvivesComingBackAfterHoursAway) {
+    for (const Example& example : loadExamples()) {
+        if (example.source.empty()) { continue; }
+
+        ScriptStore store;
+        stipple::script::ScriptEnvironment environment;
+        environment.timeKnown = true;
+        environment.hour = 14;
+        environment.batteryKnown = true;
+        environment.batteryPercent = 64;
+        store.setEnvironment(environment);
+
+        STIPPLE_REQUIRE(store.put("shop", example.name, example.source) ==
+                        stipple::script::ScriptPutResult::Added);
+
+        Framebuffer framebuffer;
+        Canvas canvas(framebuffer);
+
+        std::uint64_t clock = 0;
+        for (int frame = 0; frame < 30; ++frame) {
+            clock += 33;
+            environment.monotonicMillis = clock;
+            store.setEnvironment(environment);
+            store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * 33u);
+        }
+
+        // Eight hours off the carousel, then back. The dwell restarts at zero,
+        // which is the part a script cannot use to measure its own absence.
+        clock += 8ull * 60ull * 60ull * 1000ull;
+        for (int frame = 0; frame < 30; ++frame) {
+            environment.monotonicMillis = clock + static_cast<std::uint64_t>(frame) * 33u;
+            store.setEnvironment(environment);
+            store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * 33u);
+        }
+
+        const stipple::script::Script* entry = store.find("shop");
+        STIPPLE_REQUIRE(entry != nullptr);
+        if (!entry->ok) {
+            std::printf("    [away] %s stopped: %s\n", example.name.c_str(),
+                        entry->problem.c_str());
+        }
+        STIPPLE_CHECK(entry->ok);
+    }
+}
+
+// How Hootie actually ages on a carousel.
+//
+// Set STIPPLE_HOOTIE=1. Ten seconds on screen, two minutes off, repeated -
+// which is what a panel with a dozen apps does to it. Prints what is on the
+// panel each time it comes round, so the life stages can be watched going
+// past at the speed they really go past.
+STIPPLE_TEST(ShopScripts, HootieLifecycleTrace) {
+    if (std::getenv("STIPPLE_HOOTIE") == nullptr) {
+        return;
+    }
+
+    const std::string source = readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/hootie.be");
+    STIPPLE_REQUIRE(!source.empty());
+
+    ScriptStore store;
+    stipple::script::ScriptEnvironment environment;
+    environment.timeKnown = true;
+    environment.hour = 14;
+    store.setEnvironment(environment);
+    STIPPLE_REQUIRE(store.put("shop", "hootie", source) ==
+                    stipple::script::ScriptPutResult::Added);
+
+    Framebuffer framebuffer;
+    Canvas canvas(framebuffer);
+
+    std::uint64_t clock = 500000;  // the device has been up a while
+    const std::uint64_t started = clock;
+
+    for (int showing = 0; showing < 14; ++showing) {
+        for (int frame = 0; frame < 300; ++frame) {
+            environment.monotonicMillis = clock;
+            store.setEnvironment(environment);
+            store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * 33u);
+            clock += 33;
+        }
+
+        int lit = 0;
+        for (int y = 0; y < Framebuffer::kHeight; ++y) {
+            for (int x = 0; x < Framebuffer::kWidth; ++x) {
+                if (framebuffer.at(x, y) != colors::kBlack) { ++lit; }
+            }
+        }
+        std::printf("    [life] showing %2d  wall %4llus  lit %3d\n", showing,
+                    static_cast<unsigned long long>((clock - started) / 1000), lit);
+
+        clock += 120000;  // off the carousel
+    }
+}

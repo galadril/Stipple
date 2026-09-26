@@ -144,9 +144,29 @@ class Hootie
   # ---------------------------------------------------------------- lifecycle
   def _age(dt)
 	self.ageacc += dt
-	while self.ageacc >= 1000
+
+	# An owl off the carousel still ages.
+	#
+	# now_ms() is the device clock rather than time on screen, so the
+	# first frame after a night away sees the whole night as one delta -
+	# and catching that up a second at a time is thirty thousand
+	# iterations in a single frame, which loses the frame and stops the
+	# script. That is exactly how this died on a real device.
+	#
+	# So: never more than an hour owed, and never more than two minutes
+	# of it paid off per frame. An owl ignored overnight is hungry
+	# rather than dead of thirty thousand seconds of neglect, and it
+	# gets there over the next second of real time instead of trying to
+	# arrive all at once.
+	if self.ageacc > 3600000
+	  self.ageacc = 3600000
+	end
+
+	var steps = 0
+	while self.ageacc >= 1000 && steps < 120
 	  self.ageacc -= 1000
 	  self._second()
+	  steps += 1
 	end
   end
 
