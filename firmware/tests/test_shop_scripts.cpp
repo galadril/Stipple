@@ -70,7 +70,10 @@ const char* kExampleFiles[] = {
     "day-progress.be",
     "fireplace.be",
     "flappy.be",
+    "lava-lamp.be",
+    "matrix.be",
     "starfield.be",
+    "tiny-city.be",
 };
 
 std::vector<Example> loadExamples() {
