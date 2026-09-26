@@ -124,21 +124,53 @@ STIPPLE_TEST(Icons, RejectsAbsurdDimensions) {
 STIPPLE_TEST(Icons, EnforcesTheTotalByteBudget) {
     // The limit is bytes, not icons: sixty-four static glyphs and eight
     // animations cost the same RAM and must be governed by the same number.
+    //
+    // Filled with the largest icon allowed, because the two limits bind in
+    // different places. At 64 KB, sixty-four 16x16 icons come to 48 KB - so
+    // filling with those reaches the *count* limit first and never tests the
+    // budget at all, which is what this test quietly started doing when the
+    // budget went up from 12 KB. At 32x32 the bytes run out after twenty-one.
     IconStore store;
+    constexpr int kBiggest = IconStore::kMaxDimension;
 
     int stored = 0;
-    while (store.put(solid("i" + std::to_string(stored), 16, colors::kRed)) ==
+    while (store.put(solid("i" + std::to_string(stored), kBiggest, colors::kRed)) ==
            IconStore::PutResult::Added) {
         ++stored;
-        if (stored > 100) {
+        if (stored > IconStore::kMaxIcons) {
             break;  // guard against a budget that never fills
         }
     }
 
     STIPPLE_CHECK(stored > 0);
+    // The bytes, not the count, are what stopped it.
+    STIPPLE_CHECK(stored < IconStore::kMaxIcons);
     STIPPLE_CHECK(store.bytesUsed() <= IconStore::kMaxTotalBytes);
-    STIPPLE_CHECK(store.put(solid("overflow", 16, colors::kRed)) ==
+    STIPPLE_CHECK(store.put(solid("overflow", kBiggest, colors::kRed)) ==
                  IconStore::PutResult::BudgetExceeded);
+}
+
+STIPPLE_TEST(Icons, TheCountLimitBindsForSmallOnes) {
+    // The other half of the pair. With the budget at 64 KB a panel's worth of
+    // 8x8 glyphs costs 12 KB, so what stops somebody adding a hundred of them
+    // is kMaxIcons rather than the bytes - and that refusal has to name the
+    // right reason, because "the icon budget is full" sends somebody deleting
+    // icons to make room that was never the problem.
+    IconStore store;
+
+    int stored = 0;
+    while (store.put(solid("s" + std::to_string(stored), 8, colors::kRed)) ==
+           IconStore::PutResult::Added) {
+        ++stored;
+        if (stored > IconStore::kMaxIcons + 1) {
+            break;
+        }
+    }
+
+    STIPPLE_CHECK_EQ(stored, IconStore::kMaxIcons);
+    STIPPLE_CHECK(store.bytesUsed() < IconStore::kMaxTotalBytes);
+    STIPPLE_CHECK(store.put(solid("one-more", 8, colors::kRed)) ==
+                 IconStore::PutResult::TooManyIcons);
 }
 
 STIPPLE_TEST(Icons, RemoveFreesBudget) {

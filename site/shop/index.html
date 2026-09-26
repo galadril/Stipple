@@ -426,6 +426,79 @@ return App()
         </p>
       </article>
 
+      <article class="card" id="aurora">
+        <img class="card__preview" src="aurora.gif" width="312" height="96"
+             loading="lazy" alt="Aurora running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Aurora</h3>
+          <p class="card__by">Galadril · 53 lines</p>
+        </header>
+        <p class="card__summary">Northern lights - green and violet curtains that drift, brighten and fade.</p>
+        <ul class="card__tags"><li>ambient</li><li>animation</li><li>relaxing</li><li>colour</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Aurora
+# summary: Northern lights - green and violet curtains that drift, brighten and fade.
+# author: Galadril
+# tags: ambient, animation, relaxing, colour
+# panel: 52x16
+
+import math
+
+# Slow vertical curtains of light, the way an aurora hangs and ripples. Each
+# column has its own wave, and the bands brighten from the bottom up so the
+# colour pools along a moving edge rather than filling the whole panel flat.
+
+class App
+  var t
+
+  def init()
+	self.t = 0.0
+  end
+
+  def draw()
+	self.t += 0.05
+	var t = self.t
+	clear(rgb(0, 0, 8))
+
+	for x : 0 .. width() - 1
+	  # Two waves per column set the height of the curtain&#x27;s bright edge; the
+	  # slower one drifts the whole sheet, the faster adds the shimmer.
+	  var wave = math.sin(x / 7.0 + t) * 3.5
+	  wave += math.sin(x / 3.0 - t * 1.7) * 1.5
+	  var edge = int(height() / 2 + wave)
+
+	  for y : 0 .. height() - 1
+		# Distance below the bright edge; light fades as it falls away.
+		var d = y - edge
+		if d &lt; 0 d = -d end
+		var level = 200 - d * 45
+		if level &lt;= 0
+		  continue
+		end
+
+		# Colour shifts along the panel: green over most of it, tipping into
+		# violet at the right-hand end the way real aurora does.
+		var mix = int(x * 255 / width())
+		var g = level
+		var r = (level * mix) / 400
+		var b = (level * mix) / 300
+		pixel(x, y, rgb(r, g, b))
+	  end
+	end
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/aurora.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/aurora.be">Raw</a>
+        </p>
+      </article>
+
       <article class="card" id="battery">
         <img class="card__preview" src="battery.gif" width="312" height="96"
              loading="lazy" alt="Battery running on a 52 by 16 pixel panel">
@@ -704,6 +777,464 @@ return App()
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/day-progress.be">View on GitHub</a>
           ·
           <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/day-progress.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="dutch-trains">
+        <img class="card__preview" src="dutch-trains.gif" width="312" height="96"
+             loading="lazy" alt="Dutch Trains running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Dutch Trains</h3>
+          <p class="card__by">Unknown (ported to TC002) · 438 lines</p>
+        </header>
+        <p class="card__summary">NS trains passing by - VIRM, ICM, ICNG, SLT, FLIRT and more, in both directions.</p>
+        <ul class="card__tags"><li>animation</li><li>trains</li><li>netherlands</li><li>ambient</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Dutch Trains
+# summary: NS trains passing by - VIRM, ICM, ICNG, SLT, FLIRT and more, in both directions.
+# author: Unknown (ported to TC002)
+# tags: animation, trains, netherlands, ambient
+# panel: 52x16
+
+# Originally written for a 32x8 TC001. Ported to the TC002&#x27;s 52x16 panel by
+# driving the spawn/despawn off width() and stretching the track and ballast
+# across the full width, then dropping the whole 8-pixel-tall train onto a
+# baseline via a vertical offset (OY) so it sits centred with sky above and a
+# little ground below. All the car and cab art is unchanged - it draws through
+# px()/ln()/rf() wrappers that add OY, so none of the pixel-art y values moved.
+
+class DutchTrains
+
+  var x, t, old, st, tm, tick, seed, n, len, dir
+  var OY
+
+  def init()
+	# Sit the 8-tall train on a baseline that centres it on the 16-tall panel.
+	self.OY = (height() - 8) / 2
+	self.seed = now_ms() + 731
+	self.old = -1
+	self.pick()
+  end
+
+  # --- offset drawing wrappers ------------------------------------------------
+  # Everything the train draws goes through these so the art stays written for a
+  # 0..7 vertical band while actually landing at OY..OY+7 on the taller panel.
+  def px(x, y, c)
+	pixel(x, self.OY + y, c)
+  end
+
+  def ln(x0, y0, x1, y1, c)
+	line(x0, self.OY + y0, x1, self.OY + y1, c)
+  end
+
+  def rf(x, y, w, h, c)
+	rect_fill(x, self.OY + y, w, h, c)
+  end
+
+  def rnd(n)
+	self.seed = (self.seed * 1103515245 + 12345) % 2147483647
+	if self.seed &lt; 0 self.seed = -self.seed end
+	return self.seed % n
+  end
+
+  def pick()
+	self.t = self.rnd(7)
+	if self.t == self.old self.t = (self.t + 1) % 7 end
+	self.old = self.t
+
+	if self.rnd(2) == 0 self.dir = 1 else self.dir = -1 end
+
+	# total number of cars
+	if self.t == 0 || self.t == 1
+	  if self.rnd(2) == 0 self.n = 4 else self.n = 6 end
+	elif self.t == 2
+	  self.n = 3 + self.rnd(2)
+	elif self.t == 3
+	  if self.rnd(2) == 0 self.n = 5 else self.n = 8 end
+	elif self.t == 4
+	  self.n = 3 + self.rnd(2)
+	elif self.t == 5
+	  if self.rnd(2) == 0 self.n = 4 else self.n = 6 end
+	else
+	  self.n = 3 + self.rnd(2)
+	end
+
+	# every rendered car = 10 px
+	self.len = self.n * 10
+	self.st = 0
+	self.tick = now_ms()
+
+	# Spawn just off the panel on the side the train enters from.
+	if self.dir == 1
+	  self.x = width()
+	else
+	  self.x = -self.len
+	end
+  end
+
+
+  # =====================================
+  # WHEEL
+  # =====================================
+
+  def wheel(x)
+	var c = 0x555555
+	if (now_ms() / 120) % 2 == 0 c = 0x999999 end
+	self.px(x + 2, 6, c)
+	self.px(x + 7, 6, c)
+  end
+
+
+  # =====================================
+  # NORMAL CAR
+  #
+  # t:
+  # 0 VIRM
+  # 1 DDZ
+  # 2 ICM
+  # 3 ICNG
+  # 4 SNG
+  # 5 SLT
+  # 6 FLIRT
+  # =====================================
+
+  def car(x)
+
+	# VIRM / DDZ
+	if self.t &lt; 2
+
+	  self.rf(x, 2, 10, 4, 0xFFD500)
+
+	  if self.t == 0
+		self.ln(x, 2, x + 9, 2, 0x0866A5)
+	  else
+		self.ln(x, 4, x + 9, 4, 0x0866A5)
+	  end
+
+	  self.px(x + 1, 3, 0x163850)
+	  self.px(x + 3, 3, 0x163850)
+	  self.px(x + 5, 3, 0x163850)
+	  self.px(x + 7, 3, 0x163850)
+	  self.px(x + 9, 3, 0x163850)
+
+	  self.px(x + 1, 5, 0x163850)
+	  self.px(x + 3, 5, 0x163850)
+	  self.px(x + 7, 5, 0x163850)
+	  self.px(x + 9, 5, 0x163850)
+
+	  self.px(x + 5, 4, 0x0866A5)
+
+
+	# ICM / ICNG
+	elif self.t &lt; 4
+
+	  self.rf(x, 3, 10, 3, 0xFFD500)
+
+	  self.ln(x, 3, x + 9, 3, 0x0866A5)
+
+	  self.px(x + 1, 4, 0x17394F)
+	  self.px(x + 3, 4, 0x17394F)
+	  self.px(x + 5, 4, 0x17394F)
+	  self.px(x + 7, 4, 0x17394F)
+	  self.px(x + 9, 4, 0x17394F)
+
+	  self.px(x + 5, 5, 0x0866A5)
+
+
+	# SPRINTER
+	else
+
+	  self.rf(x, 3, 10, 3, 0xEEEEEE)
+	  self.ln(x, 3, x + 9, 3, 0x0870A8)
+
+	  self.px(x + 1, 4, 0x17394F)
+	  self.px(x + 3, 4, 0x17394F)
+	  self.px(x + 5, 4, 0x17394F)
+	  self.px(x + 7, 4, 0x17394F)
+	  self.px(x + 9, 4, 0x17394F)
+
+	  # yellow doors
+	  if self.t == 6
+		self.px(x + 4, 4, 0xFFD500)
+		self.px(x + 4, 5, 0xFFD500)
+	  else
+		self.px(x + 5, 4, 0xFFD500)
+		self.px(x + 5, 5, 0xFFD500)
+	  end
+
+	end
+
+	self.wheel(x)
+  end
+
+
+  # =====================================
+  # CAB
+  #
+  # left = cab faces left
+  # lead = leading end
+  # =====================================
+
+  def cab(x, left, lead)
+
+	var dbl = self.t &lt; 2
+	var spr = self.t &gt; 3
+	var body = 0xFFD500
+
+	if spr body = 0xEEEEEE end
+
+
+	# DOUBLE DECKER
+	if dbl
+
+	  self.rf(x + 1, 2, 9, 4, body)
+
+	  if left
+
+		self.px(x, 3, body)
+		self.px(x, 4, body)
+		self.px(x, 5, body)
+
+		self.px(x + 1, 2, 0x163040)
+		self.px(x + 2, 2, 0x163040)
+		self.px(x + 1, 3, 0x163040)
+
+		if lead
+		  self.px(x, 5, 0xFFFFFF)
+		else
+		  self.px(x, 5, 0xFF2020)
+		end
+
+	  else
+
+		self.px(x + 9, 3, body)
+		self.px(x + 9, 4, body)
+		self.px(x + 9, 5, body)
+
+		self.px(x + 7, 2, 0x163040)
+		self.px(x + 8, 2, 0x163040)
+		self.px(x + 8, 3, 0x163040)
+
+		if lead
+		  self.px(x + 9, 5, 0xFFFFFF)
+		else
+		  self.px(x + 9, 5, 0xFF2020)
+		end
+
+	  end
+
+	  if self.t == 0
+		self.ln(x + 3, 2, x + 8, 2, 0x0866A5)
+	  else
+		self.ln(x + 3, 4, x + 8, 4, 0x0866A5)
+	  end
+
+	  self.px(x + 4, 3, 0x17394F)
+	  self.px(x + 6, 3, 0x17394F)
+	  self.px(x + 8, 3, 0x17394F)
+
+	  self.px(x + 4, 5, 0x17394F)
+	  self.px(x + 6, 5, 0x17394F)
+	  self.px(x + 8, 5, 0x17394F)
+
+
+	# SINGLE DECK
+	else
+
+	  self.rf(x + 2, 3, 8, 3, body)
+
+	  if left
+
+		self.px(x + 1, 4, body)
+		self.px(x, 5, body)
+		self.px(x + 1, 5, body)
+
+		self.px(x + 2, 3, 0x153344)
+		self.px(x + 3, 3, 0x153344)
+		self.px(x + 1, 4, 0x153344)
+
+		if lead
+		  self.px(x, 5, 0xFFFFFF)
+		else
+		  self.px(x, 5, 0xFF2020)
+		end
+
+	  else
+
+		self.px(x + 8, 4, body)
+		self.px(x + 9, 5, body)
+		self.px(x + 8, 5, body)
+
+		self.px(x + 6, 3, 0x153344)
+		self.px(x + 7, 3, 0x153344)
+		self.px(x + 8, 4, 0x153344)
+
+		if lead
+		  self.px(x + 9, 5, 0xFFFFFF)
+		else
+		  self.px(x + 9, 5, 0xFF2020)
+		end
+
+	  end
+
+
+	  # ICM
+	  if self.t == 2
+
+		self.px(x + 4, 4, 0x17394F)
+		self.px(x + 6, 4, 0x17394F)
+		self.px(x + 8, 4, 0x17394F)
+
+
+	  # ICNG
+	  elif self.t == 3
+
+		self.ln(x + 4, 3, x + 8, 3, 0x0866A5)
+		self.px(x + 4, 4, 0x17394F)
+		self.px(x + 6, 4, 0x17394F)
+		self.px(x + 8, 4, 0x17394F)
+
+
+	  # SPRINTERS
+	  else
+
+		self.ln(x + 4, 3, x + 8, 3, 0x0870A8)
+
+		self.px(x + 4, 4, 0x17394F)
+		self.px(x + 6, 4, 0x17394F)
+		self.px(x + 8, 4, 0x17394F)
+
+		# yellow nose
+		if left
+		  self.px(x + 1, 4, 0xFFD500)
+		else
+		  self.px(x + 8, 4, 0xFFD500)
+		end
+
+	  end
+
+	end
+
+	self.wheel(x)
+  end
+
+
+  # =====================================
+  # COMPLETE TRAIN
+  # =====================================
+
+  def train()
+
+	var p = self.x
+	var leadleft = self.dir == 1
+
+	# left end
+	self.cab(p, true, leadleft)
+	p += 10
+
+	# middle cars
+	for i : 1 .. self.n - 2
+	  self.car(p)
+	  p += 10
+	end
+
+	# right end
+	self.cab(p, false, !leadleft)
+
+  end
+
+
+  # =====================================
+  # BACKGROUND
+  # =====================================
+
+  def world()
+
+	clear(0x00101A)
+
+	var w = width()
+
+	# Faint sky border and the rail, both now spanning the full panel width.
+	self.ln(0, 0, w - 1, 0, 0x303030)
+	self.ln(0, 7, w - 1, 7, 0x888888)
+
+	# Ballast sleepers, drifting with the train, across the whole width.
+	var o = self.x % 4
+	var i = 0
+	while i * 4 + o &lt; w
+	  self.px(i * 4 + o, 7, 0xBBBBBB)
+	  i += 1
+	end
+
+  end
+
+
+  # =====================================
+  # MAIN
+  # =====================================
+
+  def draw()
+
+	var now = now_ms()
+
+	self.world()
+
+
+	# train passing
+	if self.st == 0
+
+	  if now - self.tick &gt; 90
+
+		self.tick = now
+
+		if self.dir == 1
+		  self.x -= 1
+		else
+		  self.x += 1
+		end
+
+	  end
+
+	  self.train()
+
+
+	  if self.dir == 1
+
+		if self.x &lt; -self.len
+		  self.st = 1
+		  self.tm = now
+		end
+
+	  else
+
+		if self.x &gt; width()
+		  self.st = 1
+		  self.tm = now
+		end
+
+	  end
+
+	  return
+	end
+
+
+	# empty track
+	if now - self.tm &gt; 2500
+	  self.pick()
+	end
+
+  end
+
+end
+
+return DutchTrains()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/dutch-trains.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/dutch-trains.be">Raw</a>
         </p>
       </article>
 
@@ -1064,6 +1595,140 @@ return App()
         </p>
       </article>
 
+      <article class="card" id="fireworks">
+        <img class="card__preview" src="fireworks.gif" width="312" height="96"
+             loading="lazy" alt="Fireworks running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Fireworks</h3>
+          <p class="card__by">Galadril · 114 lines</p>
+        </header>
+        <p class="card__summary">Rockets climb, burst into coloured sparks, then fade and fall. One at a time.</p>
+        <ul class="card__tags"><li>ambient</li><li>animation</li><li>celebration</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Fireworks
+# summary: Rockets climb, burst into coloured sparks, then fade and fall. One at a time.
+# author: Galadril
+# tags: ambient, animation, celebration
+# panel: 52x16
+
+import math
+
+# A single show, one rocket at a time. More than one at once on a 52x16 panel
+# reads as static rather than as fireworks - the eye needs the pause between
+# bursts to register each one as an event.
+
+class App
+  var phase          # &quot;climb&quot; or &quot;burst&quot;
+  var rx, ry, ry_top # rocket position and the height it detonates at
+  var hue            # colour of the current burst, kept across the climb
+  var sx, sy, svx, svy, life  # spark arrays, parallel
+
+  def init()
+	self.sx = []
+	self.sy = []
+	self.svx = []
+	self.svy = []
+	self.life = []
+	self.launch()
+  end
+
+  # Pick a launch column and a detonation height, and choose the burst colour
+  # up front so the rocket&#x27;s trail hints at what is coming.
+  def launch()
+	self.phase = &quot;climb&quot;
+	self.rx = 6 + (math.rand() % (width() - 12))
+	self.ry = height() - 1
+	self.ry_top = 2 + (math.rand() % 6)
+	self.hue = math.rand() % 6
+  end
+
+  # Map a small hue index to a bright, saturated rgb. Kept deliberately few
+  # so bursts stay recognisably one colour rather than a muddy gradient.
+  def colour(h, level)
+	if   h == 0 return rgb(level, level / 4, level / 4)      # red
+	elif h == 1 return rgb(level, level / 2, 20)            # amber
+	elif h == 2 return rgb(30, level, 40)                  # green
+	elif h == 3 return rgb(40, level / 2, level)           # blue
+	elif h == 4 return rgb(level, 40, level)               # magenta
+	else        return rgb(level, level, level / 2)        # gold
+	end
+  end
+
+  # Seed sparks flying out from the detonation point. Velocities are integers
+  # scaled by four (see draw) so a slow-moving panel still gives smooth arcs.
+  def burst()
+	self.phase = &quot;burst&quot;
+	for i : 0 .. 15
+	  var a = (i * 4) % 32
+	  self.sx.push(self.rx * 4)
+	  self.sy.push(self.ry * 4)
+	  self.svx.push((math.rand() % 9) - 4)
+	  self.svy.push((math.rand() % 9) - 6)
+	  self.life.push(14 + (math.rand() % 8))
+	end
+  end
+
+  def draw()
+	clear(rgb(0, 0, 0))
+
+	if self.phase == &quot;climb&quot;
+	  # A short fading tail sells the climb better than a single lit pixel.
+	  pixel(self.rx, self.ry, rgb(180, 140, 60))
+	  if self.ry + 1 &lt; height()
+		pixel(self.rx, self.ry + 1, rgb(60, 45, 20))
+	  end
+	  self.ry -= 1
+	  if self.ry &lt;= self.ry_top
+		self.burst()
+	  end
+	  return
+	end
+
+	# Burst: advance every spark, apply a little gravity, dim as it ages.
+	var living = 0
+	for i : 0 .. size(self.sx) - 1
+	  if self.life[i] &lt;= 0
+		continue
+	  end
+	  living += 1
+
+	  self.sx[i] += self.svx[i]
+	  self.sy[i] += self.svy[i]
+	  self.svy[i] += 1          # gravity pulls sparks back down
+	  self.life[i] -= 1
+
+	  var px = self.sx[i] / 4
+	  var py = self.sy[i] / 4
+	  if px &gt;= 0 &amp;&amp; px &lt; width() &amp;&amp; py &gt;= 0 &amp;&amp; py &lt; height()
+		var level = 40 + self.life[i] * 12
+		if level &gt; 255 level = 255 end
+		pixel(px, py, self.colour(self.hue, level))
+	  end
+	end
+
+	# Once the sky is empty, clear the arrays and send up the next rocket.
+	if living == 0
+	  self.sx = []
+	  self.sy = []
+	  self.svx = []
+	  self.svy = []
+	  self.life = []
+	  self.launch()
+	end
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/fireworks.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/fireworks.be">Raw</a>
+        </p>
+      </article>
+
       <article class="card" id="flappy">
         <img class="card__preview" src="flappy.gif" width="312" height="96"
              loading="lazy" alt="Flappy running on a 52 by 16 pixel panel">
@@ -1225,6 +1890,526 @@ return App()
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/flappy.be">View on GitHub</a>
           ·
           <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/flappy.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="hootie">
+        <img class="card__preview" src="hootie.gif" width="312" height="96"
+             loading="lazy" alt="Hootie running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Hootie</h3>
+          <p class="card__by">Galadril · 500 lines</p>
+        </header>
+        <p class="card__summary">A virtual pet owl with a full life - it hatches, grows, ages, and dies if neglected.</p>
+        <ul class="card__tags"><li>pet</li><li>interactive</li><li>animation</li><li>ambient</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Hootie
+# summary: A virtual pet owl with a full life - it hatches, grows, ages, and dies if neglected.
+# author: Galadril
+# tags: pet, interactive, animation, ambient
+# panel: 52x16
+
+import math
+
+# A pocket tamagotchi built from what the runtime actually gives a script:
+# draw(), on_button() and persistent store. Three needs (fullness, happiness,
+# energy) drift down in real time, tracked with now_ms deltas since there is no
+# wall clock to trust. Everything that matters is written to the store, so the
+# pet - and its whole life so far - survives a reboot.
+#
+# Life stages: EGG -&gt; BABY -&gt; ADULT -&gt; ELDER -&gt; (death) -&gt; a fresh EGG of the
+# next generation. Age advances only while the app is on screen, in seconds.
+# Meeting the owl&#x27;s needs keeps its health up; leaving every need at zero drains
+# health until it dies of neglect, and a long, well-kept life ends of old age.
+#
+# All time thresholds below are in on-screen seconds and are meant to be tuned.
+
+class Hootie
+  var full, happy, energy   # the three needs, 0..100
+  var stage, age, gen       # life stage (0..4), age in seconds, generation
+  var hp, care              # health 0..100, lifetime care counter
+  var last, ageacc, save    # frame clock, seconds accumulator, save throttle
+  var sel, acts             # selected action index and the labels
+  var menu, mtime           # one-button menu: open flag + last-press time
+  var react, runtil         # reaction: 0 none, 1 fed, 2 played, 3 rested, 4 petted
+  var statsmode, stxt, sbase  # STATS scroll overlay
+  var deadtime              # now_ms at death, for the grave and auto-respawn
+
+  # Life-stage timings, in seconds of on-screen age.
+  static HATCH = 60         # egg -&gt; baby
+  static GROW  = 600        # baby -&gt; adult
+  static ELDER = 1800       # adult -&gt; elder
+  static OLD   = 3600       # elder -&gt; death of old age
+
+  def init()
+	self.full   = self._clamp(store.get(&quot;owl_f&quot;, 80))
+	self.happy  = self._clamp(store.get(&quot;owl_h&quot;, 80))
+	self.energy = self._clamp(store.get(&quot;owl_e&quot;, 80))
+	self.stage  = store.get(&quot;owl_stage&quot;, 0)
+	self.age    = store.get(&quot;owl_age&quot;, 0)
+	self.gen    = store.get(&quot;owl_gen&quot;, 1)
+	self.hp     = self._clamp(store.get(&quot;owl_hp&quot;, 100))
+	self.care   = store.get(&quot;owl_care&quot;, 0)
+	self.last = now_ms()
+	self.ageacc = 0
+	self.save = 0
+	self.sel = 0
+	self.acts = [&quot;FEED&quot;, &quot;PLAY&quot;, &quot;REST&quot;, &quot;PET&quot;, &quot;STATS&quot;]
+	self.menu = false
+	self.mtime = 0
+	self.react = 0
+	self.runtil = 0
+	self.statsmode = false
+	self.stxt = &quot;&quot;
+	self.sbase = -1
+	self.deadtime = 0
+  end
+
+  def _clamp(v)
+	if v &lt; 0 return 0 end
+	if v &gt; 100 return 100 end
+	return v
+  end
+
+  def duration()
+	return 15000
+  end
+
+  # The device only ever hands a script the single action button - the knob and
+  # side buttons belong to the carousel and volume. So one press opens the menu,
+  # each further press steps to the next action, and draw() commits it once you
+  # stop pressing. A dead owl&#x27;s press lays the next egg; an egg&#x27;s press is
+  # ignored, because there is nothing to do to an egg but wait.
+  def on_button(b)
+	if self.stage == 4
+	  self._newEgg()
+	  return
+	end
+	if self.stage == 0
+	  return
+	end
+	if self.statsmode
+	  self.statsmode = false
+	  return
+	end
+	if !self.menu
+	  self.menu = true
+	  self.sel = 0
+	else
+	  self.sel = (self.sel + 1) % size(self.acts)
+	end
+	self.mtime = now_ms()
+  end
+
+  def _do(id)
+	if id == 4
+	  # STATS shows a scrolling readout rather than changing a need.
+	  var names = [&quot;EGG&quot;, &quot;BABY&quot;, &quot;ADULT&quot;, &quot;ELDER&quot;, &quot;GONE&quot;]
+	  self.stxt = (names[self.stage] + &quot;  GEN &quot; + str(self.gen) +
+				   &quot;  AGE &quot; + str(self.age / 60) + &quot;M  HP &quot; + str(self.hp) +
+				   &quot;%  CARE &quot; + str(self.care))
+	  self.statsmode = true
+	  self.sbase = -1
+	  return
+	end
+	if id == 0
+	  self.full = self._clamp(self.full + 35)
+	  self.react = 1
+	elif id == 1
+	  # Play cheers the owl up but tires it out - the trade-off that makes the
+	  # needs pull against each other instead of all wanting food.
+	  self.happy = self._clamp(self.happy + 30)
+	  self.energy = self._clamp(self.energy - 15)
+	  self.react = 2
+	elif id == 2
+	  self.energy = self._clamp(self.energy + 40)
+	  self.react = 3
+	else
+	  # Petting is the gentle option: a little happiness for free, no cost.
+	  self.happy = self._clamp(self.happy + 15)
+	  self.react = 4
+	end
+	self.care += 1
+	self.runtil = now_ms() + 1600
+	self._persist()
+  end
+
+  def _persist()
+	store.set(&quot;owl_f&quot;, self.full)
+	store.set(&quot;owl_h&quot;, self.happy)
+	store.set(&quot;owl_e&quot;, self.energy)
+	store.set(&quot;owl_stage&quot;, self.stage)
+	store.set(&quot;owl_age&quot;, self.age)
+	store.set(&quot;owl_gen&quot;, self.gen)
+	store.set(&quot;owl_hp&quot;, self.hp)
+	store.set(&quot;owl_care&quot;, self.care)
+  end
+
+  # ---------------------------------------------------------------- lifecycle
+  def _age(dt)
+	self.ageacc += dt
+	while self.ageacc &gt;= 1000
+	  self.ageacc -= 1000
+	  self._second()
+	end
+  end
+
+  def _second()
+	self.age += 1
+
+	if self.stage == 0
+	  if self.age &gt;= self.HATCH self._hatch() end
+	  return
+	end
+	if self.stage == 4
+	  return
+	end
+
+	# Needs drift down on their own cadences.
+	if self.age % 9 == 0  self.full   = self._clamp(self.full - 1)   end
+	if self.age % 11 == 0 self.happy  = self._clamp(self.happy - 1)  end
+	if self.age % 14 == 0 self.energy = self._clamp(self.energy - 1) end
+
+	# Health: each empty need wounds it every second; steady good care heals it.
+	var bad = 0
+	if self.full == 0 bad += 1 end
+	if self.happy == 0 bad += 1 end
+	if self.energy == 0 bad += 1 end
+	if bad &gt; 0
+	  self.hp = self._clamp(self.hp - bad)
+	elif self.full &gt; 30 &amp;&amp; self.happy &gt; 30 &amp;&amp; self.energy &gt; 30
+	  self.hp = self._clamp(self.hp + 1)
+	end
+	if self.hp &lt;= 0
+	  self._die()
+	  return
+	end
+
+	# Growth by age, then eventual old age.
+	if self.stage == 1 &amp;&amp; self.age &gt;= self.GROW
+	  self.stage = 2
+	  self._persist()
+	elif self.stage == 2 &amp;&amp; self.age &gt;= self.ELDER
+	  self.stage = 3
+	  self._persist()
+	elif self.stage == 3 &amp;&amp; self.age &gt;= self.OLD
+	  self._die()
+	end
+  end
+
+  def _hatch()
+	self.stage = 1
+	self.full = 80
+	self.happy = 80
+	self.energy = 80
+	self.hp = 100
+	self._persist()
+  end
+
+  def _die()
+	self.stage = 4
+	self.deadtime = now_ms()
+	self.menu = false
+	self.statsmode = false
+	self._persist()
+  end
+
+  def _newEgg()
+	self.gen += 1
+	self.stage = 0
+	self.age = 0
+	self.full = 80
+	self.happy = 80
+	self.energy = 80
+	self.hp = 100
+	self.care = 0
+	self.menu = false
+	self._persist()
+  end
+
+  # ---------------------------------------------------------------- sprites
+  def _owl(ox, oy, blink, flap, mood, elder)
+	var body  = elder ? rgb(120, 96, 78) : rgb(150, 95, 55)
+	var belly = elder ? rgb(210, 195, 175) : rgb(205, 170, 125)
+	var dark  = rgb(90, 58, 34)
+	var white = rgb(240, 238, 230)
+	var beak  = rgb(230, 150, 40)
+
+	# Ear tufts.
+	pixel(ox + 2, oy, dark)
+	pixel(ox + 9, oy, dark)
+
+	# Rounded body.
+	rect_fill(ox + 1, oy + 1, 10, 12, body)
+	pixel(ox, oy + 4, body)
+	pixel(ox + 11, oy + 4, body)
+
+	# Pale belly.
+	rect_fill(ox + 3, oy + 6, 6, 6, belly)
+
+	# Eyes - a closed line when blinking, otherwise big with a pupil that drops
+	# when the owl is unhappy.
+	var ey = oy + 3
+	if blink
+	  line(ox + 2, ey + 1, ox + 4, ey + 1, dark)
+	  line(ox + 7, ey + 1, ox + 9, ey + 1, dark)
+	else
+	  rect_fill(ox + 2, ey, 3, 3, white)
+	  rect_fill(ox + 7, ey, 3, 3, white)
+	  var py = mood &lt; 0 ? ey + 1 : ey + 2
+	  pixel(ox + 3, py, dark)
+	  pixel(ox + 8, py, dark)
+	end
+
+	# An elder gets white brows.
+	if elder
+	  line(ox + 1, oy + 2, ox + 3, oy + 2, white)
+	  line(ox + 7, oy + 2, ox + 9, oy + 2, white)
+	end
+
+	# Beak.
+	pixel(ox + 5, oy + 6, beak)
+	pixel(ox + 6, oy + 6, beak)
+	pixel(ox + 5, oy + 7, rgb(200, 120, 30))
+
+	# Wings, raised on the flap frame.
+	if flap
+	  line(ox, oy + 4, ox, oy + 7, body)
+	  line(ox + 11, oy + 4, ox + 11, oy + 7, body)
+	else
+	  line(ox, oy + 6, ox, oy + 9, body)
+	  line(ox + 11, oy + 6, ox + 11, oy + 9, body)
+	end
+
+	# Feet.
+	pixel(ox + 3, oy + 13, beak)
+	pixel(ox + 8, oy + 13, beak)
+  end
+
+  # A smaller, tuftless chick for the BABY stage.
+  def _owlet(ox, oy, blink)
+	var body  = rgb(175, 125, 85)
+	var belly = rgb(215, 185, 145)
+	var dark  = rgb(90, 58, 34)
+	var white = rgb(240, 238, 230)
+	var beak  = rgb(230, 150, 40)
+
+	rect_fill(ox + 1, oy + 1, 6, 7, body)
+	pixel(ox, oy + 3, body)
+	pixel(ox + 7, oy + 3, body)
+	rect_fill(ox + 2, oy + 4, 4, 4, belly)
+
+	var ey = oy + 2
+	if blink
+	  line(ox + 1, ey + 1, ox + 2, ey + 1, dark)
+	  line(ox + 5, ey + 1, ox + 6, ey + 1, dark)
+	else
+	  rect_fill(ox + 1, ey, 2, 2, white)
+	  rect_fill(ox + 5, ey, 2, 2, white)
+	  pixel(ox + 2, ey + 1, dark)
+	  pixel(ox + 5, ey + 1, dark)
+	end
+
+	pixel(ox + 3, oy + 4, beak)
+	pixel(ox + 4, oy + 4, beak)
+	pixel(ox + 3, oy + 8, beak)
+	pixel(ox + 5, oy + 8, beak)
+  end
+
+  def _egg(ox, oy, crack)
+	var sh   = rgb(235, 225, 195)
+	var spot = rgb(200, 175, 130)
+	rect_fill(ox + 2, oy, 4, 1, sh)
+	rect_fill(ox + 1, oy + 1, 6, 1, sh)
+	rect_fill(ox, oy + 2, 8, 6, sh)
+	rect_fill(ox + 1, oy + 8, 6, 1, sh)
+	rect_fill(ox + 2, oy + 9, 4, 1, sh)
+	pixel(ox + 2, oy + 3, spot)
+	pixel(ox + 5, oy + 5, spot)
+	pixel(ox + 3, oy + 7, spot)
+	if crack
+	  line(ox + 2, oy + 4, ox + 4, oy + 3, rgb(120, 100, 70))
+	  line(ox + 4, oy + 3, ox + 5, oy + 5, rgb(120, 100, 70))
+	end
+  end
+
+  def _grave(ox)
+	var stone = rgb(120, 120, 130)
+	var dark  = rgb(80, 80, 90)
+	line(ox - 1, 13, ox + 9, 13, rgb(40, 60, 40))
+	rect_fill(ox + 2, 5, 5, 8, stone)
+	rect_fill(ox + 3, 4, 3, 1, stone)
+	line(ox + 4, 7, ox + 4, 10, dark)
+	line(ox + 3, 8, ox + 5, 8, dark)
+  end
+
+  def _heart(hx, hy, c)
+	pixel(hx, hy, c)
+	pixel(hx + 2, hy, c)
+	line(hx - 1, hy + 1, hx + 3, hy + 1, c)
+	pixel(hx, hy + 2, c)
+	pixel(hx + 1, hy + 2, c)
+	pixel(hx + 2, hy + 2, c)
+	pixel(hx + 1, hy + 3, c)
+  end
+
+  def _bar(x, y, v, c)
+	rect_fill(x, y, 14, 1, rgb(28, 28, 28))
+	var w = v * 14 / 100
+	if w &lt; 1 &amp;&amp; v &gt; 0 w = 1 end
+	if w &gt; 0
+	  if v &lt; 20 &amp;&amp; (now_ms() / 300) % 2 == 0
+		rect_fill(x, y, w, 1, rgb((c &gt;&gt; 16) &amp; 255, 40, 40))
+	  else
+		rect_fill(x, y, w, 1, c)
+	  end
+	end
+  end
+
+  # ---------------------------------------------------------------- draw
+  def draw()
+	var now = now_ms()
+	var dt = now - self.last
+	if dt &lt; 0 dt = 0 end
+	self.last = now
+	self._age(dt)
+
+	self.save += dt
+	if self.save &gt;= 5000
+	  self.save = 0
+	  self._persist()
+	end
+
+	clear(rgb(6, 8, 14))
+
+	# STATS overlay: scroll the line once, then drop back to the pet.
+	if self.statsmode
+	  var laps = scroll_text(self.stxt, rgb(210, 210, 220))
+	  if self.sbase &lt; 0
+		self.sbase = laps
+	  elif laps &gt; self.sbase
+		self.statsmode = false
+	  end
+	  return
+	end
+
+	if self.stage == 0
+	  self._drawEgg(now)
+	  return
+	end
+	if self.stage == 4
+	  self._drawDead(now)
+	  return
+	end
+	self._drawAlive(now)
+  end
+
+  def _drawEgg(now)
+	# A gentle wobble that quickens as hatching nears.
+	var togo = self.HATCH - self.age
+	if togo &lt; 0 togo = 0 end
+	var rate = togo &gt; 10 ? 500 : 150
+	var wob = (now / rate) % 3 - 1
+	self._egg(3 + wob, 3, self.age &gt; self.HATCH - 15)
+	text(18, 1, &quot;EGG&quot;, rgb(210, 200, 170))
+	text(18, 9, &quot;GEN &quot; + str(self.gen), rgb(90, 94, 104))
+  end
+
+  def _drawDead(now)
+	self._grave(3)
+	text(20, 2, &quot;R.I.P&quot;, rgb(150, 150, 160))
+	if (now / 500) % 2 == 0
+	  text(16, 9, &quot;NEW EGG?&quot;, rgb(120, 124, 134))
+	end
+	# A press lays the next egg; if left alone, one arrives on its own.
+	if now - self.deadtime &gt; 12000
+	  self._newEgg()
+	end
+  end
+
+  def _drawAlive(now)
+	var mood = self._mood()
+
+	# A blink every few seconds; a wing flap on a different beat so they do not
+	# line up into one mechanical pulse.
+	var blink = (now / 220) % 18 == 0
+	var flap = (now / 500) % 6 &lt; 1 &amp;&amp; mood != 2
+	if mood == 2
+	  blink = (now / 700) % 2 == 0
+	end
+
+	# The right sprite for the stage.
+	if self.stage == 1
+	  self._owlet(2, 4, blink)
+	elif self.stage == 3
+	  self._owl(1, 2, blink, flap, mood, true)
+	else
+	  self._owl(1, 2, blink, flap, mood, false)
+	end
+
+	# Reaction bubble above the owl for a short while after an action.
+	if self.react != 0 &amp;&amp; now &lt; self.runtil
+	  var bob = (now / 200) % 2
+	  if self.react == 1 || self.react == 2 || self.react == 4
+		self._heart(16, 1 - bob, rgb(230, 70, 90))
+		self._heart(22, 2 - bob, rgb(230, 120, 140))
+	  else
+		text(16, 1 - bob, &quot;z&quot;, rgb(120, 150, 220))
+		text(20, 4 - bob, &quot;z&quot;, rgb(90, 120, 200))
+	  end
+	elif mood == 2
+	  if (now / 900) % 2 == 0
+		text(14, 2, &quot;z&quot;, rgb(90, 120, 200))
+	  end
+	end
+
+	# A blinking warning when health is failing.
+	if self.hp &lt; 30 &amp;&amp; (now / 400) % 2 == 0
+	  text(30, 1, &quot;!&quot;, rgb(230, 60, 60))
+	end
+
+	# One-button action menu with an auto-commit countdown.
+	if self.menu
+	  var dwell = now - self.mtime
+	  if dwell &gt;= 1600
+		self._do(self.sel)
+		self.menu = false
+	  else
+		text(16, 9, self.acts[self.sel], rgb(240, 220, 150))
+		pixel(15, 10, rgb(230, 190, 90))
+		pixel(15, 11, rgb(230, 190, 90))
+		var cw = 14 - dwell * 14 / 1600
+		if cw &gt; 0 rect_fill(16, 14, cw, 1, rgb(230, 190, 90)) end
+	  end
+	else
+	  text(16, 9, &quot;PRESS&quot;, rgb(66, 70, 80))
+	end
+
+	# Three need bars on the right: green fullness, yellow happiness, blue energy.
+	self._bar(37, 1, self.full, rgb(70, 200, 90))
+	self._bar(37, 6, self.happy, rgb(230, 200, 60))
+	self._bar(37, 11, self.energy, rgb(80, 160, 240))
+  end
+
+  # Lowest need decides the mood: content, hungry, bored or sleepy.
+  def _mood()
+	var m = self.full
+	var k = 0
+	if self.happy &lt; m m = self.happy k = 1 end
+	if self.energy &lt; m m = self.energy k = 2 end
+	if m &gt; 45 return -1 end
+	return k
+  end
+end
+
+return Hootie()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/hootie.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/hootie.be">Raw</a>
         </p>
       </article>
 
@@ -1612,6 +2797,501 @@ return App()
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/matrix.be">View on GitHub</a>
           ·
           <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/matrix.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="meteor-shower">
+        <img class="card__preview" src="meteor-shower.gif" width="312" height="96"
+             loading="lazy" alt="Meteor Shower running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Meteor Shower</h3>
+          <p class="card__by">Galadril · 111 lines</p>
+        </header>
+        <p class="card__summary">Bright meteors streak across with glowing tails that fade behind them.</p>
+        <ul class="card__tags"><li>animation</li><li>space</li><li>ambient</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Meteor Shower
+# summary: Bright meteors streak across with glowing tails that fade behind them.
+# author: Galadril
+# tags: animation, space, ambient
+# panel: 52x16
+
+import math
+
+# Several meteors crossing at once, each with a fading trail. The trick that
+# sells it is the tail: instead of clearing the panel each frame we dim what
+# is already there, so every meteor smears a glow behind it that decays over
+# the next handful of frames.
+
+class App
+  var buf              # persistent brightness field, one entry per pixel
+  var mx, my, mvx, mvy, mhue  # meteors, parallel arrays (positions x16)
+
+  def init()
+	self.buf = []
+	for i : 0 .. width() * height() - 1
+	  self.buf.push(0)
+	end
+	self.mx = []
+	self.my = []
+	self.mvx = []
+	self.mvy = []
+	self.mhue = []
+	for i : 0 .. 3
+	  self.spawn(i)
+	end
+  end
+
+  # Launch a meteor from off the top-left, angled down and to the right.
+  def spawn(i)
+	var startx = -(math.rand() % 40)
+	var starty = math.rand() % height()
+	var vx = 3 + (math.rand() % 3)
+	var vy = 1 + (math.rand() % 2)
+	var hue = math.rand() % 4
+	if size(self.mx) &lt;= i
+	  self.mx.push(startx * 16)
+	  self.my.push(starty * 16)
+	  self.mvx.push(vx)
+	  self.mvy.push(vy)
+	  self.mhue.push(hue)
+	else
+	  self.mx[i] = startx * 16
+	  self.my[i] = starty * 16
+	  self.mvx[i] = vx
+	  self.mvy[i] = vy
+	  self.mhue[i] = hue
+	end
+  end
+
+  def tint(hue, level)
+	if   hue == 0 return rgb(level, level, level)              # white
+	elif hue == 1 return rgb(level, (level * 3) / 4, level / 3) # warm gold
+	elif hue == 2 return rgb(level / 3, (level * 3) / 4, level) # icy blue
+	else          return rgb(level, level / 3, (level * 3) / 4) # rose
+	end
+  end
+
+  def draw()
+	# Fade the whole field a little; this is what leaves the tails behind.
+	for i : 0 .. size(self.buf) - 1
+	  var v = self.buf[i] - 28
+	  if v &lt; 0 v = 0 end
+	  self.buf[i] = v
+	end
+
+	# Advance each meteor and stamp its head into the field at full brightness.
+	for m : 0 .. size(self.mx) - 1
+	  self.mx[m] += self.mvx[m] * 16 / 4
+	  self.my[m] += self.mvy[m] * 16 / 4
+	  var px = self.mx[m] / 16
+	  var py = self.my[m] / 16
+
+	  if px &gt;= 0 &amp;&amp; px &lt; width() &amp;&amp; py &gt;= 0 &amp;&amp; py &lt; height()
+		self.buf[py * width() + px] = 255
+	  end
+
+	  # Recycle once it has fully left the panel.
+	  if px &gt;= width() || py &gt;= height()
+		self.spawn(m)
+	  end
+	end
+
+	# Render the field. Every meteor shares hue 0&#x27;s white core here to keep
+	# the draw cheap; the fading buffer supplies all the tail work.
+	clear(rgb(0, 0, 4))
+	for y : 0 .. height() - 1
+	  for x : 0 .. width() - 1
+		var level = self.buf[y * width() + x]
+		if level &gt; 0
+		  pixel(x, y, self.tint(2, level))
+		end
+	  end
+	end
+
+	# A faint scatter of background stars so the meteors have a sky to cross.
+	for s : 0 .. 5
+	  var sx = (s * 9 + 3) % width()
+	  var sy = (s * 5 + 2) % height()
+	  if self.buf[sy * width() + sx] == 0
+		pixel(sx, sy, rgb(30, 30, 40))
+	  end
+	end
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/meteor-shower.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/meteor-shower.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="plasma">
+        <img class="card__preview" src="plasma.gif" width="312" height="96"
+             loading="lazy" alt="Plasma running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Plasma</h3>
+          <p class="card__by">Galadril · 57 lines</p>
+        </header>
+        <p class="card__summary">Classic rolling rainbow plasma, every pixel alive and shifting.</p>
+        <ul class="card__tags"><li>ambient</li><li>animation</li><li>generative</li><li>colour</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Plasma
+# summary: Classic rolling rainbow plasma, every pixel alive and shifting.
+# author: Galadril
+# tags: ambient, animation, generative, colour
+# panel: 52x16
+
+import math
+
+# The demoscene plasma: sum a few sine fields sampled per pixel, feed the
+# result through a rainbow, and let time slide the phases. On a 52x16 panel
+# every one of the 832 pixels is doing something every frame, which is what
+# makes it read as liquid rather than as a pattern.
+
+class App
+  var t
+
+  def init()
+	self.t = 0.0
+  end
+
+  # HSV-ish rainbow from a single angle (0..255). Cheap sixths of the wheel,
+  # full saturation, so neighbouring pixels stay distinct colours.
+  def wheel(pos)
+	pos = pos % 256
+	if pos &lt; 85
+	  return rgb(255 - pos * 3, pos * 3, 0)
+	elif pos &lt; 170
+	  pos -= 85
+	  return rgb(0, 255 - pos * 3, pos * 3)
+	else
+	  pos -= 170
+	  return rgb(pos * 3, 0, 255 - pos * 3)
+	end
+  end
+
+  def draw()
+	self.t += 0.08
+	var t = self.t
+
+	for y : 0 .. height() - 1
+	  for x : 0 .. width() - 1
+		# Three overlapping waves at different angles and speeds. The diagonal
+		# term (x+y) is what stops it looking like plain horizontal bars.
+		var v = math.sin(x / 6.0 + t)
+		v += math.sin(y / 4.0 - t)
+		v += math.sin((x + y) / 7.0 + t * 0.7)
+		v += math.sin(math.sqrt(real((x - 26) * (x - 26) + (y - 8) * (y - 8))) / 4.0 - t)
+
+		# v is now in -4..4; fold it onto the colour wheel.
+		var hue = int((v + 4.0) * 32.0)
+		pixel(x, y, self.wheel(hue))
+	  end
+	end
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/plasma.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/plasma.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="rain">
+        <img class="card__preview" src="rain.gif" width="312" height="96"
+             loading="lazy" alt="Rain running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Rain</h3>
+          <p class="card__by">Galadril · 75 lines</p>
+        </header>
+        <p class="card__summary">Slanted rain falling past, with the odd distant flash of lightning.</p>
+        <ul class="card__tags"><li>ambient</li><li>animation</li><li>weather</li><li>relaxing</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Rain
+# summary: Slanted rain falling past, with the odd distant flash of lightning.
+# author: Galadril
+# tags: ambient, animation, weather, relaxing
+# panel: 52x16
+
+import math
+
+# Rain that is calm to leave running, with lightning rare enough to be a
+# surprise rather than a strobe. The drops fall at three speeds so the sheet
+# reads as depth instead of a single flat curtain.
+
+class App
+  var dx, dy, dspeed   # drop position and fall speed, parallel arrays
+  var flash            # frames of lightning remaining, 0 when clear
+
+  def init()
+	self.dx = []
+	self.dy = []
+	self.dspeed = []
+	self.flash = 0
+	# Thirty drops is a steady drizzle across 52 pixels; push this much higher
+	# and the individual streaks stop being legible.
+	for i : 0 .. 29
+	  self.dx.push(math.rand() % width())
+	  self.dy.push(math.rand() % height())
+	  self.dspeed.push(1 + (i % 3))
+	end
+  end
+
+  def draw()
+	# Lightning lifts the whole background for a couple of frames, then decays.
+	if self.flash &gt; 0
+	  var g = self.flash * 30
+	  clear(rgb(g, g, g + 10))
+	  self.flash -= 1
+	else
+	  clear(rgb(0, 0, 6))
+	  # Roughly one frame in ninety opens a new flash. Rare on purpose.
+	  if (math.rand() % 90) == 0
+		self.flash = 3
+	  end
+	end
+
+	for i : 0 .. size(self.dx) - 1
+	  var speed = self.dspeed[i]
+	  var x = self.dx[i]
+	  var y = self.dy[i]
+
+	  # Faster drops are nearer, so they are brighter and given a short tail;
+	  # the slow ones stay as single dim dots in the background.
+	  var level = 60 + speed * 55
+	  pixel(x, y, rgb(level / 3, level / 2, level))
+	  if speed &gt;= 3 &amp;&amp; y - 1 &gt;= 0
+		pixel(x, y - 1, rgb(level / 6, level / 4, level / 2))
+	  end
+
+	  # Fall and drift one pixel sideways so the rain slants rather than
+	  # dropping dead straight, which always looks like a bug.
+	  y += speed
+	  x += 1
+	  if y &gt;= height()
+		y = 0
+		x = math.rand() % width()
+	  end
+	  if x &gt;= width()
+		x = 0
+	  end
+	  self.dx[i] = x
+	  self.dy[i] = y
+	end
+  end
+end
+
+return App()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/rain.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/rain.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="selenograph">
+        <img class="card__preview" src="selenograph.gif" width="312" height="96"
+             loading="lazy" alt="Selenograph running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Selenograph</h3>
+          <p class="card__by">Galadril · 172 lines</p>
+        </header>
+        <p class="card__summary">Tonight&#x27;s real moon phase, worked out from the date alone - then the story on a click.</p>
+        <ul class="card__tags"><li>time</li><li>space</li><li>astronomy</li><li>ambient</li></ul>
+        <details class="card__source">
+          <summary>Read it</summary>
+          <pre><code># name: Selenograph
+# summary: Tonight&#x27;s real moon phase, worked out from the date alone - then the story on a click.
+# author: Galadril
+# tags: time, space, astronomy, ambient
+# panel: 52x16
+
+import math
+
+# The moon phase is derived purely from the calendar date via a Julian day
+# number and the 29.53-day synodic month, so it needs no network and no
+# almanac - just the clock the device already keeps. The disc is drawn from a
+# fixed cosine table for the terminator, and a click scrolls the full caption
+# (phase name, illumination and the days to the next full/new moon).
+
+class Selenograph
+  var COS, HW, NAME
+  var phase, pt, txt, base, snd
+
+  def init()
+	self.COS = [1000, 981, 924, 831, 707, 556, 383, 195, 0, -195, -383, -556, -707, -831, -924, -981, -1000, -981, -924, -831, -707, -556, -383, -195, 0, 195, 383, 556, 707, 831, 924, 981]
+	self.HW = [1, 2, 3, 3, 3, 3, 2, 1]
+	self.NAME = [&quot;NEW MOON&quot;, &quot;WAXING CRESCENT&quot;, &quot;FIRST QUARTER&quot;, &quot;WAXING GIBBOUS&quot;, &quot;FULL MOON&quot;, &quot;WANING GIBBOUS&quot;, &quot;LAST QUARTER&quot;, &quot;WANING CRESCENT&quot;]
+	self.snd = store.get(&quot;sound&quot;, false)
+	self.phase = 0
+	self.pt = 0
+	self.base = -1
+	self.txt = &quot;&quot;
+  end
+
+  # Julian Day Number for a civil date (Fliegel-Van Flandern).
+  def _jdn(Y, M, D)
+	var a = (14 - M) / 12
+	var y = Y + 4800 - a
+	var m = M + 12 * a - 3
+	return D + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045
+  end
+
+  # Position in the synodic month as a 0..31 index (0 = new, 16 = full).
+  def _idx()
+	var Y = year()
+	if Y &lt; 2000
+	  return -1
+	end
+	var t = (self._jdn(Y, month(), day()) - 2451550) * 10000 + hour() * 10000 / 24 - 1000
+	var p = t % 295306
+	if p &lt; 0
+	  p += 295306
+	end
+	return p * 32 / 295306
+  end
+
+  # Convert a count of 1/32-month steps into whole days.
+  def _round(steps)
+	return (steps * 2953 + 1600) / 3200
+  end
+
+  # Draw the lit disc: the terminator sweeps across using the cosine table,
+  # left-to-right as the moon waxes and back again as it wanes.
+  def _disc(idx)
+	var k = self.COS[idx % 32]
+	var y = 0
+	while y &lt; 8
+	  var w = self.HW[y]
+	  var t = w * k / 1000
+	  var dx = -w
+	  while dx &lt;= w
+		var lit = false
+		if idx == 16
+		  lit = true
+		end
+		if idx &gt; 0
+		  if idx &lt; 16
+			if dx &gt; t
+			  lit = true
+			end
+		  end
+		end
+		if idx &gt; 16
+		  if dx &lt; (0 - t)
+			lit = true
+		  end
+		end
+		var c = 0x241F14
+		if lit
+		  c = 0xF2E3C8
+		end
+		pixel(4 + dx, y, c)
+		dx += 1
+	  end
+	  y += 1
+	end
+  end
+
+  # A press builds the scrolling caption and switches into scroll mode.
+  def on_button(b)
+	if b != &quot;select&quot;
+	  return
+	end
+	var idx = self._idx()
+	if idx &lt; 0
+	  return
+	end
+	var ill = (1000 - self.COS[idx % 32]) * 100 / 2000
+	var df = self._round((16 - idx + 32) % 32)
+	var dn = self._round((32 - idx) % 32)
+	var ev = &quot;NEXT FULL MOON IN &quot; + str(df) + &quot; DAYS&quot;
+	if dn &lt; df
+	  ev = &quot;NEXT NEW MOON IN &quot; + str(dn) + &quot; DAYS&quot;
+	end
+	self.txt = self.NAME[((idx + 2) % 32) / 4] + &quot;  &quot; + str(ill) + &quot;% ILLUMINATED  &quot; + ev
+	self.base = -1
+	self.phase = 2
+  end
+
+  def duration()
+	return 15000
+  end
+
+  def draw()
+	clear()
+	var now = now_ms()
+	var idx = self._idx()
+	if idx &lt; 0
+	  var w = &quot;NO CLOCK&quot;
+	  text((width() - text_ink_width(w)) / 2, 6, w, 0x9AA0A6)
+	  return
+	end
+
+	# Scroll the caption until it has made one full pass, then resume cycling.
+	if self.phase == 2
+	  var laps = scroll_text(self.txt, 0xF2E3C8)
+	  if self.base &lt; 0
+		self.base = laps
+	  else
+		if laps &gt; self.base
+		  self.phase = 0
+		  self.pt = now
+		end
+	  end
+	  return
+	end
+
+	self._disc(idx)
+	var df = self._round((16 - idx + 32) % 32)
+	var dn = self._round((32 - idx) % 32)
+	var ev = &quot;FULL&quot;
+	var d = df
+	if dn &lt; df
+	  ev = &quot;NEW&quot;
+	  d = dn
+	end
+	var s = str((1000 - self.COS[idx % 32]) * 100 / 2000) + &quot;%&quot;
+	if self.phase == 1
+	  s = ev
+	end
+	if self.phase == 2
+	  s = str(d) + &quot;D&quot;
+	  if d == 0
+		s = &quot;NOW&quot;
+	  end
+	end
+	text(10, 6, s, 0x9AA0A6)
+
+	# Every 2.2s rotate the readout: illumination -&gt; next event -&gt; days away.
+	if now - self.pt &gt; 2200
+	  self.pt = now
+	  self.phase = (self.phase + 1) % 3
+	end
+  end
+end
+
+return Selenograph()
+</code></pre>
+        </details>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/selenograph.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/selenograph.be">Raw</a>
         </p>
       </article>
 
