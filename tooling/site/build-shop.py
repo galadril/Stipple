@@ -35,10 +35,6 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 OUT = ROOT / "site" / "shop" / "index.html"
 
-# Kept in step with firmware/tests/test_shop_scripts.cpp by check-shop below.
-# A script on the page that the tests do not run is a script nobody has
-# checked, and it would look exactly like one they had.
-TEST_FILE = ROOT / "firmware" / "tests" / "test_shop_scripts.cpp"
 
 FIELD = re.compile(r"^#\s*([a-z]+):\s*(.+?)\s*$")
 
@@ -184,11 +180,10 @@ PAGE = """<!DOCTYPE html>
       <a class="shop__button" href="https://github.com/galadril/Stipple/new/main?filename=scripts/my-script.be&value=%23%20name%3A%20My%20Script%0A%23%20summary%3A%20One%20sentence%2C%20shown%20in%20the%20listing.%0A%23%20author%3A%20your-github-handle%0A%23%20tags%3A%20clock%2C%20animation%0A%23%20panel%3A%2052x16%0A%0Aclass%20App%0A%20%20def%20draw%28%29%0A%20%20%20%20clear%28rgb%280%2C%200%2C%200%29%29%0A%20%20%20%20text%282%2C%205%2C%20%22hello%22%2C%20rgb%280%2C%20190%2C%20255%29%29%0A%20%20end%0Aend%0A%0Areturn%20App%28%29%0A">Write a script</a>
     </p>
     <p>
-      One more line is needed: add your filename to the list in
-      <a href="https://github.com/galadril/Stipple/blob/main/firmware/tests/test_shop_scripts.cpp"><code>test_shop_scripts.cpp</code></a>,
-      which is what runs it. The build refuses a script that nothing runs &mdash;
-      a listing that says it was tested when it was not would be worse than no
-      listing at all.
+      That is the whole submission. The test suite picks the file up on its
+      own &mdash; it builds its list from this directory &mdash; so your script
+      is compiled, run for ninety frames and checked for leaks by the same
+      pull request that adds it.
     </p>
     <p>
       Two things the tests will hold you to, both learned the hard way. Text
@@ -222,15 +217,10 @@ def main():
     if not files:
         raise SystemExit("build-shop: scripts/ is empty")
 
-    # Every published script must be one the tests run. A page listing a
-    # script the suite does not touch is a page making a promise the project
-    # has not kept - and it would look identical to one that had.
-    tested = TEST_FILE.read_text(encoding="utf-8") if TEST_FILE.exists() else ""
-    untested = [f.name for f in files if '"%s"' % f.name not in tested]
-    if untested:
-        raise SystemExit(
-            "build-shop: not named in test_shop_scripts.cpp, so never run: %s"
-            % ", ".join(untested))
+    # Every published script is one the tests run, by construction: the test's
+    # list is generated from this same directory at configure time. This used
+    # to check that each name appeared in test_shop_scripts.cpp by hand, which
+    # was a real guard right up until the list stopped being written by hand.
 
     cards = "".join(card(parse(path)) for path in files)
 

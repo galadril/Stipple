@@ -922,6 +922,36 @@
                 down.disabled = position === apps.length - 1;
                 down.addEventListener('click', function () { moveApp(app.id, position + 1); });
 
+                // Delete, for apps that came from somewhere else.
+                //
+                // Only for those. A system app cannot be deleted at all, and a
+                // script's app belongs to its script - deleting it on its own
+                // would leave the script with no way to reach the panel, so
+                // the device refuses and the Scripts tab is where that one
+                // goes. Offering a button that always failed would be worse
+                // than offering none.
+                var remove = null;
+                if (app.source === 'remote' || app.source === 'integration' ||
+                    app.source === 'temporary') {
+                    remove = el('button', 'btn btn-danger', '✕');
+                    remove.type = 'button';
+                    remove.title = 'Delete ' + app.name;
+                    remove.addEventListener('click', function () {
+                        if (!confirm('Delete "' + app.name + '"?
+
+' +
+                                     'Whatever pushed it can push it again.')) {
+                            return;
+                        }
+                        send('DELETE', '/api/v1/apps/' + encodeURIComponent(app.id))
+                            .then(function () {
+                                toast(app.name + ' deleted');
+                                return loadApps();
+                            })
+                            .catch(fail);
+                    });
+                }
+
                 row.addEventListener('dragstart', function (event) {
                     dragging = { id: app.id, from: position };
                     row.classList.add('dragging');
@@ -960,6 +990,7 @@
                 row.appendChild(down);
                 if (gear) { row.appendChild(gear); }
                 row.appendChild(show);
+                if (remove) { row.appendChild(remove); }
                 list.appendChild(row);
 
                 // The settings sit in their own list item under the app, not

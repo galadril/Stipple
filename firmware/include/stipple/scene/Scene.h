@@ -97,6 +97,18 @@ public:
 
     int elementCount() const noexcept;
 
+    /// Whether any element survived validation.
+    ///
+    /// A scene whose elements all failed renders a black panel, which looks
+    /// exactly like a working app with nothing to say, a crashed device and a
+    /// dead display. That is what a Domoticz push produced: every element was
+    /// rejected, the load succeeded, and the panel went black in silence.
+    ///
+    /// Deliberately optimistic when it cannot tell. If more issues were found
+    /// than could be stored, this says yes rather than claiming a scene is
+    /// empty on incomplete evidence.
+    bool anyRenderable() const noexcept;
+
     /// Does this scene change over time?
     ///
     /// True when any element scrolls (and, later, animates). The frame scheduler
