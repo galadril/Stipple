@@ -308,6 +308,7 @@ paths:
       summary: Remove an app
       responses:
         "204": { description: Removed. }
+        "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: |
             A script's app cannot be deleted on its own. Writing a script
@@ -319,13 +320,8 @@ paths:
             Delete the script instead, which takes the app with it, or set
             `enabled: false` to take it off the carousel without losing the
             source.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409":
-          description: |
-            Built-in apps cannot be deleted; disable them instead.
+
+            Built-in apps also cannot be deleted; disable them instead.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
