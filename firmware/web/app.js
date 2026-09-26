@@ -937,9 +937,7 @@
                     remove.type = 'button';
                     remove.title = 'Delete ' + app.name;
                     remove.addEventListener('click', function () {
-                        if (!confirm('Delete "' + app.name + '"?
-
-' +
+                        if (!confirm('Delete "' + app.name + '"? ' +
                                      'Whatever pushed it can push it again.')) {
                             return;
                         }
