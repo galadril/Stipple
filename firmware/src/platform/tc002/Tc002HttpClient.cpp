@@ -165,8 +165,11 @@ bool Tc002HttpClient::begin(std::string_view url) {
     auto exchange = std::make_shared<Exchange>();
     exchange_ = exchange;
 
-    const std::string request =
-        net::http::buildGet(parsed, std::string("Stipple/") + core::kVersion);
+    // kVersion is a string_view, and C++17 has no operator+ for
+    // string + string_view - appending is the whole conversion.
+    std::string agent = "Stipple/";
+    agent.append(kVersion);
+    const std::string request = net::http::buildGet(parsed, agent);
     const std::string host = parsed.host;
     const int port = parsed.port;
 

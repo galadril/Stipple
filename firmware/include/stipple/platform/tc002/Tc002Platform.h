@@ -273,7 +273,7 @@ public:
     /// Always offered: a configured-but-disconnected broker is a state the
     /// service reports, not an absent capability.
     IMqttClient* mqtt() override { return &mqtt_; }
-    IHttpClient* httpClient() override { return &http_; }
+    IHttpClient* httpClient() override { return &httpClient_; }
 
     Tc002Display& panel() noexcept { return display_; }
 
@@ -323,7 +323,9 @@ private:
     Tc002Mcu mcu_;
     Tc002Audio audio_;
     Tc002MqttClient mqtt_;
-    Tc002HttpClient http_;
+    /// Outbound fetches for scripts. Not to be confused with `http_` below,
+    /// which is the server this device *answers* on.
+    Tc002HttpClient httpClient_;
     Tc002HttpServer http_;
     Tc002Dhcp dhcp_;
     Tc002Sntp sntp_;
