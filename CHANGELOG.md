@@ -8,6 +8,104 @@ Versions are `MAJOR.MINOR.PATCH`. While on `0.x` every release is a
 prerelease: the interfaces move, and nothing here installs onto a stock
 device without a capture of that device first.
 
+## 0.2.3 — Scripts that can hear, speak and ask
+
+Berry scripts get the speaker, the microphone, the broker and the network.
+0.2.1 and 0.2.2 were bumped in the tree but never released, so everything
+below is what changed since 0.2.0.
+
+### Added
+
+- **The speaker.** `tone()`, `sound()`, `audio_known()` and `volume()`. Four
+  sounds per call, refilled each frame — the panel would keep rendering
+  happily while the speaker worked through a minute of queued beeps, which is
+  a device nobody can use and nothing on screen to say why. There is no
+  `set_volume`: the level is whatever its owner chose, and an app turning it
+  up in the night is not a feature.
+- **The microphone.** `mic_known()` and `mic_level()`, and deliberately
+  nothing else. The TC002 reports one amplitude about twenty times a second,
+  so a `band()` here would be inventing the number it returned. Raw rather
+  than normalised, because what counts as loud depends on the room.
+- **The broker.** `mqtt_known()`, `mqtt_watch()`, `mqtt_get()`,
+  `mqtt_age_ms()` and `mqtt_publish()`. A script publishes only under
+  `stipple/{deviceId}/script/{its own id}/`, so it cannot forge a status
+  message or overwrite another script's output; reading is unrestricted,
+  because the broker is yours and showing what is already on it is the point.
+- **The network.** `http_follow()`, `http_get()`, `http_status()`,
+  `http_age_ms()` and `http_error()`. There is deliberately no call that
+  fetches and returns — it would block the thread drawing the panel — so a
+  script says what it wants and how often and draws whatever last arrived.
+  Thirty seconds is the floor whatever a script asks, one request is in
+  flight across the whole device, and a failure backs off for two minutes.
+- **Eleven new scripts**, all compiled and run by the test suite before
+  publication: Aurora, Dutch Trains, Fireworks, Game of Life, Hootie, Kitchen
+  Timer, Meteor Shower, Metronome, Neon Bars, Plasma, Power Meter, Rain,
+  Selenograph, Sequencer and Weather.
+- **Syntax highlighting in the device's script editor**, with line numbers and
+  the line a compile error names marked in the gutter. Still no editor
+  library: the page is compiled into the firmware, so it is a tokeniser and a
+  real textarea, which keeps the caret, selection, undo and mobile keyboards
+  working.
+- **A carousel rotation switch** in the web UI. The setting already existed in
+  the configuration and over the API but had no control on the page that owns
+  every other app setting.
+- **TLS for outbound fetches**, loaded from the device's own OpenSSL at
+  runtime. Certificate chain, hostname verification and a TLS 1.2 floor, with
+  no way to switch any of it off. See *Known limitations* — it does not work
+  on a TC002 yet, and the reason is the device's.
+
+### Fixed
+
+- **Names did not resolve on the device.** The TC002 ships
+  `nameserver 114.114.114.114`, which is unreachable from most of the world,
+  and `getaddrinfo` spends five seconds twice on it before trying the next
+  entry. Every fetch to a hostname timed out. Stipple now reads `resolv.conf`
+  and asks the nameservers itself with a two-second timeout, remembering
+  which one answered.
+- **Icons larger than 8 × 8 were rejected for the wrong reason.** Pixels
+  arrive as JSON integers, so every pixel is a token, and the parser's budget
+  was 512 — two 16 × 16 frames. An icon well inside every size limit the page
+  advertises came back "invalid JSON: too many tokens". Icons now have their
+  own token and body ceilings.
+- **Custom apps pushed over the API drew black screens.** A scene could name
+  its box as `x`/`y`/`w`/`h` rather than `rect`, and an icon by `id` rather
+  than `icon`, and neither was accepted; a scene nothing could draw was
+  stored without complaint. Both shapes now work and an undrawable scene is
+  refused with 422 and a list of what was wrong.
+- **Scripts lost their carousel entry on every reboot**, and a per-app
+  duration could land on the wrong app.
+- **Two device builds were broken in ways no host build could show**, because
+  the host does not compile the TC002 adapter: a member name collision
+  between the HTTP client and the HTTP server, and a misqualified version
+  constant.
+- The script editor's `now_ms()` returned time since the app appeared rather
+  than since boot, so scripts that throttle on it stopped moving when the
+  carousel came back to them.
+
+### Changed
+
+- **The icon store holds 192 icons in 256 KB**, up from 64 in 64 KB. An 8 × 8
+  icon is 192 bytes and a 16 × 16 is 768, so doubling the size quarters how
+  many fit; the count ran out long before the bytes did.
+- **Shop previews warm up for two seconds before recording.** Every script
+  that accumulates anything was opening on an empty version of itself, and a
+  card is only three seconds long.
+- The device web page no longer reads "Stipple  stipple v0.2.3" on a device
+  nobody has renamed.
+
+### Known limitations
+
+- **`https` does not work on a TC002.** The TLS implementation is complete and
+  verifies properly, but the device's OpenSSL is 1.1.0i, built by OpenWrt in
+  2018 with every TLS protocol version compiled out — a crypto library with a
+  stub SSL layer. `SSL_connect` answers `NO_PROTOCOLS_AVAILABLE` for every
+  protocol floor including none at all. Scripts see `openssl has no tls` from
+  `http_error()`. Plain `http` to anything on your own network works. Closing
+  this needs Stipple to carry its own TLS rather than borrow the device's.
+- Nothing here installs onto a stock device without a capture of that device
+  first, and the firmware-update endpoint still has not been exercised end to
+  end.
+
 ## 0.2.0 — Scripting
 
 Apps you write yourself, in [Berry](https://github.com/berry-lang/berry), on

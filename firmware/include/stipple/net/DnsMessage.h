@@ -78,6 +78,38 @@ std::size_t build(std::string_view hostname, std::uint16_t id, std::uint8_t* out
 Result parse(const std::uint8_t* data, std::size_t length, std::uint16_t id,
              std::uint32_t& address) noexcept;
 
+/// Most nameservers worth reading out of a resolv.conf.
+///
+/// Three. A machine listing more than that is listing fallbacks for a
+/// fallback, and every extra one is another timeout a failed lookup has to
+/// sit through before it can say so.
+constexpr std::size_t kMaxNameservers = 3;
+
+/// Pull the nameserver addresses out of a resolv.conf.
+///
+/// Returns how many were written, addresses in host byte order.
+///
+/// Here rather than in the platform adapter because it is pure text handling
+/// with exactly the failure modes that deserve tests - a comment, a malformed
+/// quad, an IPv6 line this cannot use, a file with no nameserver in it at all
+/// - and none of those need a device to exercise.
+///
+/// Why read the file rather than let glibc do it: `getaddrinfo` walks the
+/// list with a five-second timeout and two attempts per server, so one
+/// unreachable nameserver costs ten seconds before the second is even tried.
+/// The TC002 ships with a nameserver that is unreachable from most of the
+/// world, and ten seconds is longer than a frame-based renderer can give a
+/// name lookup.
+std::size_t parseNameservers(std::string_view resolvConf, std::uint32_t* out,
+                             std::size_t maxCount) noexcept;
+
+/// Parse a dotted quad into host byte order. False if it is not one.
+///
+/// Its own function because resolv.conf lines are not the only place this is
+/// needed and because "192.168.1.256" and "192.168.1" must both be refused
+/// rather than half-accepted.
+bool parseIpv4(std::string_view text, std::uint32_t& out) noexcept;
+
 }  // namespace dns
 }  // namespace net
 }  // namespace stipple

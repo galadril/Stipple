@@ -243,6 +243,128 @@ Result parse(const std::uint8_t* data, std::size_t length, std::uint16_t id,
     return Result::NoAddress;
 }
 
+
+bool parseIpv4(std::string_view text, std::uint32_t& out) noexcept {
+    std::uint32_t value = 0;
+    int octets = 0;
+    std::size_t at = 0;
+
+    while (octets < 4) {
+        if (at >= text.size() || text[at] < '0' || text[at] > '9') {
+            return false;
+        }
+        int number = 0;
+        int digits = 0;
+        while (at < text.size() && text[at] >= '0' && text[at] <= '9') {
+            number = number * 10 + (text[at] - '0');
+            ++digits;
+            // Three digits maximum, and a value that cannot exceed 255. Both
+            // checks, because "0000" is four digits of a legal value and
+            // "999" is three digits of an illegal one.
+            if (digits > 3 || number > 255) {
+                return false;
+            }
+            ++at;
+        }
+        value = (value << 8) | static_cast<std::uint32_t>(number);
+        ++octets;
+
+        if (octets == 4) {
+            break;
+        }
+        if (at >= text.size() || text[at] != '.') {
+            return false;
+        }
+        ++at;
+    }
+
+    // Trailing anything is a refusal. "192.168.1.1x" is not an address, and
+    // accepting the part before the x would be inventing one.
+    if (at != text.size()) {
+        return false;
+    }
+    out = value;
+    return true;
+}
+
+std::size_t parseNameservers(std::string_view resolvConf, std::uint32_t* out,
+                             std::size_t maxCount) noexcept {
+    if (out == nullptr || maxCount == 0) {
+        return 0;
+    }
+
+    std::size_t found = 0;
+    std::size_t at = 0;
+
+    while (at < resolvConf.size() && found < maxCount) {
+        std::size_t end = resolvConf.find('\n', at);
+        if (end == std::string_view::npos) {
+            end = resolvConf.size();
+        }
+        std::string_view line = resolvConf.substr(at, end - at);
+        at = end + 1;
+
+        // Trim, including the carriage return a file written on another
+        // machine will have.
+        while (!line.empty() && (line.front() == ' ' || line.front() == '\t')) {
+            line.remove_prefix(1);
+        }
+        while (!line.empty() &&
+               (line.back() == ' ' || line.back() == '\t' || line.back() == '\r')) {
+            line.remove_suffix(1);
+        }
+
+        if (line.empty() || line.front() == '#' || line.front() == ';') {
+            continue;
+        }
+
+        constexpr std::string_view kKeyword = "nameserver";
+        if (line.size() <= kKeyword.size() || line.substr(0, kKeyword.size()) != kKeyword) {
+            continue;
+        }
+        // The keyword has to be a whole word: a "nameserverfoo" directive is
+        // not one, and matching it would be reading a setting that is not
+        // there.
+        if (line[kKeyword.size()] != ' ' && line[kKeyword.size()] != '\t') {
+            continue;
+        }
+
+        std::string_view value = line.substr(kKeyword.size());
+        while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
+            value.remove_prefix(1);
+        }
+        // Anything after the address - a comment, a scope - is not ours to
+        // interpret, so the address ends at the first space.
+        const std::size_t space = value.find_first_of(" \t");
+        if (space != std::string_view::npos) {
+            value = value.substr(0, space);
+        }
+
+        std::uint32_t address = 0;
+        // An IPv6 nameserver parses as nothing here and is skipped rather
+        // than treated as an error: a machine with both listed is normal, and
+        // nothing below this speaks IPv6.
+        if (!parseIpv4(value, address)) {
+            continue;
+        }
+
+        // Duplicates are dropped. resolv.conf files accumulate them, and a
+        // repeated dead server is the same timeout paid twice.
+        bool already = false;
+        for (std::size_t i = 0; i < found; ++i) {
+            if (out[i] == address) {
+                already = true;
+                break;
+            }
+        }
+        if (!already) {
+            out[found] = address;
+            ++found;
+        }
+    }
+    return found;
+}
+
 }  // namespace dns
 }  // namespace net
 }  // namespace stipple

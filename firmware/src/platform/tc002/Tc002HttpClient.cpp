@@ -11,10 +11,14 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstdio>
 #include <cstring>
+#include <random>
 #include <thread>
 
 #include "stipple/core/Version.h"
+#include "stipple/net/DnsMessage.h"
+#include "stipple/platform/tc002/Tc002Tls.h"
 #include "stipple/net/HttpFetch.h"
 
 namespace stipple {
@@ -44,15 +48,78 @@ private:
     int fd_;
 };
 
+/// How long one nameserver gets before the next is tried.
+///
+/// Two seconds, against glibc's five-with-two-attempts. That difference is
+/// the whole reason this does not call `getaddrinfo`: the TC002 ships
+/// `nameserver 114.114.114.114` in its resolv.conf, which is unreachable
+/// from most of the world, so glibc spends over ten seconds on a dead server
+/// before trying the one that works. Measured on the device - a plain
+/// `http://example.com/` fetch hit the fetcher's twenty-second backstop while
+/// `http://1.1.1.1/` answered 301 immediately.
+constexpr int kDnsTimeoutSeconds = 2;
+
+/// The nameserver that answered last, tried first next time.
+///
+/// Saves paying the dead-server timeout on every single fetch once something
+/// has worked. Plain int rather than an atomic: a torn read costs one
+/// needless timeout and cannot do anything worse, and only one fetch runs at
+/// a time anyway.
+int g_preferredNameserver = 0;
+
+/// Ask one nameserver for an A record. False on anything that is not an
+/// answer, including a timeout.
+bool askNameserver(std::uint32_t server, const std::string& host,
+                   std::uint32_t& address) {
+    Socket socket(::socket(AF_INET, SOCK_DGRAM, 0));
+    if (!socket.valid()) {
+        return false;
+    }
+
+    struct timeval patience;
+    patience.tv_sec = kDnsTimeoutSeconds;
+    patience.tv_usec = 0;
+    ::setsockopt(socket.get(), SOL_SOCKET, SO_RCVTIMEO, &patience, sizeof(patience));
+
+    // Unpredictable rather than sequential, as DnsMessage::build asks: a
+    // resolver that counts 1, 2, 3 is one an off-path attacker can answer
+    // before the real server does.
+    static std::mt19937 generator{std::random_device{}()};
+    const auto id = static_cast<std::uint16_t>(
+        std::uniform_int_distribution<int>(1, 0xFFFF)(generator));
+
+    std::uint8_t query[net::dns::kMaxMessageBytes];
+    const std::size_t length = net::dns::build(host, id, query, sizeof(query));
+    if (length == 0) {
+        return false;
+    }
+
+    struct sockaddr_in to;
+    std::memset(&to, 0, sizeof(to));
+    to.sin_family = AF_INET;
+    to.sin_port = htons(53);
+    to.sin_addr.s_addr = htonl(server);
+
+    if (::sendto(socket.get(), query, length, 0,
+                 reinterpret_cast<struct sockaddr*>(&to), sizeof(to)) < 0) {
+        return false;
+    }
+
+    std::uint8_t reply[net::dns::kMaxMessageBytes];
+    const ssize_t got = ::recv(socket.get(), reply, sizeof(reply), 0);
+    if (got <= 0) {
+        return false;
+    }
+
+    return net::dns::parse(reply, static_cast<std::size_t>(got), id, address) ==
+           net::dns::Result::Ok;
+}
+
 /// One address for a host.
 ///
-/// `getaddrinfo` first, a dotted quad second. The order matters on this
-/// device: a statically linked binary cannot dlopen glibc's NSS modules, so
-/// getaddrinfo resolves nothing while appearing to work - and the fallback is
-/// what keeps `http://192.168.1.10/...` working regardless. Tc002MqttClient
-/// refuses hostnames outright for this reason; here a name is worth trying,
-/// because the failure is one feed saying so rather than a broker that never
-/// connects.
+/// A dotted quad needs nothing. A name is resolved by asking the nameservers
+/// in resolv.conf ourselves, with a short timeout each, rather than through
+/// `getaddrinfo` - see kDnsTimeoutSeconds for why.
 bool resolve(const std::string& host, int port, struct sockaddr_in& out) {
     std::memset(&out, 0, sizeof(out));
     out.sin_family = AF_INET;
@@ -62,19 +129,41 @@ bool resolve(const std::string& host, int port, struct sockaddr_in& out) {
         return true;
     }
 
-    struct addrinfo hints;
-    std::memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-
-    struct addrinfo* result = nullptr;
-    if (::getaddrinfo(host.c_str(), nullptr, &hints, &result) != 0 || result == nullptr) {
-        return false;
+    std::string conf;
+    if (std::FILE* file = std::fopen("/etc/resolv.conf", "rb"); file != nullptr) {
+        char buffer[1024];
+        std::size_t read;
+        while ((read = std::fread(buffer, 1, sizeof(buffer), file)) > 0) {
+            conf.append(buffer, read);
+            if (conf.size() > 8192) {
+                break;  // bounded like everything else read from outside
+            }
+        }
+        std::fclose(file);
     }
-    const auto* in = reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
-    out.sin_addr = in->sin_addr;
-    ::freeaddrinfo(result);
-    return true;
+
+    std::uint32_t servers[net::dns::kMaxNameservers];
+    std::size_t count = net::dns::parseNameservers(conf, servers, net::dns::kMaxNameservers);
+    if (count == 0) {
+        // A device with no resolv.conf is not a device with no network. This
+        // is a guess, and it is a better one than failing outright - but it
+        // is the only guess here, and it is deliberately a public resolver
+        // rather than a router address that would only work on one network.
+        servers[0] = 0x08080808u;  // 8.8.8.8
+        count = 1;
+    }
+
+    std::uint32_t address = 0;
+    for (std::size_t attempt = 0; attempt < count; ++attempt) {
+        const std::size_t index =
+            (static_cast<std::size_t>(g_preferredNameserver) + attempt) % count;
+        if (askNameserver(servers[index], host, address)) {
+            g_preferredNameserver = static_cast<int>(index);
+            out.sin_addr.s_addr = address;
+            return true;
+        }
+    }
+    return false;
 }
 
 /// Connect, but give up after `seconds` rather than after the kernel's own
@@ -116,21 +205,60 @@ bool connectWithin(int fd, const struct sockaddr_in& address, int seconds) {
     return ::fcntl(fd, F_SETFL, flags) == 0;
 }
 
-bool sendAll(int fd, const std::string& bytes) {
-    std::size_t sent = 0;
-    while (sent < bytes.size()) {
-        const ssize_t wrote =
-            ::send(fd, bytes.data() + sent, bytes.size() - sent, MSG_NOSIGNAL);
-        if (wrote <= 0) {
-            if (wrote < 0 && errno == EINTR) {
-                continue;
-            }
-            return false;
+/// The socket, or the socket with TLS over it.
+///
+/// One type for both so the request/response loop below is written once. It
+/// was two copies for about ten minutes and the plaintext one immediately
+/// drifted - which is how a security fix lands in one path and not the other.
+class Transport {
+public:
+    Transport(int fd, void* session) noexcept : fd_(fd), session_(session) {}
+    ~Transport() {
+        if (session_ != nullptr) {
+            Tls::instance().close(session_);
         }
-        sent += static_cast<std::size_t>(wrote);
     }
-    return true;
-}
+
+    Transport(const Transport&) = delete;
+    Transport& operator=(const Transport&) = delete;
+
+    bool sendAll(const std::string& bytes) {
+        std::size_t sent = 0;
+        while (sent < bytes.size()) {
+            const std::size_t left = bytes.size() - sent;
+            int wrote;
+            if (session_ != nullptr) {
+                wrote = Tls::instance().write(session_, bytes.data() + sent,
+                                              static_cast<int>(left));
+            } else {
+                const ssize_t n = ::send(fd_, bytes.data() + sent, left, MSG_NOSIGNAL);
+                wrote = static_cast<int>(n);
+            }
+            if (wrote <= 0) {
+                if (wrote < 0 && session_ == nullptr && errno == EINTR) {
+                    continue;
+                }
+                return false;
+            }
+            sent += static_cast<std::size_t>(wrote);
+        }
+        return true;
+    }
+
+    /// Negative on error, zero at end of stream.
+    int receive(char* buffer, int length) {
+        if (session_ != nullptr) {
+            return Tls::instance().read(session_, buffer, length);
+        }
+        return static_cast<int>(::recv(fd_, buffer, static_cast<std::size_t>(length), 0));
+    }
+
+    bool secure() const noexcept { return session_ != nullptr; }
+
+private:
+    int fd_;
+    void* session_;
+};
 
 }  // namespace
 
@@ -151,14 +279,15 @@ bool Tc002HttpClient::begin(std::string_view url) {
         return false;
     }
 
-    // Refused, not downgraded. Fetching over http what somebody asked to
+    // https is refused *here* only when this device cannot do it safely -
+    // no OpenSSL, or no trusted roots to check a certificate against. Never
+    // downgraded to plaintext: fetching over http what somebody asked to
     // fetch over https would put their API key on the wire of a network they
-    // believed was protected - the same call the MQTT client makes about a
-    // broker password. The device carries OpenSSL, so this is a gap and not
-    // a wall, and saying so is what makes it a gap somebody can find.
-    if (parsed.secure) {
+    // believed was protected, which is the same call Tc002MqttClient makes
+    // about a broker password.
+    if (parsed.secure && !Tls::instance().usable()) {
         stage_ = Stage::Failed;
-        failure_ = "https not supported yet";
+        failure_.assign(Tls::instance().problem());
         return false;
     }
 
@@ -172,9 +301,10 @@ bool Tc002HttpClient::begin(std::string_view url) {
     const std::string request = net::http::buildGet(parsed, agent);
     const std::string host = parsed.host;
     const int port = parsed.port;
+    const bool secure = parsed.secure;
 
     try {
-        std::thread worker([exchange, host, port, request]() {
+        std::thread worker([exchange, host, port, request, secure]() {
             struct sockaddr_in address;
             if (!resolve(host, port, address)) {
                 exchange->failure = "cannot resolve " + host;
@@ -203,7 +333,22 @@ bool Tc002HttpClient::begin(std::string_view url) {
                 return;
             }
 
-            if (!sendAll(socket.get(), request)) {
+            // The handshake, for an https URL. Everything that decides
+            // whether this connection is trustworthy happens in here: chain,
+            // hostname, protocol floor. A failure names the reason.
+            void* session = nullptr;
+            if (secure) {
+                std::string why;
+                session = Tls::instance().connect(socket.get(), host, why);
+                if (session == nullptr) {
+                    exchange->failure = why.empty() ? "tls failed" : why;
+                    exchange->done.store(true);
+                    return;
+                }
+            }
+            Transport transport(socket.get(), session);
+
+            if (!transport.sendAll(request)) {
                 exchange->failure = "send failed";
                 exchange->done.store(true);
                 return;
@@ -214,9 +359,9 @@ bool Tc002HttpClient::begin(std::string_view url) {
             std::size_t total = 0;
 
             for (;;) {
-                const ssize_t got = ::recv(socket.get(), chunk, sizeof(chunk), 0);
+                const int got = transport.receive(chunk, static_cast<int>(sizeof(chunk)));
                 if (got < 0) {
-                    if (errno == EINTR) {
+                    if (!transport.secure() && errno == EINTR) {
                         continue;
                     }
                     exchange->failure = "read timed out";

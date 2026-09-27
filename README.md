@@ -12,23 +12,26 @@ in your browser, no hardware needed. Every panel on that page is real output
 from the test suite, and the [API reference](https://galadril.github.io/Stipple/api/)
 is generated from a specification CI checks against the router.
 
-> **Status: 0.1.0, pre-release. It runs on real hardware — but not this exact
-> build.**
+> **Status: 0.2.3, pre-release. This build runs on real hardware.**
 >
 > Stipple installs into the device's `res` partition beside a small shim that
 > chooses what to run. A Stipple that will not load falls back to the stock
 > Ulanzi clock rather than to nothing, so the device stays reachable and
 > recovery is deleting one file. After the first install, updates are a file
-> upload in the web UI — no flashing, no USB stick. All of that has been done
-> on a device.
+> upload in the web UI — no flashing, no USB stick.
 >
-> Two things have not. The project was **renamed after the last device
-> deployment**, which moved the on-device path from `/data/notrix/` to
-> `/data/stipple/` — so a current build needs one reflash rather than loading
-> beside the old one. And the **firmware-update endpoint has not been
-> exercised end to end**: it validates, installs atomically and keeps the
-> previous version for rollback, and no device has yet been updated through
-> it.
+> 0.2.3 was run on a TC002 before release: the panel, the scripts, the
+> speaker, the microphone and the carousel, with the capability probes
+> checked against the device rather than inferred from the host build.
+>
+> Two things still have not been done. The **firmware-update endpoint has not
+> been exercised end to end** — it validates, installs atomically and keeps
+> the previous version for rollback, and no device has yet been updated
+> through it. And **`https` does not work on a TC002**: the TLS support is
+> there and verifies properly, but the device's own OpenSSL turns out to have
+> every TLS protocol version compiled out, so scripts get a clear
+> `openssl has no tls` instead of a connection. Plain `http` on your own
+> network is fine. See the changelog.
 >
 > See [docs/install.md](docs/install.md).
 

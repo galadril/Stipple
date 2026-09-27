@@ -269,11 +269,21 @@ somebody's stack trace on the panel.
 **A kilobyte of body, and the first kilobyte.** Anything a 52-pixel panel can
 show is near the front of the document.
 
-**`https` is refused, not downgraded.** Fetching over http what you asked to
+**`https` is implemented but the TC002 cannot currently do it.** The code is
+there - certificate chain, hostname check, TLS 1.2 floor, no way to switch
+verification off - and it loads the device's own OpenSSL at runtime. That
+OpenSSL turns out to be 1.1.0i built by OpenWrt in 2018 with every TLS
+protocol version compiled out: a crypto library with a stub SSL layer, which
+answers `SSL_connect` with `NO_PROTOCOLS_AVAILABLE` for every protocol floor
+including none at all.
+
+So `http_error()` says `openssl has no tls` on a TC002, and plain http to
+anything on your own network works today. Closing this needs Stipple to carry
+its own TLS rather than borrow the device's.
+
+It is never downgraded to plaintext. Fetching over http what you asked to
 fetch over https would put an API key on the wire of a network you believed
-was protected. The device carries OpenSSL, so this is a gap rather than a
-wall - until it is closed, `http_error()` says `https not supported yet` and
-a plain-http endpoint on your own network works today.
+was protected.
 
 ### The microphone
 
