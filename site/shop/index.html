@@ -2594,7 +2594,7 @@ return Hootie()
              loading="lazy" alt="Kitchen Timer running on a 52 by 16 pixel panel">
         <header class="card__head">
           <h3>Kitchen Timer</h3>
-          <p class="card__by">Stipple · 183 lines</p>
+          <p class="card__by">Stipple · 190 lines</p>
         </header>
         <p class="card__summary">Click up the minutes, walk away, and it shouts when the time is up.</p>
         <ul class="card__tags"><li>audio</li><li>tool</li><li>time</li></ul>
@@ -2685,12 +2685,19 @@ class App
 
   def _setting(now)
     if self.mins == 0
-      text(2, 1, &quot;SET&quot;, rgb(70, 70, 70))
-      text(26, 1, &quot;CLICK&quot;, rgb(120, 120, 120))
+      # Idle: a dim zero that breathes, so the card reads as a timer waiting
+      # rather than as a panel that has stopped. The 5x7 font advances six
+      # pixels, so &quot;00:00&quot; is 1 to 30 and &quot;+1&quot; is 38 to 49 - measured, not
+      # centred by eye, because anything past pixel 51 is clipped in silence.
+      var pulse = (now / 8) % 250
+      if pulse &gt; 125
+        pulse = 250 - pulse
+      end
+      self._clock(1, 1, 0, rgb(0, 40 + pulse / 2, 60 + pulse))
+      text(38, 1, &quot;+1&quot;, rgb(150, 110, 0))
+
       if !audio_known()
-        text(2, 9, &quot;no speaker&quot;, rgb(120, 40, 40))
-      else
-        text(2, 9, &quot;+1 min&quot;, rgb(60, 60, 60))
+        text(1, 9, &quot;MUTE&quot;, rgb(130, 40, 40))
       end
       return
     end
@@ -3423,7 +3430,7 @@ class App
       k += 1
     end
 
-    text(1, 9, str(bpm), rgb(200, 200, 200))
+    text(1, 9, str(bpm), rgb(110, 110, 110))
 
     # Say it, rather than leaving somebody to wonder whether the volume is
     # down. A device with no speaker and a device turned all the way down
@@ -3515,6 +3522,195 @@ return App()
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/plasma.be">View on GitHub</a>
           ·
           <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/plasma.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="power-meter">
+        <img class="card__preview" src="power-meter.gif" width="312" height="96"
+             loading="lazy" alt="Power Meter running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Power Meter</h3>
+          <p class="card__by">Stipple · 171 lines</p>
+        </header>
+        <p class="card__summary">Live house load from MQTT, with an hour of history and a grey-out when the data goes stale.</p>
+        <ul class="card__tags"><li>mqtt</li><li>home</li><li>graph</li><li>tool</li></ul>
+        <button class="card__read" type="button" data-script="power-meter">Read it</button>
+        <template id="src-power-meter"><pre><code># name: Power Meter
+# summary: Live house load from MQTT, with an hour of history and a grey-out when the data goes stale.
+# author: Stipple
+# tags: mqtt, home, graph, tool
+# panel: 52x16
+
+import string
+
+# Watches `home/power/now` for watts and draws the last hour of it.
+#
+# This is the script to copy if you want to put something from your broker on
+# the panel, and the three things it does that a first attempt usually does not
+# are the reason it is here.
+#
+# **mqtt_watch() is called every frame.** There is no &quot;the broker connected&quot;
+# callback a script can hook, so draw() is the only place a watch can be asked
+# for - and asking again costs nothing.
+#
+# **nil is not zero.** mqtt_get() gives nil when nothing has arrived, which is
+# a different state from a meter reporting 0 W, and drawing them the same way
+# is the whole class of bug ADR 0013 exists for.
+#
+# **Old data is greyed, not shown.** A retained message from a sensor whose
+# battery died last month arrives the instant the device connects and looks
+# exactly like a live reading. mqtt_age_ms() is the only thing that can tell
+# them apart.
+#
+# Change TOPIC to yours. Nothing else needs touching.
+
+class App
+  var TOPIC
+  var hist          # 52 samples, one per minute, -1 for &quot;no reading&quot;
+  var head          # next slot to write
+  var last          # when we last took a sample
+  var peak          # top of the graph&#x27;s scale, watts
+
+  def init()
+    self.TOPIC = &quot;home/power/now&quot;
+    self.hist = []
+    var i = 0
+    while i &lt; 52
+      self.hist.push(-1)
+      i += 1
+    end
+    self.head = 0
+    self.last = -60000
+    self.peak = 500
+  end
+
+  # Watts, or nil when there is nothing to believe.
+  def _watts()
+    var raw = mqtt_get(self.TOPIC)
+    if raw == nil
+      return nil
+    end
+    # An hour is generous for a meter and short enough that a dead sensor
+    # greys out within one carousel rotation of somebody noticing.
+    if mqtt_age_ms(self.TOPIC) &gt; 3600000
+      return nil
+    end
+    return int(real(raw))
+  end
+
+  def draw()
+    clear(rgb(0, 0, 0))
+    mqtt_watch(self.TOPIC)
+
+    if !mqtt_known()
+      # Not an error. MQTT is off by default, and a panel saying so is more
+      # use than one showing a number it made up.
+      text(2, 1, &quot;no&quot;, rgb(120, 120, 120))
+      text(2, 9, &quot;broker&quot;, rgb(120, 60, 60))
+      return
+    end
+
+    var w = self._watts()
+    var now = now_ms()
+
+    if w == nil
+      text(2, 1, &quot;waiting&quot;, rgb(90, 90, 90))
+      self._graph()
+      return
+    end
+
+    # One sample a minute. 52 of them is an hour, which is exactly as much
+    # history as a panel 52 pixels wide can hold honestly.
+    if now - self.last &gt;= 60000
+      self.last = now
+      self.hist[self.head] = w
+      self.head = (self.head + 1) % 52
+    end
+
+    # The scale follows the data rather than being fixed, because a house
+    # that idles at 300 W and peaks at 7 kW has no single useful ceiling.
+    # It only ever rises here; _graph() lets it fall.
+    if w &gt; self.peak
+      self.peak = w
+    end
+
+    # Green while the house is quiet, amber when something big is on, red
+    # for the kettle-and-oven case. Thresholds in watts, so they read the
+    # same on any meter.
+    var colour = rgb(0, 210, 120)
+    if w &gt;= 3000
+      colour = rgb(255, 60, 40)
+    elif w &gt;= 1000
+      colour = rgb(255, 176, 0)
+    end
+
+    var label = str(w)
+    if w &gt;= 1000
+      # &quot;3.4k&quot; beats &quot;3421&quot; on a panel this size: four characters either
+      # way, and one of them can be read at a glance from a doorway.
+      label = string.format(&quot;%d.%dk&quot;, w / 1000, (w % 1000) / 100)
+    end
+    text(1, 0, label, colour)
+    text(1 + text_width(label) + 2, 0, &quot;W&quot;, rgb(70, 70, 70))
+
+    self._graph()
+  end
+
+  def _graph()
+    # Oldest on the left. head is the next slot to write, so it is also the
+    # oldest sample - the read order falls out of that without a second
+    # index to keep in step.
+    var top = 8
+    var h = 7
+
+    # Let the scale settle back down, slowly, so a one-off spike does not
+    # flatten the next hour of graph.
+    var seen = 0
+    var i = 0
+    while i &lt; 52
+      var v = self.hist[i]
+      if v &gt; seen
+        seen = v
+      end
+      i += 1
+    end
+    if seen &lt; 500
+      seen = 500
+    end
+    if self.peak &gt; seen
+      self.peak = self.peak - (self.peak - seen) / 16 - 1
+    end
+
+    i = 0
+    while i &lt; 52
+      var v = self.hist[(self.head + i) % 52]
+      if v &gt;= 0
+        var bar = (v * h) / self.peak
+        if bar &lt; 1
+          bar = 1
+        end
+        if bar &gt; h
+          bar = h
+        end
+        var shade = rgb(0, 90, 60)
+        if v &gt;= 3000
+          shade = rgb(140, 30, 20)
+        elif v &gt;= 1000
+          shade = rgb(140, 95, 0)
+        end
+        rect_fill(i, top + (h - bar), 1, bar, shade)
+      end
+      i += 1
+    end
+  end
+end
+
+return App()
+</code></pre></template>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/power-meter.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/power-meter.be">Raw</a>
         </p>
       </article>
 

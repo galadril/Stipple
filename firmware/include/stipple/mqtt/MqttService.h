@@ -8,6 +8,7 @@
 
 #include "stipple/core/Log.h"
 #include "stipple/mqtt/MqttBridge.h"
+#include "stipple/mqtt/ScriptGateway.h"
 #include "stipple/platform/MqttClient.h"
 
 namespace stipple {
@@ -101,6 +102,15 @@ public:
     platform::MqttState state() const noexcept;
     const Topics& topics() const noexcept { return bridge_.topics(); }
 
+    /// What scripts see of the broker.
+    ///
+    /// Handed to the script runner by the host. Owned here because its
+    /// lifetime is the connection's: it needs the client to subscribe
+    /// through, the topic base to scope publishes under, and to be told when
+    /// the connection comes back so it can re-send its subscriptions.
+    ScriptGateway& scripts() noexcept { return scripts_; }
+    const ScriptGateway& scripts() const noexcept { return scripts_; }
+
     /// Counters for diagnostics. Cheap, and the first thing anyone asks for when
     /// an automation does not fire.
     struct Stats {
@@ -146,6 +156,7 @@ private:
     /// republish a dozen retained messages it already has.
     bool discoveryPublished_ = false;
     DeviceState deviceState_;
+    ScriptGateway scripts_;
     bool statusDue_ = true;
     bool announced_ = false;
 };

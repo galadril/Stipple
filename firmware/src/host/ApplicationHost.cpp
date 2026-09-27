@@ -356,6 +356,12 @@ void ApplicationHost::setScriptRunner(script::IScriptRunner* runner) {
     // the builtins report it rather than pretending to play.
     runner->setAudio(platform_.audio());
 
+    // And the broker. Always handed over, even with MQTT switched off: the
+    // gateway reports its own state, so a script asking mqtt_known() gets a
+    // straight answer either way, and turning MQTT on later needs no second
+    // call from here.
+    runner->setMqtt(&mqtt_.scripts());
+
     loadScripts();
     persistedScriptRevision_ = runner->revision();
 }

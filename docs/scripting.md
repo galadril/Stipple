@@ -149,6 +149,64 @@ false. Same rule as the clock and the battery: silence you chose and silence
 the hardware cannot break are different things, and a script is told which it
 has.
 
+### The broker
+
+```berry
+def draw()
+  mqtt_watch("home/solar/power")
+  var w = mqtt_get("home/solar/power")
+  if w == nil
+    text(0, 0, "--", rgb(90, 90, 90))
+  else
+    text(0, 0, w, rgb(0, 190, 255))
+  end
+end
+```
+
+| Call | Does |
+|---|---|
+| `mqtt_known()` | Whether the device is connected to a broker right now. |
+| `mqtt_watch(filter)` | Ask for a topic. Wildcards allowed. Returns whether it is being watched. |
+| `mqtt_get(filter)` | The last payload seen, or `nil` if nothing has arrived. |
+| `mqtt_age_ms(filter)` | How long ago that arrived. Negative when nothing has. |
+| `mqtt_publish(leaf, payload [, retain])` | Publish under this script's own topic. Returns whether it went. |
+
+**`mqtt_watch` is called from `draw()`, every frame.** There is no "the broker
+connected" callback for a script to hook, so `draw()` is the only place a watch
+can be asked for - and watching the same filter again costs nothing and does
+not consume a second slot. Six filters per script.
+
+**`mqtt_get` returns `nil`, not `""`, when nothing has arrived.** A sensor that
+published an empty payload and a sensor that has said nothing since the device
+booted are different states, and a script that cannot tell them apart will draw
+one as the other. Check for `nil` before using the value.
+
+**`mqtt_age_ms` is how you catch a corpse.** A retained message from a sensor
+whose battery died three weeks ago arrives the instant the device connects and
+looks exactly like a live reading. Age is the only thing that tells them apart,
+so grey out anything older than you would trust.
+
+#### Publishing
+
+`mqtt_publish("state", "on")` lands on
+`stipple/{deviceId}/script/{scriptId}/state` - a script writes only under its
+own subtree. It cannot forge a status message, answer a command on the device's
+behalf, or overwrite another script's output. A leaf that is empty, starts or
+ends with `/`, contains `#`, `+` or `..`, or is over 128 bytes is refused.
+
+Two publishes per frame. Higher would let a script loop over `mqtt_publish` and
+flood a whole home automation from inside the network it lives on - and it
+would look like the broker misbehaving rather than like a script anybody would
+think to suspect.
+
+Retain is off unless you ask. A retained message outlives the device that sent
+it, and a script's last reading sitting on somebody's broker for ever is rarely
+what was wanted.
+
+Reading is unrestricted and writing is not, which is deliberate: the broker
+belongs to whoever installed the script, and showing what is already on it is
+the entire point.
+
 ### The button
 
 ```berry

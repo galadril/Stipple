@@ -121,6 +121,7 @@ add_library(stipple_core
     src/apps/StopwatchApp.cpp
     src/apps/VisualizerApp.cpp
     src/apps/Unavailable.cpp
+    src/script/ScriptMqtt.cpp
     src/script/ScriptRunner.cpp
     src/apps/SplashScreen.cpp
     src/host/ApplicationHost.cpp
@@ -132,6 +133,7 @@ add_library(stipple_core
     src/api/ApiServer.cpp
     src/api/BasicAuth.cpp
     src/mqtt/MqttBridge.cpp
+    src/mqtt/ScriptGateway.cpp
     src/mqtt/MqttService.cpp
 )
 

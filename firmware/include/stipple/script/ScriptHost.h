@@ -125,6 +125,14 @@ public:
     /// The speaker this script may use, or null on a device without one.
     void setAudio(platform::IAudioOutput* audio) noexcept;
 
+    /// The broker this script may use, or null when there is none.
+    ///
+    /// The id comes with it, because every call through `IScriptMqtt` is
+    /// scoped by script: a script publishes under its own subtree and reads
+    /// its own watches, and the host is the only thing that knows which
+    /// script this is.
+    void setMqtt(IScriptMqtt* mqtt, std::string_view scriptId);
+
     /// Whether a script is loaded and has not failed.
     bool ready() const noexcept { return ready_; }
 
@@ -166,6 +174,8 @@ private:
     std::uint32_t lastInstructions_ = 0;
     ScriptEnvironment environment_;
     platform::IAudioOutput* audio_ = nullptr;
+    IScriptMqtt* mqtt_ = nullptr;
+    std::string scriptId_;
     std::vector<std::pair<std::string, Stored>> store_;
 };
 

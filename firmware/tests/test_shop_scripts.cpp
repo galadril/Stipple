@@ -22,6 +22,8 @@
 #include "stipple/graphics/Canvas.h"
 #include "stipple/imageio/Png.h"
 #include "stipple/platform/PlatformServices.h"
+#include "stipple/mqtt/ScriptGateway.h"
+#include "stipple/platform/MqttClient.h"
 #include "stipple/graphics/Framebuffer.h"
 #include "stipple/script/ScriptHost.h"
 #include "stipple/script/ScriptStore.h"
@@ -250,6 +252,28 @@ STIPPLE_TEST(ShopScripts, EachOneSaysWhenTheDeviceCannotTellItTheTime) {
 
 namespace {
 
+/// A broker that goes nowhere. Enough for a gateway to call itself
+/// connected, which is all either harness below needs of it.
+class NowhereBroker final : public stipple::platform::IMqttClient {
+public:
+    bool connect(const stipple::platform::MqttConnectOptions&,
+                 stipple::platform::IMqttListener&) override {
+        return true;
+    }
+    void disconnect() override {}
+    stipple::platform::MqttState state() const override {
+        return stipple::platform::MqttState::Connected;
+    }
+    bool publish(const stipple::platform::MqttMessage&) override { return true; }
+    bool subscribe(std::string_view filter, int) override {
+        watched.emplace_back(filter);
+        return true;
+    }
+    void poll(std::uint64_t) override {}
+
+    std::vector<std::string> watched;
+};
+
 /// A speaker that takes everything and remembers nothing. The audio gate
 /// below cares only whether one is present, not what came out of it.
 class SilentSpeaker final : public stipple::platform::IAudioOutput {
@@ -311,6 +335,52 @@ STIPPLE_TEST(ShopScripts, EachAudioScriptSaysWhenTheDeviceCannotMakeASound) {
     }
 }
 
+STIPPLE_TEST(ShopScripts, EachMqttScriptSaysWhenThereIsNoBroker) {
+    // Third time the same rule. MQTT is off by default, so this is not the
+    // unlikely case - it is what every one of these scripts does on the day
+    // somebody first pastes it in, and a panel that goes black then is
+    // indistinguishable from one that crashed.
+    const char* needBroker[] = {"power-meter.be"};
+
+    for (const char* name : needBroker) {
+        const std::string source = readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/" + name);
+        STIPPLE_REQUIRE(!source.empty());
+
+        Framebuffer connected;
+        Framebuffer alone;
+
+        {
+            NowhereBroker broker;
+            stipple::mqtt::ScriptGateway gateway;
+            gateway.setClient(&broker);
+            gateway.setBase("stipple/demo");
+            gateway.setConnected(true);
+
+            ScriptStore store;
+            store.setMqtt(&gateway);
+            STIPPLE_REQUIRE(store.put("shop", name, source) ==
+                            stipple::script::ScriptPutResult::Added);
+            Canvas canvas(connected);
+            STIPPLE_REQUIRE(store.draw("shop", canvas, 0));
+        }
+
+        {
+            ScriptStore store;  // no gateway at all
+            STIPPLE_REQUIRE(store.put("shop", name, source) ==
+                            stipple::script::ScriptPutResult::Added);
+            Canvas canvas(alone);
+            STIPPLE_REQUIRE(store.draw("shop", canvas, 0));
+        }
+
+        STIPPLE_CHECK(countLit(alone) > 0);
+        if (connected == alone) {
+            std::printf("    [shop] %s draws the same frame with and without a broker\n",
+                        name);
+        }
+        STIPPLE_CHECK(!(connected == alone));
+    }
+}
+
 // Not a test so much as a way to look at them.
 //
 // "Does this look right on a 52x16 panel" cannot be asserted, only seen. Set
@@ -357,12 +427,27 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
     // it on, which is a worse lie than the one the marker exists to prevent.
     SilentSpeaker speaker;
 
+    // And a broker, for the same reason. A card reading "no broker" would be
+    // advertising a limitation of the machine that rendered the GIF.
+    //
+    // It answers every watch with a plausible reading, which is a stand-in
+    // and is labelled as one: the shop cannot know what is on anybody's
+    // broker, and the alternative is a card showing the word "waiting" for
+    // three seconds.
+    NowhereBroker broker;
+
     for (const Example& example : loadExamples()) {
         if (example.source.empty()) { continue; }
+
+        stipple::mqtt::ScriptGateway gateway;
+        gateway.setClient(&broker);
+        gateway.setBase("stipple/demo");
+        gateway.setConnected(true);
 
         ScriptStore store;
         store.setEnvironment(environment);
         store.setAudio(&speaker);
+        store.setMqtt(&gateway);
         if (store.put("shop", example.name, example.source) !=
             stipple::script::ScriptPutResult::Added) {
             continue;
@@ -390,6 +475,22 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
             // is where on_button needs exercising; this is a photograph.
             environment.monotonicMillis = static_cast<std::uint64_t>(frame) * kFrameMillis;
             store.setEnvironment(environment);
+            gateway.setNowMillis(environment.monotonicMillis);
+
+            // Answer whatever the script asked for on its last frame. A slow
+            // walk rather than a constant, so a graph has something to draw
+            // and a threshold has something to cross.
+            for (const std::string& filter : broker.watched) {
+                if (filter.find('+') != std::string::npos ||
+                    filter.find('#') != std::string::npos) {
+                    continue;  // no single topic to invent
+                }
+                stipple::platform::MqttMessage reading;
+                reading.topic = filter;
+                reading.payload = std::to_string(300 + (frame * 47) % 3400);
+                gateway.deliver(reading);
+            }
+
             store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * kFrameMillis);
 
             for (int y = 0; y < Framebuffer::kHeight; ++y) {

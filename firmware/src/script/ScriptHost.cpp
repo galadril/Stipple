@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "stipple/script/ScriptHost.h"
 
+#include "stipple/script/IScriptMqtt.h"
+
 extern "C" {
 #include "berry.h"
 #include "be_gc.h"
@@ -42,6 +44,15 @@ struct Active {
 
     /// Tones asked for during this call. Bounded - see b_tone.
     int tones = 0;
+
+    /// The broker, for the duration of a call, and the id this script is
+    /// known by. Every call through IScriptMqtt is scoped by that id, so a
+    /// script cannot publish as another one or read another's watches.
+    IScriptMqtt* mqtt = nullptr;
+    const std::string* scriptId = nullptr;
+
+    /// Messages published during this call. Bounded - see b_mqtt_publish.
+    int publishes = 0;
 };
 
 Active g_active;
@@ -460,6 +471,97 @@ int b_volume(bvm* vm) {
     be_return(vm);
 }
 
+/* --- the broker ------------------------------------------------------------
+ *
+ * Five builtins, and the shape of them is dictated by the shape of a script.
+ * A script is awake for a few milliseconds every few seconds; it cannot be
+ * holding a subscription callback, and it cannot wait for a reply. So what it
+ * gets is "tell me the last thing said on this topic", answered from a cache
+ * the gateway keeps, plus a publish that either goes now or says it did not.
+ *
+ * mqtt_get() returning nil for "nothing has arrived" rather than an empty
+ * string is the detail that earns its keep: a sensor that publishes "" and a
+ * sensor that has said nothing since the device booted are different states,
+ * and a script that cannot tell them apart draws one as the other.
+ */
+
+/// Whether this script can reach the broker at all.
+bool brokerReady() noexcept {
+    return g_active.mqtt != nullptr && g_active.scriptId != nullptr &&
+           !g_active.scriptId->empty();
+}
+
+/// Messages a script may publish in one call.
+///
+/// Two, and low on purpose. A script looping over a publish is a device
+/// flooding somebody's home automation from inside their own network, and it
+/// would look like the broker misbehaving rather than like a script anybody
+/// would think to suspect. Anything drawing a 52x16 panel that needs to say
+/// more than two things per frame is not publishing, it is shouting.
+constexpr int kMaxPublishesPerCall = IScriptMqtt::kMaxPublishesPerCall;
+
+int b_mqtt_known(bvm* vm) {
+    be_pushbool(vm, (brokerReady() && g_active.mqtt->connected()) ? 1 : 0);
+    be_return(vm);
+}
+
+int b_mqtt_publish(bvm* vm) {
+    bool sent = false;
+    if (brokerReady() && be_top(vm) >= 2 && be_isstring(vm, 1) &&
+        g_active.publishes < kMaxPublishesPerCall) {
+        // The payload may be a number as easily as a string - a script
+        // publishing a temperature should not have to remember to convert it,
+        // and be_tostring does the same thing print() would.
+        const char* leaf = be_tostring(vm, 1);
+        const char* payload = be_tostring(vm, 2);
+        // Retained by request only. A retained message outlives the device
+        // that sent it, so defaulting to it would leave a script's last
+        // reading on somebody's broker for ever.
+        const bool retain = be_top(vm) >= 3 && be_tobool(vm, 3) != 0;
+        if (leaf != nullptr && payload != nullptr) {
+            sent = g_active.mqtt->publish(*g_active.scriptId, leaf, payload, retain);
+        }
+        g_active.publishes += 1;
+    }
+    be_pushbool(vm, sent ? 1 : 0);
+    be_return(vm);
+}
+
+int b_mqtt_watch(bvm* vm) {
+    bool watching = false;
+    if (brokerReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        // Safe to call every frame, and scripts will: there is no "the broker
+        // connected" callback for one to hook, so draw() is the only place a
+        // watch can be asked for.
+        watching = g_active.mqtt->watch(*g_active.scriptId, be_tostring(vm, 1));
+    }
+    be_pushbool(vm, watching ? 1 : 0);
+    be_return(vm);
+}
+
+int b_mqtt_get(bvm* vm) {
+    if (brokerReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        const std::string* value =
+            g_active.mqtt->latest(*g_active.scriptId, be_tostring(vm, 1));
+        if (value != nullptr) {
+            be_pushstring(vm, value->c_str());
+            be_return(vm);
+        }
+    }
+    // nil, not "". See the note above: they are different answers.
+    be_pushnil(vm);
+    be_return(vm);
+}
+
+int b_mqtt_age_ms(bvm* vm) {
+    std::int64_t age = -1;
+    if (brokerReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        age = g_active.mqtt->ageMillis(*g_active.scriptId, be_tostring(vm, 1));
+    }
+    be_pushint(vm, static_cast<bint>(age));
+    be_return(vm);
+}
+
 int b_now_ms(bvm* vm) {
     be_pushint(vm, static_cast<bint>(g_active.environment.monotonicMillis));
     be_return(vm);
@@ -493,6 +595,12 @@ void registerBuiltins(bvm* vm) {
     be_regfunc(vm, "sound", b_sound);
     be_regfunc(vm, "audio_known", b_audio_known);
     be_regfunc(vm, "volume", b_volume);
+
+    be_regfunc(vm, "mqtt_known", b_mqtt_known);
+    be_regfunc(vm, "mqtt_publish", b_mqtt_publish);
+    be_regfunc(vm, "mqtt_watch", b_mqtt_watch);
+    be_regfunc(vm, "mqtt_get", b_mqtt_get);
+    be_regfunc(vm, "mqtt_age_ms", b_mqtt_age_ms);
 
     be_regfunc(vm, "hour", b_hour);
     be_regfunc(vm, "minute", b_minute);
@@ -658,6 +766,9 @@ std::uint32_t ScriptHost::durationMillis() {
     g_active.store = &store_;
     g_active.audio = audio_;
     g_active.tones = 0;
+    g_active.mqtt = mqtt_;
+    g_active.scriptId = &scriptId_;
+    g_active.publishes = 0;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -680,11 +791,19 @@ std::uint32_t ScriptHost::durationMillis() {
         be_pop(vm, extra);
     }
     g_active.store = nullptr;
+    g_active.audio = nullptr;
+    g_active.mqtt = nullptr;
+    g_active.scriptId = nullptr;
     return millis;
 }
 
 void ScriptHost::setAudio(platform::IAudioOutput* audio) noexcept {
     audio_ = audio;
+}
+
+void ScriptHost::setMqtt(IScriptMqtt* mqtt, std::string_view scriptId) {
+    mqtt_ = mqtt;
+    scriptId_.assign(scriptId);
 }
 
 void ScriptHost::setEnvironment(const ScriptEnvironment& environment) noexcept {
@@ -767,6 +886,9 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
     g_active.store = &store_;
     g_active.audio = audio_;
     g_active.tones = 0;
+    g_active.mqtt = mqtt_;
+    g_active.scriptId = &scriptId_;
+    g_active.publishes = 0;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -782,6 +904,8 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
     g_active.canvas = nullptr;
     g_active.store = nullptr;
     g_active.audio = nullptr;
+    g_active.mqtt = nullptr;
+    g_active.scriptId = nullptr;
 
     if (result != EventResult::Handled) {
         // Disabled rather than retried. A script that throws thirty times a
@@ -808,6 +932,9 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
     g_active.store = &store_;
     g_active.audio = audio_;
     g_active.tones = 0;
+    g_active.mqtt = mqtt_;
+    g_active.scriptId = &scriptId_;
+    g_active.publishes = 0;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -820,6 +947,8 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
     }
     g_active.store = nullptr;
     g_active.audio = nullptr;
+    g_active.mqtt = nullptr;
+    g_active.scriptId = nullptr;
 
     if (result == EventResult::Failed) {
         // A handler that loops for ever is exactly as bad as a draw() that

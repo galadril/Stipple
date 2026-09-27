@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "stipple/script/ScriptStore.h"
 
+#include "stipple/script/IScriptMqtt.h"
+
 #include "stipple/script/ScriptHost.h"
 
 #include <cstdio>
@@ -82,7 +84,16 @@ ScriptPutResult ScriptStore::put(std::string id, std::string name, std::string s
     // A script saved between frames should not see 1970 on its first one.
     entry.host->setEnvironment(environment_);
     entry.host->setAudio(audio_);
+    entry.host->setMqtt(mqtt_, entry.info.id);
     refresh(entry);
+
+    // A replacement starts with no watches. The new source may well want
+    // different topics, and carrying the old ones over would leave the device
+    // subscribed on behalf of code that no longer exists - visible only as a
+    // filter in the broker's list that matches nothing in the script.
+    if (mqtt_ != nullptr && existing != nullptr) {
+        mqtt_->forget(entry.info.id);
+    }
 
     ++revision_;
 
@@ -100,6 +111,9 @@ ScriptPutResult ScriptStore::put(std::string id, std::string name, std::string s
 bool ScriptStore::remove(std::string_view id) {
     for (std::size_t i = 0; i < entries_.size(); ++i) {
         if (entries_[i].info.id == id) {
+            if (mqtt_ != nullptr) {
+                mqtt_->forget(id);
+            }
             entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(i));
             ++revision_;
             return true;
@@ -110,6 +124,11 @@ bool ScriptStore::remove(std::string_view id) {
 
 void ScriptStore::clear() {
     if (!entries_.empty()) {
+        if (mqtt_ != nullptr) {
+            for (const Entry& entry : entries_) {
+                mqtt_->forget(entry.info.id);
+            }
+        }
         entries_.clear();
         ++revision_;
     }
@@ -201,6 +220,15 @@ void ScriptStore::setAudio(platform::IAudioOutput* audio) noexcept {
     for (Entry& entry : entries_) {
         if (entry.host != nullptr) {
             entry.host->setAudio(audio);
+        }
+    }
+}
+
+void ScriptStore::setMqtt(IScriptMqtt* mqtt) noexcept {
+    mqtt_ = mqtt;
+    for (Entry& entry : entries_) {
+        if (entry.host != nullptr) {
+            entry.host->setMqtt(mqtt, entry.info.id);
         }
     }
 }

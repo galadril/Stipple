@@ -16,6 +16,8 @@ class IAudioOutput;
 
 namespace script {
 
+class IScriptMqtt;
+
 /// One script, as the rest of the firmware sees it.
 ///
 /// No Berry types here on purpose. This struct crosses into the core, which
@@ -162,6 +164,14 @@ public:
     /// script layer does not own the speaker and must not decide when the
     /// device has one.
     virtual void setAudio(platform::IAudioOutput* audio) noexcept = 0;
+
+    /// Give scripts the broker, or take it away.
+    ///
+    /// Null is a device with MQTT switched off or unconfigured, and then
+    /// `mqtt_known()` is false and nothing publishes. Same contract as the
+    /// speaker: the absence is visible to the script rather than showing up
+    /// as messages that go nowhere.
+    virtual void setMqtt(IScriptMqtt* mqtt) noexcept = 0;
 
     /// Tell every script what the device currently knows.
     ///
