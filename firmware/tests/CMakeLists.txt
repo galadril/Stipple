@@ -49,6 +49,7 @@ add_executable(stipple_tests
     test_script_audio.cpp
     test_script_mqtt.cpp
     test_http_fetch.cpp
+    test_resolver.cpp
     test_shop_scripts.cpp
 )
 
