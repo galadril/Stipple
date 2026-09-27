@@ -26,7 +26,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'image', 'usb', 'panel', 'serve', 'site', 'previews', 'clean', 'doctor')]
+    [ValidateSet('build', 'test', 'ci', 'golden', 'preview', 'emulator', 'verify', 'device', 'deploy', 'capture', 'image', 'usb', 'panel', 'serve', 'site', 'previews', 'release', 'clean', 'doctor')]
     [string]$Command = 'build',
 
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
@@ -420,6 +420,67 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/stipple_device \
         if (-not $python) { throw 'python.exe not found on PATH.' }
         & $python.Source (Join-Path $repoRoot 'tooling\site\build-previews.py') $frames
         if ($LASTEXITCODE -ne 0) { throw 'could not build the previews' }
+    }
+
+    'release' {
+        # Cut a release, or say exactly why it cannot be cut.
+        #
+        # The workflow does all of this by itself when run from the Actions
+        # tab - this verb exists for the case where somebody wants the bump in
+        # a pull request, or wants to know whether the notes are in order
+        # before clicking anything.
+        #
+        #     .\dev.ps1 release            # what would happen
+        #     .\dev.ps1 release 0.2.4      # write that version locally
+        #
+        # It never tags and never pushes. Tagging from a laptop is how a
+        # release gets cut from a tree that has uncommitted changes in it.
+        $asked = if ($Rest) { $Rest[0] } else { $null }
+
+        $cmakeVersion = (Select-String -Path (Join-Path $repoRoot 'CMakeLists.txt') `
+            -Pattern '^\s*VERSION\s+(\d+\.\d+\.\d+)').Matches[0].Groups[1].Value
+        $headerVersion = (Select-String -Path (Join-Path $repoRoot 'firmware\include\stipple\core\Version.h') `
+            -Pattern 'kVersion\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+
+        Write-Host "CMakeLists.txt  $cmakeVersion"
+        Write-Host "Version.h       $headerVersion"
+        if ($cmakeVersion -ne $headerVersion) {
+            Write-Host "  they disagree - a release would be refused" -ForegroundColor Red
+        }
+
+        $tags = @(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | ForEach-Object { $_.Substring(1) })
+        $latest = if ($tags) {
+            ($tags | Sort-Object { [version]$_ } | Select-Object -Last 1)
+        } else { '0.0.0' }
+        Write-Host "latest tag      v$latest"
+
+        $changelog = Get-Content (Join-Path $repoRoot 'CHANGELOG.md') -Raw
+        $hasUnreleased = $changelog -match '(?m)^##\s+Unreleased'
+        Write-Host ("notes           " + $(if ($hasUnreleased) { "'## Unreleased' is ready to be named" } else { "no '## Unreleased' section" }))
+
+        if (-not $asked) {
+            $parts = $latest.Split('.')
+            $next = "$($parts[0]).$($parts[1]).$([int]$parts[2] + 1)"
+            Write-Host ""
+            Write-Host "Nothing changed. To cut a release:" -ForegroundColor Cyan
+            Write-Host "  - write the notes under '## Unreleased' in CHANGELOG.md"
+            Write-Host "  - merge to main"
+            Write-Host "  - run the Release workflow from the Actions tab"
+            Write-Host ""
+            Write-Host "It picks the version itself: a patch bump would make it $next." -ForegroundColor Gray
+            Write-Host "To write a version here instead: .\dev.ps1 release $next" -ForegroundColor Gray
+            break
+        }
+
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { throw "bash not found on PATH (Git for Windows provides it)" }
+
+        & $bash.Source (Join-Path $repoRoot 'tooling/release/bump.sh') $asked
+        if ($LASTEXITCODE -ne 0) { throw "bump failed" }
+
+        Write-Host ""
+        Write-Host "Written. Nothing has been tagged or pushed." -ForegroundColor Green
+        Write-Host "Commit it, merge it, then run the Release workflow." -ForegroundColor Gray
     }
 
     'site' {

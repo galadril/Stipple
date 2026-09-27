@@ -146,12 +146,19 @@ and `dev.ps1` wraps the CLI rather than reimplementing it. `doctor`, `deploy`
 and `capture` exist. `flash` and `restore` do not, and will not until ADR
 0008's second gate is met.
 
-CI is `.github/workflows/ci.yml`; `release.yml` calls it via `workflow_call` on
-a `v*` tag so a release cannot pass weaker gates than main. A release packages
-the emulator only, states in its notes that no installable firmware exists, and
-is always a prerelease while on 0.x. The tag, `project(VERSION)` in
-`CMakeLists.txt` and `kVersion` in `firmware/include/stipple/core/Version.h` must
-agree or the workflow fails before building — bump all three together. The Pages
+CI is `.github/workflows/ci.yml`; `release.yml` calls it via `workflow_call` so
+a release cannot pass weaker gates than main. A release is always a prerelease
+while on 0.x.
+
+**Cutting one is a button.** Run the Release workflow from the Actions tab: it
+picks the next version off the highest tag, writes it into `project(VERSION)`
+and `kVersion`, renames the changelog's `## Unreleased` heading to it, runs the
+gates, packages, commits the bump, tags and publishes. Nothing is written until
+everything passes, so a failed run leaves main untouched. Write the notes under
+`## Unreleased` as you work — that is the only manual step. `tooling/release/bump.sh`
+is the one place the version substitution lives, and `.\dev.ps1 release` reports
+whether a release could be cut. Pushing a `v*` tag by hand still works, and then
+the tag is the source of truth and the files are checked against it. The Pages
 job is opt-in behind the `STIPPLE_PAGES` repository variable and stays skipped
 until someone sets it.
 
