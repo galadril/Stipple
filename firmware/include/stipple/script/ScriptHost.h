@@ -122,6 +122,25 @@ public:
     /// builtins; set by the host before each frame.
     void setEnvironment(const ScriptEnvironment& environment) noexcept;
 
+    /// The speaker this script may use, or null on a device without one.
+    void setAudio(platform::IAudioOutput* audio) noexcept;
+
+    /// The broker this script may use, or null when there is none.
+    ///
+    /// The id comes with it, because every call through `IScriptMqtt` is
+    /// scoped by script: a script publishes under its own subtree and reads
+    /// its own watches, and the host is the only thing that knows which
+    /// script this is.
+    void setMqtt(IScriptMqtt* mqtt, std::string_view scriptId);
+
+    /// The network this script may use, or null when there is none. Scoped by
+    /// id for the same reason the broker is.
+    void setHttp(IScriptHttp* http, std::string_view scriptId);
+
+    /// The microphone this script may read, or null on a device that cannot
+    /// hear. One amplitude, not a spectrum - see IMicrophone.
+    void setMicrophone(platform::IMicrophone* microphone) noexcept;
+
     /// Whether a script is loaded and has not failed.
     bool ready() const noexcept { return ready_; }
 
@@ -162,6 +181,11 @@ private:
     bool ready_ = false;
     std::uint32_t lastInstructions_ = 0;
     ScriptEnvironment environment_;
+    platform::IAudioOutput* audio_ = nullptr;
+    IScriptMqtt* mqtt_ = nullptr;
+    IScriptHttp* http_ = nullptr;
+    platform::IMicrophone* microphone_ = nullptr;
+    std::string scriptId_;
     std::vector<std::pair<std::string, Stored>> store_;
 };
 

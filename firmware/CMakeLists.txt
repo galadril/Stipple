@@ -105,6 +105,8 @@ add_library(stipple_core
     src/audio/Tone.cpp
     src/time/Timezone.cpp
     src/net/DhcpClient.cpp
+    src/net/HttpFetch.cpp
+    src/net/ScriptFetcher.cpp
     src/net/DnsMessage.cpp
     src/net/SntpMessage.cpp
     src/core/Base64.cpp
@@ -121,6 +123,7 @@ add_library(stipple_core
     src/apps/StopwatchApp.cpp
     src/apps/VisualizerApp.cpp
     src/apps/Unavailable.cpp
+    src/script/ScriptMqtt.cpp
     src/script/ScriptRunner.cpp
     src/apps/SplashScreen.cpp
     src/host/ApplicationHost.cpp
@@ -132,6 +135,7 @@ add_library(stipple_core
     src/api/ApiServer.cpp
     src/api/BasicAuth.cpp
     src/mqtt/MqttBridge.cpp
+    src/mqtt/ScriptGateway.cpp
     src/mqtt/MqttService.cpp
 )
 
@@ -166,6 +170,7 @@ endif()
 # keeping them apart is what makes that violation a link error rather than a
 # code review comment. The TC002 adapter becomes its sibling in Phase 7.
 add_library(stipple_platform_simulator
+    src/platform/simulator/SimulatorHttpClient.cpp
     src/platform/simulator/SimulatorPlatform.cpp
 )
 
@@ -190,6 +195,7 @@ if(STIPPLE_DEVICE_BUILD)
         src/platform/tc002/Tc002HttpServer.cpp
         src/platform/tc002/Tc002Input.cpp
         src/platform/tc002/Tc002Mcu.cpp
+        src/platform/tc002/Tc002HttpClient.cpp
         src/platform/tc002/Tc002MqttClient.cpp
         src/platform/tc002/Tc002Platform.cpp
         src/platform/tc002/Tc002Upgrade.cpp

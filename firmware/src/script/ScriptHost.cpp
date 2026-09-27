@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "stipple/script/ScriptHost.h"
 
+#include "stipple/script/IScriptHttp.h"
+#include "stipple/script/IScriptMqtt.h"
+
 extern "C" {
 #include "berry.h"
 #include "be_gc.h"
@@ -9,6 +12,7 @@ extern "C" {
 #include <cstring>
 
 #include "stipple/core/Rgb.h"
+#include "stipple/platform/PlatformServices.h"
 #include "stipple/graphics/Canvas.h"
 #include "stipple/graphics/Framebuffer.h"
 #include "stipple/text/Text.h"
@@ -34,6 +38,30 @@ struct Active {
     /// The drawing script's own remembered values. Null outside a call, so a
     /// builtin reached any other way writes nothing.
     std::vector<std::pair<std::string, ScriptHost::Stored>>* store = nullptr;
+
+    /// The speaker, for the duration of a call. Null on a device without one,
+    /// and null outside a call.
+    platform::IAudioOutput* audio = nullptr;
+
+    /// Tones asked for during this call. Bounded - see b_tone.
+    int tones = 0;
+
+    /// The broker, for the duration of a call, and the id this script is
+    /// known by. Every call through IScriptMqtt is scoped by that id, so a
+    /// script cannot publish as another one or read another's watches.
+    IScriptMqtt* mqtt = nullptr;
+    const std::string* scriptId = nullptr;
+
+    /// Messages published during this call. Bounded - see b_mqtt_publish.
+    int publishes = 0;
+
+    /// The network, for the duration of a call. Scoped by the same script id
+    /// as the broker.
+    IScriptHttp* http = nullptr;
+
+    /// The microphone, for the duration of a call. Null on a device that
+    /// cannot hear, which is not the same as a quiet room.
+    platform::IMicrophone* microphone = nullptr;
 };
 
 Active g_active;
@@ -392,6 +420,286 @@ int b_scroll_text(bvm* vm) {
 ///
 /// This was per-showing to begin with, and the aquarium's fish froze the
 /// first time the carousel came back round to them.
+/* --- the speaker -------------------------------------------------------------
+ *
+ * playTone and playSound are non-blocking by contract (blueprint §16): they
+ * queue and return, because audio must never hold up the panel. That is what
+ * makes them safe to hand to a script at all.
+ *
+ * Every one of these reports whether it actually did anything. A device with
+ * no speaker returns false rather than silently succeeding, so a script can
+ * draw a mute symbol instead of bleeping at something that cannot bleep.
+ */
+
+/// Tones a script may start in one call.
+///
+/// A script calling tone() in a loop would otherwise queue thousands, and the
+/// panel would be fine while the speaker worked through a minute of them. Four
+/// is enough for a chord or a short arpeggio, which is what anything drawing a
+/// 52x16 panel is plausibly doing.
+constexpr int kMaxTonesPerCall = 4;
+
+int b_tone(bvm* vm) {
+    bool started = false;
+    if (g_active.audio != nullptr && be_top(vm) >= 2 &&
+        g_active.tones < kMaxTonesPerCall) {
+        const int hz = argInt(vm, 1);
+        const int ms = argInt(vm, 2);
+        // Bounded on the way in. A script asking for an hour-long tone has
+        // made a mistake, and the speaker should not be the thing that finds
+        // out.
+        if (hz > 0 && hz <= 20000 && ms > 0) {
+            started = g_active.audio->playTone(hz, ms > 5000 ? 5000 : ms);
+            g_active.tones += 1;
+        }
+    }
+    be_pushbool(vm, started ? 1 : 0);
+    be_return(vm);
+}
+
+int b_sound(bvm* vm) {
+    bool played = false;
+    if (g_active.audio != nullptr && be_top(vm) >= 1 && be_isstring(vm, 1) &&
+        g_active.tones < kMaxTonesPerCall) {
+        played = g_active.audio->playSound(be_tostring(vm, 1));
+        g_active.tones += 1;
+    }
+    be_pushbool(vm, played ? 1 : 0);
+    be_return(vm);
+}
+
+int b_audio_known(bvm* vm) {
+    be_pushbool(vm, g_active.audio != nullptr ? 1 : 0);
+    be_return(vm);
+}
+
+int b_volume(bvm* vm) {
+    // Read-only. The volume is the user's setting, made on the device or in
+    // its web page, and an app quietly turning it up is not a feature.
+    be_pushint(vm, g_active.audio != nullptr ? g_active.audio->volume() : 0);
+    be_return(vm);
+}
+
+/* --- the broker ------------------------------------------------------------
+ *
+ * Five builtins, and the shape of them is dictated by the shape of a script.
+ * A script is awake for a few milliseconds every few seconds; it cannot be
+ * holding a subscription callback, and it cannot wait for a reply. So what it
+ * gets is "tell me the last thing said on this topic", answered from a cache
+ * the gateway keeps, plus a publish that either goes now or says it did not.
+ *
+ * mqtt_get() returning nil for "nothing has arrived" rather than an empty
+ * string is the detail that earns its keep: a sensor that publishes "" and a
+ * sensor that has said nothing since the device booted are different states,
+ * and a script that cannot tell them apart draws one as the other.
+ */
+
+/// Whether this script can reach the broker at all.
+bool brokerReady() noexcept {
+    return g_active.mqtt != nullptr && g_active.scriptId != nullptr &&
+           !g_active.scriptId->empty();
+}
+
+/// Messages a script may publish in one call.
+///
+/// Two, and low on purpose. A script looping over a publish is a device
+/// flooding somebody's home automation from inside their own network, and it
+/// would look like the broker misbehaving rather than like a script anybody
+/// would think to suspect. Anything drawing a 52x16 panel that needs to say
+/// more than two things per frame is not publishing, it is shouting.
+constexpr int kMaxPublishesPerCall = IScriptMqtt::kMaxPublishesPerCall;
+
+int b_mqtt_known(bvm* vm) {
+    be_pushbool(vm, (brokerReady() && g_active.mqtt->connected()) ? 1 : 0);
+    be_return(vm);
+}
+
+int b_mqtt_publish(bvm* vm) {
+    bool sent = false;
+    if (brokerReady() && be_top(vm) >= 2 && be_isstring(vm, 1) &&
+        g_active.publishes < kMaxPublishesPerCall) {
+        // The payload may be a number as easily as a string - a script
+        // publishing a temperature should not have to remember to convert it,
+        // and be_tostring does the same thing print() would.
+        const char* leaf = be_tostring(vm, 1);
+        const char* payload = be_tostring(vm, 2);
+        // Retained by request only. A retained message outlives the device
+        // that sent it, so defaulting to it would leave a script's last
+        // reading on somebody's broker for ever.
+        const bool retain = be_top(vm) >= 3 && be_tobool(vm, 3) != 0;
+        if (leaf != nullptr && payload != nullptr) {
+            sent = g_active.mqtt->publish(*g_active.scriptId, leaf, payload, retain);
+        }
+        g_active.publishes += 1;
+    }
+    be_pushbool(vm, sent ? 1 : 0);
+    be_return(vm);
+}
+
+int b_mqtt_watch(bvm* vm) {
+    bool watching = false;
+    if (brokerReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        // Safe to call every frame, and scripts will: there is no "the broker
+        // connected" callback for one to hook, so draw() is the only place a
+        // watch can be asked for.
+        watching = g_active.mqtt->watch(*g_active.scriptId, be_tostring(vm, 1));
+    }
+    be_pushbool(vm, watching ? 1 : 0);
+    be_return(vm);
+}
+
+int b_mqtt_get(bvm* vm) {
+    if (brokerReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        const std::string* value =
+            g_active.mqtt->latest(*g_active.scriptId, be_tostring(vm, 1));
+        if (value != nullptr) {
+            be_pushstring(vm, value->c_str());
+            be_return(vm);
+        }
+    }
+    // nil, not "". See the note above: they are different answers.
+    be_pushnil(vm);
+    be_return(vm);
+}
+
+int b_mqtt_age_ms(bvm* vm) {
+    std::int64_t age = -1;
+    if (brokerReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        age = g_active.mqtt->ageMillis(*g_active.scriptId, be_tostring(vm, 1));
+    }
+    be_pushint(vm, static_cast<bint>(age));
+    be_return(vm);
+}
+
+/* --- the network -----------------------------------------------------------
+ *
+ * Deliberately no call that fetches and returns.
+ *
+ * Such a call would have to block the thread that draws the panel, and
+ * blueprint §16 forbids that outright - a thirty-second connect timeout would
+ * be thirty seconds of frozen display. So a script says what it wants and how
+ * often, something else fetches it, and the script reads whatever arrived
+ * last.
+ *
+ * That is not a consolation prize. A script polling an API every five minutes
+ * and drawing its last answer with a visible age is strictly better behaved
+ * than the synchronous version: when the API goes down, the panel keeps its
+ * last reading and shows that it is old, instead of hanging.
+ */
+
+bool networkReady() noexcept {
+    return g_active.http != nullptr && g_active.scriptId != nullptr &&
+           !g_active.scriptId->empty();
+}
+
+int b_http_known(bvm* vm) {
+    be_pushbool(vm, (networkReady() && g_active.http->available()) ? 1 : 0);
+    be_return(vm);
+}
+
+int b_http_follow(bvm* vm) {
+    bool following = false;
+    if (networkReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        // Seconds from the script, milliseconds underneath. Seconds because a
+        // script author writing 300 means five minutes and writing 300000
+        // means they have made a mistake the floor would silently absorb.
+        std::uint32_t intervalMillis = 0;
+        if (be_top(vm) >= 2) {
+            const int seconds = argInt(vm, 2);
+            if (seconds > 0) {
+                intervalMillis = static_cast<std::uint32_t>(seconds) * 1000u;
+            }
+        }
+        following = g_active.http->follow(*g_active.scriptId, be_tostring(vm, 1),
+                                          intervalMillis);
+    }
+    be_pushbool(vm, following ? 1 : 0);
+    be_return(vm);
+}
+
+int b_http_get(bvm* vm) {
+    if (networkReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        const std::string* value =
+            g_active.http->body(*g_active.scriptId, be_tostring(vm, 1));
+        if (value != nullptr) {
+            be_pushstring(vm, value->c_str());
+            be_return(vm);
+        }
+    }
+    // nil, not "". An endpoint that returned nothing and one that has never
+    // answered are different states.
+    be_pushnil(vm);
+    be_return(vm);
+}
+
+int b_http_status(bvm* vm) {
+    int status = 0;
+    if (networkReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        status = g_active.http->status(*g_active.scriptId, be_tostring(vm, 1));
+    }
+    be_pushint(vm, status);
+    be_return(vm);
+}
+
+int b_http_age_ms(bvm* vm) {
+    std::int64_t age = -1;
+    if (networkReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        age = g_active.http->ageMillis(*g_active.scriptId, be_tostring(vm, 1));
+    }
+    be_pushint(vm, static_cast<bint>(age));
+    be_return(vm);
+}
+
+int b_http_error(bvm* vm) {
+    if (networkReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        const std::string_view why =
+            g_active.http->failure(*g_active.scriptId, be_tostring(vm, 1));
+        if (!why.empty()) {
+            // Copied through a std::string because the view is not
+            // guaranteed to be null-terminated, and Berry wants a C string.
+            const std::string held(why);
+            be_pushstring(vm, held.c_str());
+            be_return(vm);
+        }
+    }
+    be_pushnil(vm);
+    be_return(vm);
+}
+
+/* --- the microphone --------------------------------------------------------
+ *
+ * One amplitude, not a spectrum, and the builtins are shaped so a script
+ * cannot pretend otherwise. The TC002 reports a single 16-bit level about
+ * twenty times a second over its MCU link; anything here called `band()`
+ * would be inventing the number it returned.
+ *
+ * Raw rather than normalised, because what counts as loud depends on the
+ * room and the adapter cannot know that. A visualiser that wants a full-scale
+ * bar keeps its own recent maximum - which is auto-gain, and belongs where
+ * the history is.
+ */
+
+int b_mic_known(bvm* vm) {
+    be_pushbool(vm, (g_active.microphone != nullptr &&
+                     g_active.microphone->level().known)
+                        ? 1
+                        : 0);
+    be_return(vm);
+}
+
+int b_mic_level(bvm* vm) {
+    int amplitude = 0;
+    if (g_active.microphone != nullptr) {
+        const platform::SoundLevel level = g_active.microphone->level();
+        // Zero when it cannot hear, and mic_known() is how a script tells
+        // that from a silent room. Returning -1 here would be a second way
+        // to say the same thing and a second way to get it wrong.
+        amplitude = level.known ? level.amplitude : 0;
+    }
+    be_pushint(vm, amplitude);
+    be_return(vm);
+}
+
 int b_now_ms(bvm* vm) {
     be_pushint(vm, static_cast<bint>(g_active.environment.monotonicMillis));
     be_return(vm);
@@ -420,6 +728,27 @@ void registerBuiltins(bvm* vm) {
     be_regfunc(vm, "text_ink_width", b_text_width);
     be_regfunc(vm, "now_ms", b_now_ms);
     be_regfunc(vm, "elapsed_ms", b_elapsed_ms);
+
+    be_regfunc(vm, "tone", b_tone);
+    be_regfunc(vm, "sound", b_sound);
+    be_regfunc(vm, "audio_known", b_audio_known);
+    be_regfunc(vm, "volume", b_volume);
+
+    be_regfunc(vm, "mqtt_known", b_mqtt_known);
+    be_regfunc(vm, "mqtt_publish", b_mqtt_publish);
+    be_regfunc(vm, "mqtt_watch", b_mqtt_watch);
+    be_regfunc(vm, "mqtt_get", b_mqtt_get);
+    be_regfunc(vm, "mqtt_age_ms", b_mqtt_age_ms);
+
+    be_regfunc(vm, "http_known", b_http_known);
+    be_regfunc(vm, "http_follow", b_http_follow);
+    be_regfunc(vm, "http_get", b_http_get);
+    be_regfunc(vm, "http_status", b_http_status);
+    be_regfunc(vm, "http_age_ms", b_http_age_ms);
+    be_regfunc(vm, "http_error", b_http_error);
+
+    be_regfunc(vm, "mic_known", b_mic_known);
+    be_regfunc(vm, "mic_level", b_mic_level);
 
     be_regfunc(vm, "hour", b_hour);
     be_regfunc(vm, "minute", b_minute);
@@ -583,6 +912,13 @@ std::uint32_t ScriptHost::durationMillis() {
 
     g_active.environment = environment_;
     g_active.store = &store_;
+    g_active.audio = audio_;
+    g_active.tones = 0;
+    g_active.mqtt = mqtt_;
+    g_active.scriptId = &scriptId_;
+    g_active.publishes = 0;
+    g_active.http = http_;
+    g_active.microphone = microphone_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -605,7 +941,30 @@ std::uint32_t ScriptHost::durationMillis() {
         be_pop(vm, extra);
     }
     g_active.store = nullptr;
+    g_active.audio = nullptr;
+    g_active.mqtt = nullptr;
+    g_active.http = nullptr;
+    g_active.microphone = nullptr;
+    g_active.scriptId = nullptr;
     return millis;
+}
+
+void ScriptHost::setAudio(platform::IAudioOutput* audio) noexcept {
+    audio_ = audio;
+}
+
+void ScriptHost::setMqtt(IScriptMqtt* mqtt, std::string_view scriptId) {
+    mqtt_ = mqtt;
+    scriptId_.assign(scriptId);
+}
+
+void ScriptHost::setHttp(IScriptHttp* http, std::string_view scriptId) {
+    http_ = http;
+    scriptId_.assign(scriptId);
+}
+
+void ScriptHost::setMicrophone(platform::IMicrophone* microphone) noexcept {
+    microphone_ = microphone;
 }
 
 void ScriptHost::setEnvironment(const ScriptEnvironment& environment) noexcept {
@@ -686,6 +1045,13 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
     g_active.elapsedMillis = elapsedMillis;
     g_active.environment = environment_;
     g_active.store = &store_;
+    g_active.audio = audio_;
+    g_active.tones = 0;
+    g_active.mqtt = mqtt_;
+    g_active.scriptId = &scriptId_;
+    g_active.publishes = 0;
+    g_active.http = http_;
+    g_active.microphone = microphone_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -700,6 +1066,11 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
     }
     g_active.canvas = nullptr;
     g_active.store = nullptr;
+    g_active.audio = nullptr;
+    g_active.mqtt = nullptr;
+    g_active.http = nullptr;
+    g_active.microphone = nullptr;
+    g_active.scriptId = nullptr;
 
     if (result != EventResult::Handled) {
         // Disabled rather than retried. A script that throws thirty times a
@@ -724,6 +1095,13 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
     g_active.canvas = nullptr;
     g_active.environment = environment_;
     g_active.store = &store_;
+    g_active.audio = audio_;
+    g_active.tones = 0;
+    g_active.mqtt = mqtt_;
+    g_active.scriptId = &scriptId_;
+    g_active.publishes = 0;
+    g_active.http = http_;
+    g_active.microphone = microphone_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -735,6 +1113,11 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
         problem = "the button handler ran too long";
     }
     g_active.store = nullptr;
+    g_active.audio = nullptr;
+    g_active.mqtt = nullptr;
+    g_active.http = nullptr;
+    g_active.microphone = nullptr;
+    g_active.scriptId = nullptr;
 
     if (result == EventResult::Failed) {
         // A handler that loops for ever is exactly as bad as a draw() that

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "stipple/platform/MqttClient.h"
+#include "stipple/platform/simulator/SimulatorHttpClient.h"
 #include "stipple/platform/PlatformServices.h"
 
 namespace stipple {
@@ -299,6 +300,13 @@ struct SimulatorCapabilities {
     bool power = false;
     /// Off by default for the same reason.
     bool microphone = false;
+
+    /// Outbound HTTP for scripts.
+    ///
+    /// Off by default, like every other capability here, so a test that does
+    /// not ask for one gets a device that honestly has none - which is the
+    /// configuration the "says so when it cannot" tests need.
+    bool httpClient = false;
 };
 
 /// Complete simulator implementation of the §53 platform boundary.
@@ -322,6 +330,9 @@ public:
         return capabilities_.microphone ? &microphone_ : nullptr;
     }
     IMqttClient* mqtt() override { return capabilities_.mqtt ? &mqtt_ : nullptr; }
+    IHttpClient* httpClient() override {
+        return capabilities_.httpClient ? &httpClient_ : nullptr;
+    }
 
     // Concrete accessors for tests and the emulator shell, which need the
     // simulator-only controls that the interfaces deliberately do not expose.
@@ -335,6 +346,7 @@ public:
     SimulatorPower& simulatedPower() { return power_; }
     SimulatorMicrophone& simulatedMicrophone() { return microphone_; }
     SimulatorMqtt& simulatedMqtt() { return mqtt_; }
+    SimulatorHttpClient& simulatedHttpClient() { return httpClient_; }
 
 private:
     SimulatorCapabilities capabilities_;
@@ -347,6 +359,7 @@ private:
     SimulatorPower power_;
     SimulatorMicrophone microphone_;
     SimulatorMqtt mqtt_;
+    SimulatorHttpClient httpClient_;
     SimulatorRebooter rebooter_;
 };
 

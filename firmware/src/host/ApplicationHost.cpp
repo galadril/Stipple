@@ -352,6 +352,26 @@ void ApplicationHost::setScriptRunner(script::IScriptRunner* runner) {
     // core and installed after the host is up, so at initialize() time there
     // is nothing to load into - and a script library that only appeared after
     // the next reboot would look exactly like one that had not saved.
+    // The speaker, if this device has one. Null is a supported answer and
+    // the builtins report it rather than pretending to play.
+    runner->setAudio(platform_.audio());
+
+    // And the broker. Always handed over, even with MQTT switched off: the
+    // gateway reports its own state, so a script asking mqtt_known() gets a
+    // straight answer either way, and turning MQTT on later needs no second
+    // call from here.
+    runner->setMqtt(&mqtt_.scripts());
+
+    // And the network. The fetcher reports its own availability, so a
+    // platform with no HTTP client is a script being told it cannot fetch
+    // rather than requests queueing for a socket that will never exist.
+    fetcher_.setClient(platform_.httpClient());
+    runner->setHttp(&fetcher_);
+
+    // And the microphone, for the visualisers. Null is a device that cannot
+    // hear, which the builtins report rather than reading as silence.
+    runner->setMicrophone(platform_.microphone());
+
     loadScripts();
     persistedScriptRevision_ = runner->revision();
 }
@@ -788,11 +808,13 @@ void ApplicationHost::applyCarouselSettings() {
     // carousel told its configuration had changed would be entitled to act on
     // that. Today it would not, but a free "nothing changed" check is cheaper
     // than depending on it never starting to.
-    if (carousel_.config().defaultDurationSeconds == settings_.apps.defaultDurationSeconds) {
+    if (carousel_.config().defaultDurationSeconds == settings_.apps.defaultDurationSeconds &&
+        carousel_.config().autoAdvance == settings_.apps.autoAdvance) {
         return;
     }
     app::CarouselConfig carousel;
     carousel.defaultDurationSeconds = settings_.apps.defaultDurationSeconds;
+    carousel.autoAdvance = settings_.apps.autoAdvance;
     carousel_.setConfig(carousel);
 }
 
@@ -1584,6 +1606,12 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         }
         mqtt_.setDeviceState(std::move(state));
         mqtt_.tick(nowMillis);
+
+        // Same loop, same reason. One request at a time, and the schedule
+        // decides which - see ScriptFetcher.
+        fetcher_.setNetworkUp(platform_.network() != nullptr &&
+                              platform_.network()->status().connected);
+        fetcher_.tick(nowMillis);
     }
 
     // Settings cannot outlive the user's attention: someone who walks away

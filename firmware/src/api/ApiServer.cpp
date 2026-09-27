@@ -136,6 +136,7 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .beginObject()
         .member("defaultDurationSeconds", settings.apps.defaultDurationSeconds)
         .member("transitions", settings.apps.transitions)
+        .member("autoAdvance", settings.apps.autoAdvance)
         .member("transition", settings.apps.transition);
 
     // The arrangement, which is a setting like any other.
@@ -206,10 +207,17 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
     // request, so it gets its own ceiling rather than raising the general
     // one - which would let any request allocate megabytes on a device with
     // 36 MB of RAM.
-    const bool isImageUpload =
-        matchRoute(request.path).resource == Resource::SystemFirmware;
-    const std::size_t bodyCeiling =
-        isImageUpload ? options_.maxImageBytes : options_.maxBodyBytes;
+    const Resource sized = matchRoute(request.path).resource;
+    std::size_t bodyCeiling = options_.maxBodyBytes;
+    if (sized == Resource::SystemFirmware) {
+        bodyCeiling = options_.maxImageBytes;
+    } else if (sized == Resource::AssetCollection) {
+        // An icon is pixels as JSON integers, roughly nine bytes each. A
+        // 32x32 animation is well past the general limit and entirely
+        // reasonable, so it gets its own ceiling rather than raising one that
+        // every other route would inherit.
+        bodyCeiling = options_.maxIconBytes;
+    }
     if (request.body.size() > bodyCeiling) {
         return payloadTooLarge();
     }
@@ -1218,7 +1226,9 @@ Response ApiServer::handleAssetCollection(const Request& request) {
         return methodNotAllowed();
     }
 
-    Body body(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+    // Every pixel is a JSON token, so an icon needs a budget an ordinary
+    // request does not. A 16x16 frame alone is 256 of them.
+    Body body(request.body, options_.maxIconJsonTokens, options_.maxIconBytes);
     if (!body.valid()) {
         return badRequest(std::string("invalid JSON: ") + body.errorText());
     }
@@ -1726,6 +1736,9 @@ Response ApiServer::handleSettings(const Request& request) {
         }
         if (const json::Value transitions = apps["transitions"]; transitions.isBoolean()) {
             updated.apps.transitions = transitions.toBool(true);
+        }
+        if (const json::Value autoAdvance = apps["autoAdvance"]; autoAdvance.isBoolean()) {
+            updated.apps.autoAdvance = autoAdvance.toBool(true);
         }
         if (const json::Value order = apps["order"]; order.isArray()) {
             // Replaced wholesale rather than merged. An order is a sequence,

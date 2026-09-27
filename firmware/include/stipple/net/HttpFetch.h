@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <string_view>
+
+namespace stipple {
+namespace net {
+namespace http {
+
+/// A URL, taken apart.
+///
+/// Only what a fetch needs. No user-info, no fragment: a fragment never
+/// reaches a server, and credentials in a URL are a way to put a password in
+/// a script somebody pastes onto a public page.
+struct Url {
+    bool secure = false;  ///< https
+    std::string host;
+    int port = 80;
+    std::string target;  ///< path plus query, starting with '/'
+};
+
+/// Longest URL a script may ask for.
+///
+/// Bounded like everything else that arrives from the network — and a script
+/// building a URL in a loop is a real way to run a device out of memory
+/// slowly enough that nobody connects the two.
+inline constexpr std::size_t kMaxUrlBytes = 256;
+
+/// Take a URL apart. False when it is not one this device will fetch.
+///
+/// Deliberately strict. This string comes from a script, and a parser that
+/// guesses at a malformed URL is one that can be talked into connecting
+/// somewhere its author did not mean.
+bool parseUrl(std::string_view url, Url& out) noexcept;
+
+/// The request line and headers for a GET. No body, no keep-alive.
+///
+/// `Connection: close` rather than keep-alive: the device makes one request
+/// every few minutes, and a connection held open costs a socket and a
+/// timeout-handling path for a saving that would never be measurable.
+std::string buildGet(const Url& url, std::string_view userAgent);
+
+/// What came back.
+struct Response {
+    int status = 0;        ///< 200, 404, ... Zero when nothing was understood.
+    std::string body;
+    bool complete = false;
+    bool chunked = false;
+
+    /// True when the body was cut off at the cap rather than ending.
+    ///
+    /// Kept rather than hidden, because a script parsing JSON out of a
+    /// truncated document will fail in a way that looks like the server
+    /// having changed its format.
+    bool truncated = false;
+};
+
+/// Feeds bytes in, gets a response out.
+///
+/// Incremental because the bytes arrive in whatever sizes the network feels
+/// like, and bounded because the other end of this is a server a script
+/// named — which may be hostile, or merely enormous.
+class ResponseParser {
+public:
+    /// Longest body kept.
+    ///
+    /// One kilobyte. A script draws on a panel 52 pixels wide; anything it can
+    /// usefully show is near the front of the document, and the whole point of
+    /// a cap is that the device's memory must not depend on what somebody
+    /// else's server decided to send.
+    static constexpr std::size_t kMaxBodyBytes = 1024;
+
+    /// Longest header block accepted, so a server that never stops sending
+    /// headers cannot hold a buffer open for ever.
+    static constexpr std::size_t kMaxHeaderBytes = 4096;
+
+    /// Feed bytes. False means the response is malformed and the connection
+    /// should be dropped — not that it is finished.
+    bool feed(std::string_view bytes);
+
+    /// True once the whole body has arrived, or once enough of it has that
+    /// nothing more will be kept.
+    bool done() const noexcept;
+
+    const Response& response() const noexcept { return response_; }
+
+    /// Why it failed, for the log and the panel. Empty when it has not.
+    std::string_view failure() const noexcept { return failure_; }
+
+    void reset() noexcept;
+
+private:
+    enum class Stage : std::uint8_t { Status, Headers, Body, Chunk, Complete, Broken };
+
+    bool consumeStatusLine(std::string_view line);
+    bool consumeHeader(std::string_view line);
+    bool consumeBody();
+    bool consumeChunks();
+    bool fail(const char* why);
+
+    Stage stage_ = Stage::Status;
+    std::string pending_;
+    std::string failure_;
+    Response response_;
+    std::size_t headerBytes_ = 0;
+    /// -1 until a Content-Length is seen.
+    long long contentLength_ = -1;
+    std::size_t bodyTaken_ = 0;
+};
+
+}  // namespace http
+}  // namespace net
+}  // namespace stipple

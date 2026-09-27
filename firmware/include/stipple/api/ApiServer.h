@@ -124,8 +124,35 @@ struct ApiOptions {
     /// firmware image for this device.
     std::size_t maxImageBytes = 4u * 1024u * 1024u;
 
+    /// The ceiling for an icon, which is the other thing that legitimately
+    /// dwarfs an ordinary request.
+    ///
+    /// Pixels arrive as a JSON array of packed 0xRRGGBB integers, so the
+    /// body is roughly nine bytes per pixel. A 32x32 sixteen-frame animation
+    /// - the largest geometry the store accepts - is 16,384 pixels and
+    /// therefore about 150 KB of JSON. 256 KB covers it with room for the
+    /// id and the frame structure.
+    ///
+    /// Separate from `maxBodyBytes` for the same reason a firmware image is:
+    /// everything else on this API is small, and one limit generous enough
+    /// for an animation would let any request allocate a quarter of a
+    /// megabyte.
+    std::size_t maxIconBytes = 256u * 1024u;
+
     /// Token budget for parsing a request body.
     int maxJsonTokens = 512;
+
+    /// And for an icon, where every pixel is a token.
+    ///
+    /// This is the limit people actually hit, and it is invisible when they
+    /// do: 512 tokens is two 16x16 frames, so somebody who upscaled an 8x8
+    /// icon set from a TC001 gets "too many JSON tokens" on an icon that is
+    /// well inside every size limit the page shows them.
+    ///
+    /// 32x32 x 16 frames is 16,384 pixels; 20,000 covers that and the
+    /// structure around it. A token is twelve bytes, so the worst case is
+    /// 240 KB held for the length of one parse.
+    int maxIconJsonTokens = 20000;
 };
 
 /// The native `/api/v1/*` surface (blueprint §19.1).

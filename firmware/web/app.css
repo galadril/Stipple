@@ -13,6 +13,10 @@
     --accent: #00beff;
     --danger: #f2545b;
     --ok: #3fb950;
+
+    /* One declaration, because the editor draws the same text twice and the
+       two copies must land on the same pixels. */
+    --code-font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -627,27 +631,116 @@ input[type="color"] {
 .editor-side .list li .flag.bad { color: var(--danger); }
 .editor-side .list li .flag.good { color: var(--ok); }
 
-textarea.code {
-    width: 100%;
-    min-height: 320px;
-    padding: 10px 12px;
-    background: var(--bg);
-    color: var(--text);
+/* --- the script editor ---------------------------------------------------
+
+   A textarea with a highlighted copy of its own text behind it. The two must
+   line up to the pixel or the illusion breaks the moment anybody types a
+   tab, so every metric that affects glyph position is declared once here and
+   inherited by both.
+
+   Changing the font, the padding, the line height or tab-size means changing
+   it for .hl too. That is the whole maintenance cost of doing this without a
+   library, and it is cheaper than the library. */
+
+.codebox {
+    display: flex;
     border: 1px solid var(--line);
     border-radius: 6px;
-    font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--bg);
+    overflow: hidden;
+}
+
+.codebox:focus-within { border-color: var(--accent); }
+
+/* Line numbers. The compiler answers with one, so the editor should offer
+   one to count to. */
+.gutter {
+    flex: 0 0 auto;
+    padding: 10px 8px 10px 10px;
+    border-right: 1px solid var(--line);
+    background: var(--panel);
+    color: #5b6672;
+    font: var(--code-font);
+    text-align: right;
+    white-space: pre;
+    user-select: none;
+    overflow: hidden;
+}
+
+.gutter span,
+.gutter b {
+    display: block;
+}
+
+/* The line the compiler complained about. */
+.gutter b {
+    font-weight: 400;
+    color: var(--danger);
+}
+
+.codescroll {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 320px;
+    resize: vertical;
+    overflow: hidden;
+}
+
+textarea.code,
+.codescroll .hl {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 10px 12px;
+    border: 0;
+    font: var(--code-font);
     /* Horizontal scrolling rather than wrapping. Wrapped code hides its own
        indentation, which is most of how Berry's blocks are read. */
     white-space: pre;
-    overflow-x: auto;
-    resize: vertical;
+    overflow: auto;
     tab-size: 2;
+    -moz-tab-size: 2;
 }
 
-textarea.code:focus {
-    outline: none;
-    border-color: var(--accent);
+/* Behind, and never interactive: every click has to reach the textarea. */
+.codescroll .hl {
+    z-index: 0;
+    color: var(--text);
+    background: transparent;
+    pointer-events: none;
+    overflow: hidden;
 }
+
+textarea.code {
+    z-index: 1;
+    background: transparent;
+    resize: none;
+    /* The text is drawn by the layer underneath. The caret is not, so it is
+       coloured explicitly - without this the cursor is invisible, which is
+       the one way this technique fails badly. */
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    caret-color: var(--accent);
+}
+
+/* Selection has to stay visible through transparent text, and the default
+   selection colour is too faint to read code through. */
+textarea.code::selection { background: rgba(0, 190, 255, 0.28); }
+textarea.code::-moz-selection { background: rgba(0, 190, 255, 0.28); }
+
+textarea.code:focus { outline: none; }
+
+/* The tokens. Restrained on purpose: six colours, each earning its place.
+   Comments recede, strings and numbers are the literals, keywords carry the
+   structure, and builtins are picked out in the accent so a typo'd `pixl`
+   stops looking like a call. */
+.tk-com { color: #6a7480; font-style: italic; }
+.tk-str { color: #7ee787; }
+.tk-num { color: #f0883e; }
+.tk-key { color: #ff7b9c; }
+.tk-fn  { color: var(--accent); }
+.tk-def { color: #d2a8ff; }
 
 /* The compiler's message, with the line number it gave. Bordered rather than
    filled: this appears while somebody is mid-edit, and a block of red would

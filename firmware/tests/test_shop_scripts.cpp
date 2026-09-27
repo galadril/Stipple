@@ -16,8 +16,17 @@
 #include <string>
 #include <vector>
 
+#include <cstdint>
+#include <string_view>
+
 #include "stipple/graphics/Canvas.h"
 #include "stipple/imageio/Png.h"
+#include "stipple/platform/PlatformServices.h"
+#include "stipple/mqtt/ScriptGateway.h"
+#include "stipple/net/ScriptFetcher.h"
+#include "stipple/platform/simulator/SimulatorHttpClient.h"
+#include "stipple/platform/simulator/SimulatorPlatform.h"
+#include "stipple/platform/MqttClient.h"
 #include "stipple/graphics/Framebuffer.h"
 #include "stipple/script/ScriptHost.h"
 #include "stipple/script/ScriptStore.h"
@@ -244,6 +253,270 @@ STIPPLE_TEST(ShopScripts, EachOneSaysWhenTheDeviceCannotTellItTheTime) {
     }
 }
 
+namespace {
+
+/// A broker that goes nowhere. Enough for a gateway to call itself
+/// connected, which is all either harness below needs of it.
+class NowhereBroker final : public stipple::platform::IMqttClient {
+public:
+    bool connect(const stipple::platform::MqttConnectOptions&,
+                 stipple::platform::IMqttListener&) override {
+        return true;
+    }
+    void disconnect() override {}
+    stipple::platform::MqttState state() const override {
+        return stipple::platform::MqttState::Connected;
+    }
+    bool publish(const stipple::platform::MqttMessage&) override { return true; }
+    bool subscribe(std::string_view filter, int) override {
+        watched.emplace_back(filter);
+        return true;
+    }
+    void poll(std::uint64_t) override {}
+
+    std::vector<std::string> watched;
+};
+
+/// A speaker that takes everything and remembers nothing. The audio gate
+/// below cares only whether one is present, not what came out of it.
+class SilentSpeaker final : public stipple::platform::IAudioOutput {
+public:
+    bool playTone(int, int) override { return true; }
+    bool playSound(std::string_view) override { return true; }
+    void stop() override {}
+    void setVolume(std::uint8_t volume) override { level_ = volume; }
+    std::uint8_t volume() const override { return level_; }
+
+private:
+    std::uint8_t level_ = 128;
+};
+
+}  // namespace
+
+STIPPLE_TEST(ShopScripts, EachAudioScriptSaysWhenTheDeviceCannotMakeASound) {
+    // The same rule as the clock, one capability along. A metronome on a
+    // device with no speaker is a swinging pendulum and nothing else, and
+    // somebody watching it cannot tell that from a metronome whose volume
+    // is down - unless the script says so. ADR 0013.
+    //
+    // Checking that it draws *something* would pass a script that ignored
+    // the question entirely, so this renders the same frame twice, once
+    // with a speaker and once without, and requires the two to differ.
+    const char* needAudio[] = {"metronome.be", "kitchen-timer.be", "sequencer.be"};
+
+    for (const char* name : needAudio) {
+        const std::string source = readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/" + name);
+        STIPPLE_REQUIRE(!source.empty());
+
+        Framebuffer heard;
+        Framebuffer silent;
+
+        {
+            ScriptStore store;
+            SilentSpeaker speaker;
+            store.setAudio(&speaker);
+            STIPPLE_REQUIRE(store.put("shop", name, source) ==
+                            stipple::script::ScriptPutResult::Added);
+            Canvas canvas(heard);
+            STIPPLE_REQUIRE(store.draw("shop", canvas, 0));
+        }
+
+        {
+            ScriptStore store;  // no audio at all
+            STIPPLE_REQUIRE(store.put("shop", name, source) ==
+                            stipple::script::ScriptPutResult::Added);
+            Canvas canvas(silent);
+            STIPPLE_REQUIRE(store.draw("shop", canvas, 0));
+        }
+
+        STIPPLE_CHECK(countLit(silent) > 0);
+        if (heard == silent) {
+            std::printf("    [shop] %s draws the same frame with and without a speaker\n",
+                        name);
+        }
+        STIPPLE_CHECK(!(heard == silent));
+    }
+}
+
+STIPPLE_TEST(ShopScripts, EachMqttScriptSaysWhenThereIsNoBroker) {
+    // Third time the same rule. MQTT is off by default, so this is not the
+    // unlikely case - it is what every one of these scripts does on the day
+    // somebody first pastes it in, and a panel that goes black then is
+    // indistinguishable from one that crashed.
+    const char* needBroker[] = {"power-meter.be"};
+
+    for (const char* name : needBroker) {
+        const std::string source = readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/" + name);
+        STIPPLE_REQUIRE(!source.empty());
+
+        Framebuffer connected;
+        Framebuffer alone;
+
+        {
+            NowhereBroker broker;
+            stipple::mqtt::ScriptGateway gateway;
+            gateway.setClient(&broker);
+            gateway.setBase("stipple/demo");
+            gateway.setConnected(true);
+
+            ScriptStore store;
+            store.setMqtt(&gateway);
+            STIPPLE_REQUIRE(store.put("shop", name, source) ==
+                            stipple::script::ScriptPutResult::Added);
+            Canvas canvas(connected);
+            STIPPLE_REQUIRE(store.draw("shop", canvas, 0));
+        }
+
+        {
+            ScriptStore store;  // no gateway at all
+            STIPPLE_REQUIRE(store.put("shop", name, source) ==
+                            stipple::script::ScriptPutResult::Added);
+            Canvas canvas(alone);
+            STIPPLE_REQUIRE(store.draw("shop", canvas, 0));
+        }
+
+        STIPPLE_CHECK(countLit(alone) > 0);
+        if (connected == alone) {
+            std::printf("    [shop] %s draws the same frame with and without a broker\n",
+                        name);
+        }
+        STIPPLE_CHECK(!(connected == alone));
+    }
+}
+
+STIPPLE_TEST(ShopScripts, EachMicScriptSaysWhenTheDeviceCannotHear) {
+    // A visualiser on a deaf device draws a flat line, which is exactly what
+    // a visualiser in a silent room draws. Only the script can tell you which
+    // one you are looking at. ADR 0013.
+    const char* needEars[] = {"neon-bars.be"};
+
+    for (const char* name : needEars) {
+        const std::string source = readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/" + name);
+        STIPPLE_REQUIRE(!source.empty());
+
+        Framebuffer heard;
+        Framebuffer deaf;
+
+        {
+            stipple::platform::simulator::SimulatorMicrophone microphone;
+            microphone.hear(9000);
+            ScriptStore store;
+            store.setMicrophone(&microphone);
+            STIPPLE_REQUIRE(store.put("shop", name, source) ==
+                            stipple::script::ScriptPutResult::Added);
+            Canvas canvas(heard);
+            STIPPLE_REQUIRE(store.draw("shop", canvas, 0));
+        }
+
+        {
+            ScriptStore store;  // no microphone at all
+            STIPPLE_REQUIRE(store.put("shop", name, source) ==
+                            stipple::script::ScriptPutResult::Added);
+            Canvas canvas(deaf);
+            STIPPLE_REQUIRE(store.draw("shop", canvas, 0));
+        }
+
+        STIPPLE_CHECK(countLit(deaf) > 0);
+        STIPPLE_CHECK(!(heard == deaf));
+    }
+}
+
+STIPPLE_TEST(ShopScripts, EachHttpScriptSaysWhenItCannotFetch) {
+    const char* needNetwork[] = {"weather.be"};
+
+    for (const char* name : needNetwork) {
+        const std::string source = readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/" + name);
+        STIPPLE_REQUIRE(!source.empty());
+
+        ScriptStore store;  // no fetcher at all
+        STIPPLE_REQUIRE(store.put("shop", name, source) ==
+                        stipple::script::ScriptPutResult::Added);
+
+        Framebuffer framebuffer;
+        Canvas canvas(framebuffer);
+        STIPPLE_REQUIRE(store.draw("shop", canvas, 0));
+
+        // It says something rather than going black, which is what a device
+        // that crashed also does.
+        if (countLit(framebuffer) == 0) {
+            std::printf("    [shop] %s draws nothing when it cannot fetch\n", name);
+        }
+        STIPPLE_CHECK(countLit(framebuffer) > 0);
+    }
+}
+
+STIPPLE_TEST(ShopScripts, TheWeatherScriptReadsARealOpenMeteoReply) {
+    // The script is only useful if it can parse what the API actually sends,
+    // and nothing else here would notice if a field were renamed: the shop
+    // gate runs it with no network, where it draws "fetching" and returns
+    // before touching the JSON.
+    //
+    // This body is Open-Meteo's real shape, trimmed to the four fields the
+    // script asks for.
+    const std::string source =
+        readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/weather.be");
+    STIPPLE_REQUIRE(!source.empty());
+
+    // The URL the script builds. Taken from the script rather than retyped,
+    // so a change to the query string cannot leave this testing a URL nobody
+    // fetches.
+    const std::size_t start = source.find("https://api.open-meteo.com");
+    STIPPLE_REQUIRE(start != std::string::npos);
+
+    stipple::platform::simulator::SimulatorHttpClient client;
+    stipple::net::ScriptFetcher fetcher;
+    fetcher.setClient(&client);
+    fetcher.setNetworkUp(true);
+
+    ScriptStore store;
+    store.setHttp(&fetcher);
+    STIPPLE_REQUIRE(store.put("shop", "weather.be", source) ==
+                    stipple::script::ScriptPutResult::Added);
+
+    // One frame to register the follow, so the URL it actually wants can be
+    // read back off the fetcher rather than reconstructed here.
+    Framebuffer waiting;
+    Canvas waitingCanvas(waiting);
+    STIPPLE_REQUIRE(store.draw("shop", waitingCanvas, 0));
+    // If this fails the script stopped calling http_follow, and everything
+    // below would pass trivially on a script that fetches nothing.
+    STIPPLE_REQUIRE(fetcher.feedCount() == 1);
+
+    // Whatever URL it asked for, answer that one.
+    fetcher.tick(0);
+    STIPPLE_REQUIRE(!client.asked().empty());
+
+    stipple::platform::simulator::SimulatorHttpClient::Route route;
+    route.url = client.asked().front();
+    route.latencyMillis = 0;
+    route.body =
+        R"({"latitude":52.37,"longitude":4.89,"timezone":"Europe/Amsterdam",)"
+        R"("current":{"time":"2026-09-27T14:30","temperature_2m":21.4,"weather_code":61},)"
+        R"("daily":{"time":["2026-09-27"],"temperature_2m_max":[23.1],)"
+        R"("temperature_2m_min":[12.8]}})";
+    client.answer(route);
+
+    // The first request went out before the route existed and failed, so run
+    // past the failure backoff to get a second one.
+    for (std::uint64_t now = 0;
+         now < stipple::net::ScriptFetcher::kFailureBackoffMillis + 2000; now += 100) {
+        fetcher.tick(now);
+    }
+
+    Framebuffer drawn;
+    Canvas canvas(drawn);
+    STIPPLE_REQUIRE(store.draw("shop", canvas, 33));
+
+    // It parsed, so it drew a sky and numbers rather than the word "fetching".
+    STIPPLE_CHECK(countLit(drawn) > countLit(waiting));
+    STIPPLE_CHECK(!(drawn == waiting));
+
+    // And nothing threw on the way. A Berry error here would have disabled
+    // the script, and every check above would still have passed on the frame
+    // it managed before dying.
+    STIPPLE_CHECK(store.problem("shop").empty());
+}
+
 // Not a test so much as a way to look at them.
 //
 // "Does this look right on a 52x16 panel" cannot be asserted, only seen. Set
@@ -282,11 +555,54 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
     environment.batteryPercent = 64;
     environment.charging = true;
 
+    // A speaker is present, because a TC002 has one.
+    //
+    // Without this the audio scripts would each draw their "no speaker"
+    // marker into the shop page - a preview advertising a limitation of the
+    // machine that rendered it rather than of the device somebody would run
+    // it on, which is a worse lie than the one the marker exists to prevent.
+    SilentSpeaker speaker;
+
+    // And a broker, for the same reason. A card reading "no broker" would be
+    // advertising a limitation of the machine that rendered the GIF.
+    //
+    // It answers every watch with a plausible reading, which is a stand-in
+    // and is labelled as one: the shop cannot know what is on anybody's
+    // broker, and the alternative is a card showing the word "waiting" for
+    // three seconds.
+    NowhereBroker broker;
+
+    // A microphone, hearing something. A visualiser card that read "no mic"
+    // would be describing the test runner, not the device.
+    stipple::platform::simulator::SimulatorMicrophone microphone;
+
+    // And a network that answers. Same stand-in, same reason: a card showing
+    // three seconds of the word "fetching" is a picture of this test runner
+    // rather than of a device on somebody's shelf.
+    stipple::platform::simulator::SimulatorHttpClient http;
+    http.setDefaultAnswer(
+        200,
+        R"({"current":{"temperature_2m":21.4,"weather_code":61},)"
+        R"("daily":{"temperature_2m_max":[23.1],"temperature_2m_min":[12.8]}})");
+
     for (const Example& example : loadExamples()) {
         if (example.source.empty()) { continue; }
 
+        stipple::mqtt::ScriptGateway gateway;
+        gateway.setClient(&broker);
+        gateway.setBase("stipple/demo");
+        gateway.setConnected(true);
+
         ScriptStore store;
         store.setEnvironment(environment);
+        store.setAudio(&speaker);
+        store.setMqtt(&gateway);
+        store.setMicrophone(&microphone);
+
+        stipple::net::ScriptFetcher fetcher;
+        fetcher.setClient(&http);
+        fetcher.setNetworkUp(true);
+        store.setHttp(&fetcher);
         if (store.put("shop", example.name, example.source) !=
             stipple::script::ScriptPutResult::Added) {
             continue;
@@ -299,16 +615,64 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
 
         Framebuffer framebuffer;
         Canvas canvas(framebuffer);
-        for (int frame = 0; frame < kFrames; ++frame) {
-            // A script with an on_button is played rather than watched. A
-            // preview of a game showing its game-over screen is a preview of
-            // nothing.
-            if (frame % 12 == 0) {
-                store.button("shop", "select");
-            }
+
+        // Two seconds drawn and thrown away before recording starts.
+        //
+        // The preview should show the app as you meet it in the carousel,
+        // which is never in its first millisecond. Every script that
+        // accumulates anything opens on an empty version of itself: a feed
+        // has not answered, a scrolling history has not scrolled, a
+        // simulation has not settled. A card is three seconds long and
+        // spending the first of them on a blank panel wastes a third of it.
+        //
+        // The clock runs continuously through the warm-up, so nothing sees
+        // time jump - which matters, because most of these throttle on
+        // now_ms() and a jump would make them skip.
+        constexpr int kWarmUp = 64;
+
+        for (int frame = 0; frame < kWarmUp + kFrames; ++frame) {
+            // Nothing is pressed here, deliberately.
+            //
+            // The preview shows what the panel does when nobody is touching
+            // it, which is what a visitor's device would be doing. Pressing
+            // seemed obviously right - a game previewing its idle screen
+            // looked like a waste - and it was wrong twice over: Flappy
+            // opened on its game-over screen, and one press put Selenograph
+            // into a caption that scrolls for eighteen seconds, so a preview
+            // three seconds long never drew the moon the script is for.
+            //
+            // The compile test above still presses every eleventh frame. That
+            // is where on_button needs exercising; this is a photograph.
             environment.monotonicMillis = static_cast<std::uint64_t>(frame) * kFrameMillis;
             store.setEnvironment(environment);
+            gateway.setNowMillis(environment.monotonicMillis);
+
+            // A plausible room: a slow swell with a beat on it, so a
+            // visualiser has a shape to draw rather than a flat line.
+            const int swell = 3000 + (frame * 211) % 9000;
+            const int beat = (frame % 15) < 3 ? 12000 : 0;
+            microphone.hear(swell + beat);
+            fetcher.tick(environment.monotonicMillis);
+
+            // Answer whatever the script asked for on its last frame. A slow
+            // walk rather than a constant, so a graph has something to draw
+            // and a threshold has something to cross.
+            for (const std::string& filter : broker.watched) {
+                if (filter.find('+') != std::string::npos ||
+                    filter.find('#') != std::string::npos) {
+                    continue;  // no single topic to invent
+                }
+                stipple::platform::MqttMessage reading;
+                reading.topic = filter;
+                reading.payload = std::to_string(300 + (frame * 47) % 3400);
+                gateway.deliver(reading);
+            }
+
             store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * kFrameMillis);
+
+            if (frame < kWarmUp) {
+                continue;
+            }
 
             for (int y = 0; y < Framebuffer::kHeight; ++y) {
                 for (int x = 0; x < Framebuffer::kWidth; ++x) {

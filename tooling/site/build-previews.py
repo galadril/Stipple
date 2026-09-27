@@ -81,7 +81,18 @@ def open_on_content(frames):
     Density is not interest. Skipping frames that are all but empty is the
     most this can know.
     """
-    floor = 5  # fewer lit pixels than this is not a picture of anything
+    # Relative to the busiest frame, with an absolute floor.
+    #
+    # A flat 5 pixels was not enough: Selenograph's caption scrolls in a
+    # character at a time, so its fourth frame has seven lit pixels and the
+    # card opened on what looked like a blank panel.
+    #
+    # Kept low on purpose. An earlier version aimed at 40% of the busiest
+    # frame and opened Flappy on its game-over screen, because text is denser
+    # than gameplay - density is not interest. 15% clears "nothing is there"
+    # without reaching for "the most is there".
+    busiest = max(lit_count(frame) for frame in frames)
+    floor = max(5, busiest * 15 // 100)
 
     first = 0
     while first < len(frames) - 1 and lit_count(frames[first]) < floor:

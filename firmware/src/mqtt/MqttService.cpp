@@ -80,12 +80,19 @@ void MqttService::configure(std::uint64_t nowMillis) {
     announced_ = false;
     statusDue_ = true;
 
+    // Scripts are told the broker is gone before it goes. Leaving the gateway
+    // claiming a connection through a reconfigure would have every script on
+    // the device publishing into a socket that is being torn down.
+    scripts_.setConnected(false);
+    scripts_.setClient(enabled_ ? context_.client : nullptr);
+
     if (!enabled_) {
         return;
     }
 
     bridge_.setTopics(
         Topics::build(mqtt.baseTopic, deviceIdFromName(context_.settings->deviceName)));
+    scripts_.setBase(bridge_.topics().base);
     log(log::Level::Info, "MQTT enabled for " + mqtt.host);
 }
 
@@ -121,6 +128,12 @@ void MqttService::onConnected() {
     publish(availability);
 
     context_.client->subscribe(bridge_.topics().commandFilter, 0);
+
+    // Scripts next. A broker that restarted has forgotten the session, and
+    // without this their watches would go quiet in a way indistinguishable
+    // from the sensors behind them having stopped publishing.
+    scripts_.setConnected(true);
+    scripts_.resubscribe();
     // Entities before state, so Home Assistant has somewhere to put the
     // first status message rather than discarding it.
     discoveryPublished_ = false;
@@ -153,6 +166,7 @@ void MqttService::shutdown() {
 
 void MqttService::tick(std::uint64_t nowMillis) {
     nowMillis_ = nowMillis;
+    scripts_.setNowMillis(nowMillis);
 
     // The setting can change at any moment from HTTP or from MQTT itself,
     // so this follows it rather than being decided once at connect.
@@ -264,6 +278,9 @@ void MqttService::onStateChanged(MqttState state) {
         onConnected();
         return;
     }
+    if (state != MqttState::Connected) {
+        scripts_.setConnected(false);
+    }
     if (state == MqttState::Disconnected && announced_) {
         announced_ = false;
         log(log::Level::Warn, "MQTT disconnected");
@@ -273,12 +290,20 @@ void MqttService::onStateChanged(MqttState state) {
 void MqttService::onMessage(const MqttMessage& message) {
     ++stats_.received;
 
+    // Offered to the scripts first, because a message a script asked for is
+    // not an unknown command and logging it as one would fill the log with a
+    // warning per sensor reading.
+    const bool wantedByScript = scripts_.deliver(message);
+
     if (context_.api == nullptr) {
         return;
     }
 
     const Bridge::Translation translation = bridge_.translate(message);
     if (!translation.understood) {
+        if (wantedByScript) {
+            return;
+        }
         // Reported, not ignored. A typo in a topic is otherwise indistinguishable
         // from the device being broken, and this is the only place anyone can
         // find out.
