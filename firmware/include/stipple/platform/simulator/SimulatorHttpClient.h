@@ -46,6 +46,17 @@ public:
     /// survive.
     void setDefaultFailure(std::string failure) { defaultFailure_ = std::move(failure); }
 
+    /// Answer every unconfigured URL with this instead of refusing.
+    ///
+    /// For the shop previews, where the URL a script asks for is not known
+    /// until it has drawn a frame and the card would otherwise be three
+    /// seconds of the word "fetching".
+    void setDefaultAnswer(int status, std::string body) {
+        defaultFailure_.clear();
+        defaultStatus_ = status;
+        defaultBody_ = std::move(body);
+    }
+
     /// Requests begun, for tests that care whether an interval was respected.
     std::uint32_t requests() const noexcept { return requests_; }
 
@@ -66,6 +77,8 @@ private:
 
     std::vector<Route> routes_;
     std::string defaultFailure_ = "cannot reach host";
+    int defaultStatus_ = 0;
+    std::string defaultBody_;
     std::vector<std::string> asked_;
     std::uint32_t requests_ = 0;
 

@@ -195,6 +195,7 @@ if(STIPPLE_DEVICE_BUILD)
         src/platform/tc002/Tc002HttpServer.cpp
         src/platform/tc002/Tc002Input.cpp
         src/platform/tc002/Tc002Mcu.cpp
+        src/platform/tc002/Tc002HttpClient.cpp
         src/platform/tc002/Tc002MqttClient.cpp
         src/platform/tc002/Tc002Platform.cpp
         src/platform/tc002/Tc002Upgrade.cpp

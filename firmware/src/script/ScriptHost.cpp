@@ -58,6 +58,10 @@ struct Active {
     /// The network, for the duration of a call. Scoped by the same script id
     /// as the broker.
     IScriptHttp* http = nullptr;
+
+    /// The microphone, for the duration of a call. Null on a device that
+    /// cannot hear, which is not the same as a quiet room.
+    platform::IMicrophone* microphone = nullptr;
 };
 
 Active g_active;
@@ -662,6 +666,40 @@ int b_http_error(bvm* vm) {
     be_return(vm);
 }
 
+/* --- the microphone --------------------------------------------------------
+ *
+ * One amplitude, not a spectrum, and the builtins are shaped so a script
+ * cannot pretend otherwise. The TC002 reports a single 16-bit level about
+ * twenty times a second over its MCU link; anything here called `band()`
+ * would be inventing the number it returned.
+ *
+ * Raw rather than normalised, because what counts as loud depends on the
+ * room and the adapter cannot know that. A visualiser that wants a full-scale
+ * bar keeps its own recent maximum - which is auto-gain, and belongs where
+ * the history is.
+ */
+
+int b_mic_known(bvm* vm) {
+    be_pushbool(vm, (g_active.microphone != nullptr &&
+                     g_active.microphone->level().known)
+                        ? 1
+                        : 0);
+    be_return(vm);
+}
+
+int b_mic_level(bvm* vm) {
+    int amplitude = 0;
+    if (g_active.microphone != nullptr) {
+        const platform::SoundLevel level = g_active.microphone->level();
+        // Zero when it cannot hear, and mic_known() is how a script tells
+        // that from a silent room. Returning -1 here would be a second way
+        // to say the same thing and a second way to get it wrong.
+        amplitude = level.known ? level.amplitude : 0;
+    }
+    be_pushint(vm, amplitude);
+    be_return(vm);
+}
+
 int b_now_ms(bvm* vm) {
     be_pushint(vm, static_cast<bint>(g_active.environment.monotonicMillis));
     be_return(vm);
@@ -708,6 +746,9 @@ void registerBuiltins(bvm* vm) {
     be_regfunc(vm, "http_status", b_http_status);
     be_regfunc(vm, "http_age_ms", b_http_age_ms);
     be_regfunc(vm, "http_error", b_http_error);
+
+    be_regfunc(vm, "mic_known", b_mic_known);
+    be_regfunc(vm, "mic_level", b_mic_level);
 
     be_regfunc(vm, "hour", b_hour);
     be_regfunc(vm, "minute", b_minute);
@@ -877,6 +918,7 @@ std::uint32_t ScriptHost::durationMillis() {
     g_active.scriptId = &scriptId_;
     g_active.publishes = 0;
     g_active.http = http_;
+    g_active.microphone = microphone_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -902,6 +944,7 @@ std::uint32_t ScriptHost::durationMillis() {
     g_active.audio = nullptr;
     g_active.mqtt = nullptr;
     g_active.http = nullptr;
+    g_active.microphone = nullptr;
     g_active.scriptId = nullptr;
     return millis;
 }
@@ -918,6 +961,10 @@ void ScriptHost::setMqtt(IScriptMqtt* mqtt, std::string_view scriptId) {
 void ScriptHost::setHttp(IScriptHttp* http, std::string_view scriptId) {
     http_ = http;
     scriptId_.assign(scriptId);
+}
+
+void ScriptHost::setMicrophone(platform::IMicrophone* microphone) noexcept {
+    microphone_ = microphone;
 }
 
 void ScriptHost::setEnvironment(const ScriptEnvironment& environment) noexcept {
@@ -1004,6 +1051,7 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
     g_active.scriptId = &scriptId_;
     g_active.publishes = 0;
     g_active.http = http_;
+    g_active.microphone = microphone_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -1021,6 +1069,7 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
     g_active.audio = nullptr;
     g_active.mqtt = nullptr;
     g_active.http = nullptr;
+    g_active.microphone = nullptr;
     g_active.scriptId = nullptr;
 
     if (result != EventResult::Handled) {
@@ -1052,6 +1101,7 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
     g_active.scriptId = &scriptId_;
     g_active.publishes = 0;
     g_active.http = http_;
+    g_active.microphone = microphone_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -1066,6 +1116,7 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
     g_active.audio = nullptr;
     g_active.mqtt = nullptr;
     g_active.http = nullptr;
+    g_active.microphone = nullptr;
     g_active.scriptId = nullptr;
 
     if (result == EventResult::Failed) {

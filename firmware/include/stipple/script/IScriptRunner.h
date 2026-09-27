@@ -12,6 +12,7 @@ class Canvas;
 
 namespace platform {
 class IAudioOutput;
+class IMicrophone;
 }
 
 namespace script {
@@ -180,6 +181,13 @@ public:
     /// `http_known()` is false and nothing is requested. Third capability,
     /// same contract: the absence is visible to the script.
     virtual void setHttp(IScriptHttp* http) noexcept = 0;
+
+    /// Give scripts the microphone, or take it away.
+    ///
+    /// Null is a device that cannot hear. Not the same as a quiet room, and
+    /// the builtins keep them apart - a visualiser on a deaf device should
+    /// say so rather than drawing a flatline that looks like a bug.
+    virtual void setMicrophone(platform::IMicrophone* microphone) noexcept = 0;
 
     /// Tell every script what the device currently knows.
     ///

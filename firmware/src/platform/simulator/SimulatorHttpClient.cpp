@@ -50,11 +50,12 @@ bool SimulatorHttpClient::begin(std::string_view url) {
 
     const Route* route = findRoute(url);
     if (route == nullptr) {
-        pendingStatus_ = 0;
-        pendingBody_.clear();
+        pendingStatus_ = defaultStatus_;
+        pendingBody_ = defaultBody_;
         pendingFailure_ = defaultFailure_;
         hanging_ = false;
         readyAtMillis_ = 0;
+        latencyMillis_ = 0;
         stage_ = Stage::Running;
         return true;
     }

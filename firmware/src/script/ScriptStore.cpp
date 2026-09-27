@@ -87,6 +87,7 @@ ScriptPutResult ScriptStore::put(std::string id, std::string name, std::string s
     entry.host->setAudio(audio_);
     entry.host->setMqtt(mqtt_, entry.info.id);
     entry.host->setHttp(http_, entry.info.id);
+    entry.host->setMicrophone(microphone_);
     refresh(entry);
 
     // A replacement starts with no watches. The new source may well want
@@ -251,6 +252,15 @@ void ScriptStore::setHttp(IScriptHttp* http) noexcept {
     for (Entry& entry : entries_) {
         if (entry.host != nullptr) {
             entry.host->setHttp(http, entry.info.id);
+        }
+    }
+}
+
+void ScriptStore::setMicrophone(platform::IMicrophone* microphone) noexcept {
+    microphone_ = microphone;
+    for (Entry& entry : entries_) {
+        if (entry.host != nullptr) {
+            entry.host->setMicrophone(microphone);
         }
     }
 }

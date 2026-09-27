@@ -368,6 +368,10 @@ void ApplicationHost::setScriptRunner(script::IScriptRunner* runner) {
     fetcher_.setClient(platform_.httpClient());
     runner->setHttp(&fetcher_);
 
+    // And the microphone, for the visualisers. Null is a device that cannot
+    // hear, which the builtins report rather than reading as silence.
+    runner->setMicrophone(platform_.microphone());
+
     loadScripts();
     persistedScriptRevision_ = runner->revision();
 }

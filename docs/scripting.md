@@ -207,6 +207,103 @@ Reading is unrestricted and writing is not, which is deliberate: the broker
 belongs to whoever installed the script, and showing what is already on it is
 the entire point.
 
+### The network
+
+```berry
+def draw()
+  http_follow("http://192.168.1.10:8123/api/now", 300)
+  var body = http_get("http://192.168.1.10:8123/api/now")
+  if body == nil
+    text(0, 0, "--", rgb(90, 90, 90))
+  else
+    text(0, 0, body, rgb(0, 190, 255))
+  end
+end
+```
+
+| Call | Does |
+|---|---|
+| `http_known()` | Whether this device can fetch anything right now. |
+| `http_follow(url [, seconds])` | Put a URL on this script's list. Returns whether it is on it. |
+| `http_get(url)` | The body of the last successful fetch, or `nil`. |
+| `http_status(url)` | 200, 404, 500. Zero before the first answer. |
+| `http_age_ms(url)` | How long ago that body arrived. Negative when none has. |
+| `http_error(url)` | Why the last attempt failed, or `nil`. |
+
+**There is deliberately no call that fetches and returns.** It would have to
+block the thread that draws the panel, and a thirty-second connect timeout
+would be thirty seconds of frozen display. So a script says what it wants and
+how often, the device fetches it on its own schedule, and the script draws
+whatever arrived last.
+
+That is not a consolation prize. When an API goes down, this keeps the last
+reading on screen with a visible age instead of hanging - which is what you
+would have had to build on top of a blocking call anyway.
+
+`http_follow` is called from `draw()`, every frame, for the same reason
+`mqtt_watch` is: there is nowhere else to call it from. Calling it again is
+free.
+
+#### What it will and will not do
+
+**Two URLs per script**, and **one request in flight across the whole
+device**. A panel 52 pixels wide is not a dashboard, and a pool of sockets
+would be sixteen timeouts to get right in exchange for fetching two things at
+once instead of one.
+
+**Thirty seconds is the floor**, five minutes the default, six hours the
+ceiling. Asking for less than thirty gets thirty. Somebody's free API does not
+want a request a frame from every one of these devices, and the script author
+is not the person who would find out. Shortening the interval does not pull
+the next fetch forward, so calling `http_follow` with a smaller number every
+frame is not a way around it.
+
+**A failure backs off for two minutes**, longer than any interval. An endpoint
+refusing connections is not one to ask every thirty seconds.
+
+**Only a 2xx becomes the body.** A 500 with an error page in it is not data.
+The status changes, the old body stays, and the age keeps counting - so a
+script can draw the last good reading and grey it out rather than putting
+somebody's stack trace on the panel.
+
+**A kilobyte of body, and the first kilobyte.** Anything a 52-pixel panel can
+show is near the front of the document.
+
+**`https` is refused, not downgraded.** Fetching over http what you asked to
+fetch over https would put an API key on the wire of a network you believed
+was protected. The device carries OpenSSL, so this is a gap rather than a
+wall - until it is closed, `http_error()` says `https not supported yet` and
+a plain-http endpoint on your own network works today.
+
+### The microphone
+
+```berry
+if mic_known()
+  var loud = mic_level()   # 0 to 32767
+end
+```
+
+| Call | Does |
+|---|---|
+| `mic_known()` | Whether this device can hear. |
+| `mic_level()` | Amplitude, 0 to 32767. Zero on a device that cannot hear. |
+
+**One amplitude, about twenty times a second. Not a spectrum.** The TC002
+reports a single level over its MCU link and nothing more, so there is no
+`band()` here and there will not be one - a script drawing eight columns
+labelled 60Hz to 16kHz would be making seven of them up, and it would look
+convincing. Plot the level against time instead; a beat becomes a shape you
+can follow, which fake bands never are.
+
+**Raw, not normalised.** What counts as loud depends on the room and nothing
+below this can know that. A visualiser that wants to fill the panel keeps its
+own recent maximum and scales to it - that is auto-gain, and it belongs where
+the history is. `neon-bars.be` in the shop does exactly this.
+
+`mic_known()` is false on a device with no microphone, and `mic_level()` is
+then zero - which is also what a silent room reads. Check the first before
+believing the second, or a deaf device draws a flatline that looks like a bug.
+
 ### The button
 
 ```berry

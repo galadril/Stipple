@@ -3450,6 +3450,205 @@ return App()
         </p>
       </article>
 
+      <article class="card" id="neon-bars">
+        <img class="card__preview" src="neon-bars.gif" width="312" height="96"
+             loading="lazy" alt="Neon Bars running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Neon Bars</h3>
+          <p class="card__by">Stipple · 181 lines</p>
+        </header>
+        <p class="card__summary">The room&#x27;s volume as a scrolling wall of neon, with peak hold and its own auto-gain.</p>
+        <ul class="card__tags"><li>audio</li><li>microphone</li><li>animation</li><li>ambient</li></ul>
+        <button class="card__read" type="button" data-script="neon-bars">Read it</button>
+        <template id="src-neon-bars"><pre><code># name: Neon Bars
+# summary: The room&#x27;s volume as a scrolling wall of neon, with peak hold and its own auto-gain.
+# author: Stipple
+# tags: audio, microphone, animation, ambient
+# panel: 52x16
+
+# A visualiser that shows what the device can actually hear.
+#
+# Not a spectrum analyser, and that is the one design decision here worth
+# defending. The TC002&#x27;s microphone reports a single amplitude about twenty
+# times a second - one number, no bands. A script drawing eight coloured
+# columns labelled 60Hz to 16kHz would be making seven of them up, and it
+# would look convincing, which is what makes it the wrong thing to build.
+#
+# So every column is a real reading, and the axis across the panel is time
+# rather than frequency. Fifty-two columns is about two and a half seconds of
+# room, scrolling right to left - which turns out to read better than fake
+# bands anyway, because a beat becomes a shape you can follow.
+#
+# Auto-gain lives here rather than in the adapter. What counts as loud depends
+# on the room and no driver can know that; this one tracks its own recent
+# maximum and scales to it, so it fills the panel in a quiet study and still
+# has headroom at a party.
+#
+# Click to change palette.
+
+class App
+  var PAL           # three palettes, each low to high
+  var pal
+  var hist          # 52 amplitudes, newest last
+  var peak          # 52 peak-hold heights
+  var last          # when the last sample was taken
+  var ceil          # current auto-gain ceiling
+  var lit           # frames since anything was heard
+
+  def init()
+    # Neon, and neon means the bar changes hue up its own height rather than
+    # every bar being one flat colour - the gradient is what makes 16 pixels
+    # of height read as brightness instead of as a bar chart.
+    self.PAL = [
+      [rgb(0, 40, 90), rgb(0, 120, 200), rgb(0, 200, 255), rgb(150, 255, 255)],
+      [rgb(60, 0, 70), rgb(160, 0, 140), rgb(255, 40, 160), rgb(255, 180, 230)],
+      [rgb(0, 60, 20), rgb(20, 160, 40), rgb(120, 230, 40), rgb(230, 255, 140)]
+    ]
+    self.pal = store.get(&quot;pal&quot;, 0)
+    if self.pal &lt; 0 || self.pal &gt;= size(self.PAL)
+      self.pal = 0
+    end
+
+    self.hist = []
+    self.peak = []
+    var i = 0
+    while i &lt; 52
+      self.hist.push(0)
+      self.peak.push(0)
+      i += 1
+    end
+    self.last = 0
+    # A floor under the gain, so a silent room does not amplify its own noise
+    # into a full-height wall of nothing.
+    self.ceil = 2000
+    self.lit = 0
+  end
+
+  def on_button(name)
+    self.pal = (self.pal + 1) % size(self.PAL)
+    store.set(&quot;pal&quot;, self.pal)
+  end
+
+  def draw()
+    clear(rgb(0, 0, 0))
+
+    if !mic_known()
+      # A device that cannot hear and a silent room look identical on a
+      # visualiser, and only one of them is worth fixing. ADR 0013.
+      text(2, 1, &quot;no mic&quot;, rgb(150, 60, 60))
+      text(2, 9, &quot;on this&quot;, rgb(70, 70, 70))
+      return
+    end
+
+    var now = now_ms()
+
+    # Twenty samples a second, which is what the MCU actually sends. Sampling
+    # faster would just redraw the same number and make the wall scroll at a
+    # speed that has nothing to do with the sound.
+    if now - self.last &gt;= 50
+      self.last = now
+      var v = mic_level()
+
+      # Shift left by one. Fifty-two moves a frame is nothing next to the
+      # drawing below, and a ring buffer here would cost an index that has to
+      # stay in step with two arrays.
+      var i = 0
+      while i &lt; 51
+        self.hist[i] = self.hist[i + 1]
+        self.peak[i] = self.peak[i + 1]
+        i += 1
+      end
+      self.hist[51] = v
+      self.peak[51] = 0
+
+      if v &gt; 300
+        self.lit = 0
+      else
+        self.lit += 1
+      end
+    end
+
+    # Auto-gain. Rises instantly to fit a new loud sound - clipping the first
+    # beat of a track would be the one moment anybody is looking - and falls
+    # slowly, so a quiet passage does not ratchet the whole room up.
+    var top = 0
+    var i = 0
+    while i &lt; 52
+      if self.hist[i] &gt; top
+        top = self.hist[i]
+      end
+      i += 1
+    end
+    if top &gt; self.ceil
+      self.ceil = top
+    elif self.ceil &gt; 2000
+      self.ceil = self.ceil - self.ceil / 64 - 1
+    end
+
+    var pal = self.PAL[self.pal]
+    var h = 16
+
+    # A floor under every column, including the ones with nothing in them.
+    # Without it the panel is black until the wall has scrolled all the way
+    # across - two and a half seconds of a device that looks switched off.
+    rect_fill(0, 15, 52, 1, rgb(6, 10, 16))
+
+    i = 0
+    while i &lt; 52
+      var bar = (self.hist[i] * h) / self.ceil
+      if bar &gt; h
+        bar = h
+      end
+
+      # Peak hold: the marker sits at the highest this column reached and
+      # sinks a pixel at a time. It is what lets you see a transient that was
+      # gone before your eye got there.
+      if bar &gt; self.peak[i]
+        self.peak[i] = bar
+      elif self.peak[i] &gt; 0 &amp;&amp; (i % 3) == (now / 120) % 3
+        self.peak[i] -= 1
+      end
+
+      var y = 0
+      while y &lt; bar
+        # Four bands up the bar. Cheap - one comparison per pixel - and the
+        # reason a 16-pixel column reads as intensity rather than as height.
+        var shade = pal[0]
+        var frac = (y * 4) / h
+        if frac &gt;= 3
+          shade = pal[3]
+        elif frac == 2
+          shade = pal[2]
+        elif frac == 1
+          shade = pal[1]
+        end
+        pixel(i, 15 - y, shade)
+        y += 1
+      end
+
+      if self.peak[i] &gt; 0 &amp;&amp; self.peak[i] &lt;= h
+        pixel(i, 16 - self.peak[i], rgb(255, 255, 255))
+      end
+      i += 1
+    end
+
+    # Ten seconds of nothing. Says which kind of nothing, because a
+    # visualiser showing a flat line is the most ambiguous thing on a shelf.
+    if self.lit &gt; 200
+      text(9, 5, &quot;quiet&quot;, rgb(40, 40, 50))
+    end
+  end
+end
+
+return App()
+</code></pre></template>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/neon-bars.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/neon-bars.be">Raw</a>
+        </p>
+      </article>
+
       <article class="card" id="plasma">
         <img class="card__preview" src="plasma.gif" width="312" height="96"
              loading="lazy" alt="Plasma running on a 52 by 16 pixel panel">
@@ -4511,6 +4710,299 @@ return App()
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/tiny-city.be">View on GitHub</a>
           ·
           <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/tiny-city.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="weather">
+        <img class="card__preview" src="weather.gif" width="312" height="96"
+             loading="lazy" alt="Weather running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Weather</h3>
+          <p class="card__by">Stipple · 275 lines</p>
+        </header>
+        <p class="card__summary">Live conditions from Open-Meteo - temperature, an animated sky, and the day&#x27;s range.</p>
+        <ul class="card__tags"><li>http</li><li>weather</li><li>time</li><li>animation</li></ul>
+        <button class="card__read" type="button" data-script="weather">Read it</button>
+        <template id="src-weather"><pre><code># name: Weather
+# summary: Live conditions from Open-Meteo - temperature, an animated sky, and the day&#x27;s range.
+# author: Stipple
+# tags: http, weather, time, animation
+# panel: 52x16
+
+import string
+import json
+
+# Open-Meteo, which needs no account and no API key - which is most of why it
+# is the one used here. A shop script that asks you to register somewhere
+# before it draws anything is a script nobody runs.
+#
+# Set LAT and LON to yours. Everything else works as it is.
+#
+# Three things this does that a first attempt usually does not.
+#
+# **It fetches every ten minutes, not every frame.** http_follow() says what
+# to fetch and how often; the device does it on its own schedule and the
+# script draws whatever arrived last. There is no call that fetches and
+# returns, because that one would block the thread drawing the panel.
+#
+# **It tells the three kinds of nothing apart.** No network, nothing arrived
+# yet, and an answer that was fine an hour ago are different states, and a
+# panel that draws them all as a blank is a panel you cannot debug from
+# across the room.
+#
+# **It draws the sky, not an icon.** A 52x16 panel has room for a small
+# animated scene beside the number, and a scene that moves tells you it is
+# still alive - which a static cloud glyph does not.
+
+class App
+  var URL
+  var code, temp, lo, hi     # last parsed reading
+  var have                   # whether those numbers mean anything
+  var t                      # animation clock
+  var drops                  # rain/snow particle offsets
+
+  def init()
+    # Open-Meteo wants a comma-separated list of fields. `current` gives the
+    # reading now, `daily` the range, and `timezone=auto` keeps the daily
+    # figures aligned to local midnight rather than UTC.
+    var LAT = &quot;52.37&quot;
+    var LON = &quot;4.89&quot;
+    self.URL = &quot;https://api.open-meteo.com/v1/forecast&quot; +
+               &quot;?latitude=&quot; + LAT + &quot;&amp;longitude=&quot; + LON +
+               &quot;&amp;current=temperature_2m,weather_code&quot; +
+               &quot;&amp;daily=temperature_2m_max,temperature_2m_min&quot; +
+               &quot;&amp;timezone=auto&amp;forecast_days=1&quot;
+    self.code = -1
+    self.temp = 0
+    self.lo = 0
+    self.hi = 0
+    self.have = false
+    self.t = 0
+    self.drops = [0, 9, 18, 27, 36, 45]
+  end
+
+  # The carousel&#x27;s default five seconds is not long enough to read a
+  # temperature, a range and watch the sky move.
+  def duration()
+    return 9000
+  end
+
+  def _parse()
+    var body = http_get(self.URL)
+    if body == nil
+      return
+    end
+    # The body is capped at a kilobyte, and this request is shaped to fit in
+    # one - forecast_days=1 and only four fields. Asking for a week would be
+    # truncated mid-number, which json.load would refuse and this would read
+    # as the API having broken.
+    var doc = json.load(body)
+    if doc == nil
+      return
+    end
+
+    var cur = doc.find(&quot;current&quot;)
+    if cur == nil
+      return
+    end
+    self.temp = int(cur.find(&quot;temperature_2m&quot;, 0))
+    self.code = int(cur.find(&quot;weather_code&quot;, -1))
+
+    var day = doc.find(&quot;daily&quot;)
+    if day != nil
+      var maxes = day.find(&quot;temperature_2m_max&quot;)
+      var mins = day.find(&quot;temperature_2m_min&quot;)
+      if maxes != nil &amp;&amp; size(maxes) &gt; 0
+        self.hi = int(maxes[0])
+      end
+      if mins != nil &amp;&amp; size(mins) &gt; 0
+        self.lo = int(mins[0])
+      end
+    end
+    self.have = true
+  end
+
+  def draw()
+    clear(rgb(0, 0, 0))
+    self.t = now_ms()
+
+    http_follow(self.URL, 600)
+
+    if !http_known()
+      text(2, 1, &quot;no net&quot;, rgb(150, 60, 60))
+      text(2, 9, &quot;check wifi&quot;, rgb(70, 70, 70))
+      return
+    end
+
+    self._parse()
+
+    if !self.have
+      # Three different nothings, and which one it is decides what you do
+      # about it.
+      var why = http_error(self.URL)
+      if why != nil
+        text(1, 1, &quot;err&quot;, rgb(200, 70, 50))
+        text(1, 9, why, rgb(90, 60, 60))
+      else
+        var code = http_status(self.URL)
+        if code &gt; 0 &amp;&amp; (code &lt; 200 || code &gt;= 300)
+          text(1, 1, &quot;HTTP&quot;, rgb(200, 70, 50))
+          text(1, 9, str(code), rgb(200, 70, 50))
+        else
+          text(1, 5, &quot;fetching&quot;, rgb(70, 70, 70))
+        end
+      end
+      return
+    end
+
+    self._sky()
+
+    # The temperature on the right, where the sky is not. Right-aligned off
+    # its measured width, because &quot;-12&quot; and &quot;7&quot; are different sizes and
+    # centring either by eye clips the other.
+    var label = str(self.temp) + &quot;&#x27;&quot;
+    var w = text_width(label)
+    text(51 - w, 0, label, self._warmth(self.temp))
+
+    # The day&#x27;s range underneath, dim. Useful in the morning and ignorable
+    # the rest of the time, which is what a second line should be.
+    var range = str(self.lo) + &quot;..&quot; + str(self.hi)
+    var rw = text_width(range)
+    text(51 - rw, 9, range, rgb(70, 78, 90))
+
+    # An age bar along the very bottom of the sky, growing as the reading
+    # gets old. Ten minutes is a full sweep; past that the data is stale and
+    # you can see that it is without reading a number.
+    var age = http_age_ms(self.URL)
+    if age &gt; 0
+      var bar = (age * 26) / 600000
+      if bar &gt; 26
+        bar = 26
+      end
+      if bar &gt; 0
+        rect_fill(0, 15, bar, 1, age &gt; 900000 ? rgb(90, 50, 20) : rgb(24, 32, 40))
+      end
+    end
+  end
+
+  # Blue when cold, through green, to red. Not a rainbow: three anchors is
+  # enough to read at a glance and more would just be decoration.
+  def _warmth(c)
+    if c &lt;= 0
+      return rgb(120, 190, 255)
+    elif c &lt; 10
+      return rgb(0, 200, 220)
+    elif c &lt; 18
+      return rgb(120, 220, 120)
+    elif c &lt; 26
+      return rgb(255, 190, 40)
+    end
+    return rgb(255, 90, 50)
+  end
+
+  # WMO weather codes, grouped. Open-Meteo documents about thirty of them and
+  # a 52x16 panel can honestly distinguish five.
+  def _sky()
+    var c = self.code
+    if c &lt; 0
+      return
+    end
+
+    if c == 0 || c == 1
+      self._sun()
+    elif c == 2 || c == 3 || c == 45 || c == 48
+      self._cloud(c == 2)
+    elif c &gt;= 71 &amp;&amp; c &lt;= 77 || c == 85 || c == 86
+      self._cloud(false)
+      self._fall(rgb(220, 235, 255), 2)
+    elif c &gt;= 95
+      self._cloud(false)
+      self._storm()
+    elif c &gt;= 51
+      self._cloud(false)
+      self._fall(rgb(60, 140, 230), 4)
+    else
+      self._cloud(false)
+    end
+  end
+
+  def _sun()
+    var cx = 8
+    var cy = 7
+    rect_fill(cx - 2, cy - 2, 5, 5, rgb(255, 190, 30))
+    pixel(cx - 3, cy - 1, rgb(255, 210, 60))
+    pixel(cx + 3, cy - 1, rgb(255, 210, 60))
+    pixel(cx - 1, cy - 3, rgb(255, 210, 60))
+    pixel(cx - 1, cy + 3, rgb(255, 210, 60))
+
+    # Eight rays, turning. The whole animation is one rotating index, which
+    # is about as cheap as movement gets and still reads as alive.
+    var step = (self.t / 250) % 8
+    var k = 0
+    while k &lt; 4
+      var a = (step + k * 2) % 8
+      var dx = 0
+      var dy = 0
+      if a == 0 dx = 5 dy = 0
+      elif a == 1 dx = 4 dy = 3
+      elif a == 2 dx = 0 dy = 5
+      elif a == 3 dx = -4 dy = 3
+      elif a == 4 dx = -5 dy = 0
+      elif a == 5 dx = -4 dy = -3
+      elif a == 6 dx = 0 dy = -5
+      else dx = 4 dy = -3
+      end
+      pixel(cx + dx - 1, cy + dy, rgb(180, 130, 0))
+      k += 1
+    end
+  end
+
+  def _cloud(sunny)
+    if sunny
+      rect_fill(4, 3, 3, 3, rgb(210, 160, 30))
+    end
+    # A cloud that drifts a pixel and back, so an overcast day is still a
+    # panel that is doing something.
+    var drift = ((self.t / 900) % 2)
+    var x = 2 + drift
+    rect_fill(x + 2, 6, 9, 3, rgb(150, 160, 175))
+    rect_fill(x + 4, 4, 5, 2, rgb(180, 190, 205))
+    rect_fill(x, 8, 13, 2, rgb(110, 120, 135))
+  end
+
+  def _fall(colour, speed)
+    var i = 0
+    while i &lt; size(self.drops)
+      var x = 2 + i * 2
+      var y = 10 + ((self.t / (60 - speed * 8) + self.drops[i]) % 6)
+      if y &lt;= 15
+        pixel(x, y, colour)
+      end
+      i += 1
+    end
+  end
+
+  def _storm()
+    # Two frames in every three seconds. A flash that is on half the time is
+    # not a flash, it is a lamp.
+    var phase = (self.t / 180) % 16
+    if phase &gt; 1
+      return
+    end
+    pixel(7, 10, rgb(255, 240, 120))
+    pixel(6, 11, rgb(255, 240, 120))
+    pixel(8, 11, rgb(255, 240, 120))
+    pixel(7, 12, rgb(255, 255, 200))
+    pixel(6, 13, rgb(255, 240, 120))
+  end
+end
+
+return App()
+</code></pre></template>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/weather.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/weather.be">Raw</a>
         </p>
       </article>
 

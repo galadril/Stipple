@@ -137,6 +137,10 @@ public:
     /// id for the same reason the broker is.
     void setHttp(IScriptHttp* http, std::string_view scriptId);
 
+    /// The microphone this script may read, or null on a device that cannot
+    /// hear. One amplitude, not a spectrum - see IMicrophone.
+    void setMicrophone(platform::IMicrophone* microphone) noexcept;
+
     /// Whether a script is loaded and has not failed.
     bool ready() const noexcept { return ready_; }
 
@@ -180,6 +184,7 @@ private:
     platform::IAudioOutput* audio_ = nullptr;
     IScriptMqtt* mqtt_ = nullptr;
     IScriptHttp* http_ = nullptr;
+    platform::IMicrophone* microphone_ = nullptr;
     std::string scriptId_;
     std::vector<std::pair<std::string, Stored>> store_;
 };
