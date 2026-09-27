@@ -16,8 +16,12 @@
 #include <string>
 #include <vector>
 
+#include <cstdint>
+#include <string_view>
+
 #include "stipple/graphics/Canvas.h"
 #include "stipple/imageio/Png.h"
+#include "stipple/platform/PlatformServices.h"
 #include "stipple/graphics/Framebuffer.h"
 #include "stipple/script/ScriptHost.h"
 #include "stipple/script/ScriptStore.h"
@@ -244,6 +248,69 @@ STIPPLE_TEST(ShopScripts, EachOneSaysWhenTheDeviceCannotTellItTheTime) {
     }
 }
 
+namespace {
+
+/// A speaker that takes everything and remembers nothing. The audio gate
+/// below cares only whether one is present, not what came out of it.
+class SilentSpeaker final : public stipple::platform::IAudioOutput {
+public:
+    bool playTone(int, int) override { return true; }
+    bool playSound(std::string_view) override { return true; }
+    void stop() override {}
+    void setVolume(std::uint8_t volume) override { level_ = volume; }
+    std::uint8_t volume() const override { return level_; }
+
+private:
+    std::uint8_t level_ = 128;
+};
+
+}  // namespace
+
+STIPPLE_TEST(ShopScripts, EachAudioScriptSaysWhenTheDeviceCannotMakeASound) {
+    // The same rule as the clock, one capability along. A metronome on a
+    // device with no speaker is a swinging pendulum and nothing else, and
+    // somebody watching it cannot tell that from a metronome whose volume
+    // is down - unless the script says so. ADR 0013.
+    //
+    // Checking that it draws *something* would pass a script that ignored
+    // the question entirely, so this renders the same frame twice, once
+    // with a speaker and once without, and requires the two to differ.
+    const char* needAudio[] = {"metronome.be", "kitchen-timer.be", "sequencer.be"};
+
+    for (const char* name : needAudio) {
+        const std::string source = readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/" + name);
+        STIPPLE_REQUIRE(!source.empty());
+
+        Framebuffer heard;
+        Framebuffer silent;
+
+        {
+            ScriptStore store;
+            SilentSpeaker speaker;
+            store.setAudio(&speaker);
+            STIPPLE_REQUIRE(store.put("shop", name, source) ==
+                            stipple::script::ScriptPutResult::Added);
+            Canvas canvas(heard);
+            STIPPLE_REQUIRE(store.draw("shop", canvas, 0));
+        }
+
+        {
+            ScriptStore store;  // no audio at all
+            STIPPLE_REQUIRE(store.put("shop", name, source) ==
+                            stipple::script::ScriptPutResult::Added);
+            Canvas canvas(silent);
+            STIPPLE_REQUIRE(store.draw("shop", canvas, 0));
+        }
+
+        STIPPLE_CHECK(countLit(silent) > 0);
+        if (heard == silent) {
+            std::printf("    [shop] %s draws the same frame with and without a speaker\n",
+                        name);
+        }
+        STIPPLE_CHECK(!(heard == silent));
+    }
+}
+
 // Not a test so much as a way to look at them.
 //
 // "Does this look right on a 52x16 panel" cannot be asserted, only seen. Set
@@ -282,11 +349,20 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
     environment.batteryPercent = 64;
     environment.charging = true;
 
+    // A speaker is present, because a TC002 has one.
+    //
+    // Without this the audio scripts would each draw their "no speaker"
+    // marker into the shop page - a preview advertising a limitation of the
+    // machine that rendered it rather than of the device somebody would run
+    // it on, which is a worse lie than the one the marker exists to prevent.
+    SilentSpeaker speaker;
+
     for (const Example& example : loadExamples()) {
         if (example.source.empty()) { continue; }
 
         ScriptStore store;
         store.setEnvironment(environment);
+        store.setAudio(&speaker);
         if (store.put("shop", example.name, example.source) !=
             stipple::script::ScriptPutResult::Added) {
             continue;

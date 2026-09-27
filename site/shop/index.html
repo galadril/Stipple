@@ -2589,6 +2589,207 @@ return Hootie()
         </p>
       </article>
 
+      <article class="card" id="kitchen-timer">
+        <img class="card__preview" src="kitchen-timer.gif" width="312" height="96"
+             loading="lazy" alt="Kitchen Timer running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Kitchen Timer</h3>
+          <p class="card__by">Stipple · 183 lines</p>
+        </header>
+        <p class="card__summary">Click up the minutes, walk away, and it shouts when the time is up.</p>
+        <ul class="card__tags"><li>audio</li><li>tool</li><li>time</li></ul>
+        <button class="card__read" type="button" data-script="kitchen-timer">Read it</button>
+        <template id="src-kitchen-timer"><pre><code># name: Kitchen Timer
+# summary: Click up the minutes, walk away, and it shouts when the time is up.
+# author: Stipple
+# tags: audio, tool, time
+# panel: 52x16
+
+import string
+
+# A countdown that survives the carousel moving on.
+#
+# The deadline is one number on the device clock, not a counter ticked once
+# per frame, so the timer keeps running while the panel is showing the
+# weather - and comes back showing the right number rather than however many
+# frames it happened to get. That is the only design decision here that
+# matters, and it is the one a frame-counting version gets wrong in a way you
+# only notice after burning the dinner.
+#
+# It needs no wall clock. A duration is not a time of day, so this works on a
+# device that has never seen a network.
+#
+# Click to add a minute. Two seconds after the last click it starts. Click
+# while it runs to cancel, click while it shouts to shut it up.
+
+class App
+  var mode         # 0 setting, 1 running, 2 finished
+  var mins         # minutes dialled in
+  var touched      # when the last click landed
+  var ends         # deadline, on the device clock
+  var spoke        # the last second we made a noise on
+
+  def init()
+    self.mode = 0
+    self.mins = 0
+    self.touched = 0
+    self.ends = 0
+    self.spoke = -1
+  end
+
+  def on_button(name)
+    var now = now_ms()
+    if self.mode == 0
+      self.mins += 1
+      if self.mins &gt; 60
+        self.mins = 1
+      end
+      self.touched = now
+      if audio_known()
+        tone(1200, 15)
+      end
+    else
+      # Cancel, or silence the alarm. Same click, because by the time you
+      # are reaching for the device you want it to stop either way.
+      self.mode = 0
+      self.mins = 0
+      self.spoke = -1
+    end
+  end
+
+  # Seconds left, floored, never negative.
+  def _left(now)
+    var ms = self.ends - now
+    if ms &lt; 0
+      return 0
+    end
+    return ms / 1000
+  end
+
+  def _clock(x, y, secs, colour)
+    text(x, y, string.format(&quot;%02d:%02d&quot;, secs / 60, secs % 60), colour)
+  end
+
+  def draw()
+    clear(rgb(0, 0, 0))
+    var now = now_ms()
+
+    if self.mode == 0
+      self._setting(now)
+    elif self.mode == 1
+      self._running(now)
+    else
+      self._finished(now)
+    end
+  end
+
+  def _setting(now)
+    if self.mins == 0
+      text(2, 1, &quot;SET&quot;, rgb(70, 70, 70))
+      text(26, 1, &quot;CLICK&quot;, rgb(120, 120, 120))
+      if !audio_known()
+        text(2, 9, &quot;no speaker&quot;, rgb(120, 40, 40))
+      else
+        text(2, 9, &quot;+1 min&quot;, rgb(60, 60, 60))
+      end
+      return
+    end
+
+    self._clock(1, 1, self.mins * 60, rgb(0, 190, 255))
+
+    # A two-second grace period, drawn as a bar that empties. Without it,
+    # dialling in ten minutes would mean ten starts and nine cancels.
+    var wait = 2000 - (now - self.touched)
+    if wait &lt;= 0
+      self.mode = 1
+      self.ends = now + self.mins * 60000
+      self.spoke = -1
+      return
+    end
+    var w = (wait * 50) / 2000
+    rect_fill(1, 11, w, 3, rgb(0, 90, 120))
+  end
+
+  def _running(now)
+    var left = self._left(now)
+    if left &lt;= 0
+      self.mode = 2
+      self.ends = now
+      self.spoke = -1
+      return
+    end
+
+    # White for most of it, amber under a minute, red under ten seconds -
+    # so it reads from across the room without counting digits.
+    var colour = rgb(230, 230, 230)
+    if left &lt; 10
+      colour = rgb(255, 70, 40)
+    elif left &lt; 60
+      colour = rgb(255, 176, 0)
+    end
+    self._clock(1, 1, left, colour)
+
+    # The last ten seconds get a tick each, which is what makes you look up.
+    # Keyed to the second number rather than to elapsed time, so a skipped
+    # frame cannot double-tick or miss one.
+    if left &lt; 10 &amp;&amp; left != self.spoke
+      self.spoke = left
+      if audio_known()
+        tone(1800, 18)
+      end
+    end
+
+    var total = self.mins * 60
+    var w = (left * 50) / total
+    rect_fill(1, 11, w, 3, colour)
+    rect(0, 10, 52, 5, rgb(30, 30, 30))
+  end
+
+  def _finished(now)
+    var since = now - self.ends
+
+    # Sixty seconds of alarm, then it gives up and goes back to waiting.
+    # A timer that shouts until somebody comes home is a timer nobody leaves
+    # switched on.
+    if since &gt; 60000
+      self.mode = 0
+      self.mins = 0
+      return
+    end
+
+    # Half a second on, half a second off. The flash is the alarm on a
+    # device with no speaker, so it has to be the whole panel and not a
+    # polite little icon.
+    var on = (since / 500) % 2 == 0
+    if on
+      clear(rgb(90, 0, 0))
+      text(8, 5, &quot;TIME&quot;, rgb(255, 255, 255))
+    else
+      text(8, 5, &quot;TIME&quot;, rgb(120, 20, 20))
+    end
+
+    var half = since / 500
+    if half != self.spoke
+      self.spoke = half
+      if audio_known()
+        # Two notes rather than one. A single pitch repeating is easy for a
+        # room to filter out; an interval is not.
+        tone(2200, 130)
+        tone(1650, 130)
+      end
+    end
+  end
+end
+
+return App()
+</code></pre></template>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/kitchen-timer.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/kitchen-timer.be">Raw</a>
+        </p>
+      </article>
+
       <article class="card" id="lava-lamp">
         <img class="card__preview" src="lava-lamp.gif" width="312" height="96"
              loading="lazy" alt="Lava running on a 52 by 16 pixel panel">
@@ -3101,6 +3302,147 @@ return App()
         </p>
       </article>
 
+      <article class="card" id="metronome">
+        <img class="card__preview" src="metronome.gif" width="312" height="96"
+             loading="lazy" alt="Metronome running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Metronome</h3>
+          <p class="card__by">Stipple · 123 lines</p>
+        </header>
+        <p class="card__summary">A swinging pendulum that keeps time out loud, at a tempo you click through.</p>
+        <ul class="card__tags"><li>audio</li><li>music</li><li>tool</li></ul>
+        <button class="card__read" type="button" data-script="metronome">Read it</button>
+        <template id="src-metronome"><pre><code># name: Metronome
+# summary: A swinging pendulum that keeps time out loud, at a tempo you click through.
+# author: Stipple
+# tags: audio, music, tool
+# panel: 52x16
+
+# The first thing worth doing with a speaker on a shelf clock.
+#
+# Two details make it a metronome rather than a picture of one. It runs off
+# now_ms() - the device clock - not the frame counter, so the beat does not
+# drift when the panel is busy and does not stop while the carousel is
+# showing something else. And the beat is decided by which beat number the
+# clock is in, never by counting frames since the last one: a frame the
+# renderer skipped would otherwise swallow a beat.
+#
+# On a device with no speaker it still swings, and says MUTE so that the
+# silence is the hardware&#x27;s rather than something you might fix by turning
+# it up.
+
+class App
+  var COS          # cosine * 1000, 32 steps round the full swing
+  var TEMPOS
+  var t            # index into TEMPOS
+  var beat         # the beat number last sounded, from the device clock
+  var flash        # when that beat landed
+
+  def init()
+    self.COS = [1000, 981, 924, 831, 707, 556, 383, 195, 0, -195, -383, -556,
+                -707, -831, -924, -981, -1000, -981, -924, -831, -707, -556,
+                -383, -195, 0, 195, 383, 556, 707, 831, 924, 981]
+    self.TEMPOS = [60, 72, 84, 96, 108, 120, 132, 144, 160, 180, 200]
+    self.t = store.get(&quot;tempo&quot;, 5)
+    if self.t &lt; 0 || self.t &gt;= size(self.TEMPOS)
+      self.t = 5
+    end
+    self.beat = -1
+    self.flash = -10000
+  end
+
+  def on_button(name)
+    self.t = (self.t + 1) % size(self.TEMPOS)
+    store.set(&quot;tempo&quot;, self.t)
+    # Re-anchor so the new tempo starts on a beat rather than wherever the
+    # old one happened to be.
+    self.beat = -1
+  end
+
+  def draw()
+    clear(rgb(0, 0, 0))
+
+    var bpm = self.TEMPOS[self.t]
+    var period = 60000 / bpm
+    var now = now_ms()
+
+    # Which beat we are in, and how far through it. Both from the clock, so
+    # a dropped frame costs a frame and not a beat.
+    var n = now / period
+    var into = now % period
+
+    if n != self.beat
+      # Skipping forward - after the carousel has been elsewhere for a
+      # minute - must not replay the beats that went past unheard.
+      self.beat = n
+      self.flash = now
+      if audio_known()
+        if n % 4 == 0
+          tone(1600, 30)
+        else
+          tone(1000, 22)
+        end
+      end
+    end
+
+    # The pendulum takes two beats to go out and back, so the swing is
+    # indexed over 2 * period.
+    var swing = (2 * period)
+    var i = ((now % swing) * 32) / swing
+    var dx = (-18 * self.COS[i]) / 1000
+    var bx = 26 + dx
+    # A shallow arc. A true pendulum of this width would swing off the top
+    # of a panel only sixteen pixels tall.
+    var by = 8 - (324 - dx * dx) / 100
+
+    # Bright for the first 90 ms of the beat, then settled. Long enough to
+    # catch at 200 bpm, short enough not to smear into the next one.
+    var hot = (now - self.flash) &lt; 90
+    var rod = hot ? rgb(90, 70, 20) : rgb(45, 35, 10)
+    var bob = hot ? rgb(255, 255, 255) : rgb(255, 176, 0)
+
+    line(26, 0, bx, by, rod)
+    rect_fill(bx - 1, by - 1, 3, 3, bob)
+
+    # Four dots for the bar. The one we are on is lit, and it fills across
+    # as the beat passes - so the eye has something to follow between
+    # clicks, which is the whole job of a metronome you can see.
+    var b = n % 4
+    var k = 0
+    while k &lt; 4
+      var x = 34 + k * 4
+      if k &lt; b
+        rect_fill(x, 0, 3, 3, rgb(120, 60, 0))
+      elif k == b
+        var w = 1 + (into * 3) / period
+        if w &gt; 3 w = 3 end
+        rect_fill(x, 0, w, 3, rgb(255, 176, 0))
+      else
+        pixel(x + 1, 1, rgb(50, 30, 0))
+      end
+      k += 1
+    end
+
+    text(1, 9, str(bpm), rgb(200, 200, 200))
+
+    # Say it, rather than leaving somebody to wonder whether the volume is
+    # down. A device with no speaker and a device turned all the way down
+    # sound identical from across the room.
+    if !audio_known()
+      text(27, 9, &quot;MUTE&quot;, rgb(150, 40, 40))
+    end
+  end
+end
+
+return App()
+</code></pre></template>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/metronome.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/metronome.be">Raw</a>
+        </p>
+      </article>
+
       <article class="card" id="plasma">
         <img class="card__preview" src="plasma.gif" width="312" height="96"
              loading="lazy" alt="Plasma running on a 52 by 16 pixel panel">
@@ -3456,6 +3798,165 @@ return Selenograph()
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/selenograph.be">View on GitHub</a>
           ·
           <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/selenograph.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="sequencer">
+        <img class="card__preview" src="sequencer.gif" width="312" height="96"
+             loading="lazy" alt="Sequencer running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Sequencer</h3>
+          <p class="card__by">Stipple · 141 lines</p>
+        </header>
+        <p class="card__summary">Sixteen steps of pentatonic melody that mutate as they loop, played and drawn at once.</p>
+        <ul class="card__tags"><li>audio</li><li>music</li><li>generative</li><li>animation</li></ul>
+        <button class="card__read" type="button" data-script="sequencer">Read it</button>
+        <template id="src-sequencer"><pre><code># name: Sequencer
+# summary: Sixteen steps of pentatonic melody that mutate as they loop, played and drawn at once.
+# author: Stipple
+# tags: audio, music, generative, animation
+# panel: 52x16
+
+import math
+
+# A melody that writes itself, one bar at a time.
+#
+# Sixteen steps, five notes, one voice. The five are an A minor pentatonic -
+# every pair of them sounds intentional together, which is what lets a
+# random walk through them come out as music rather than as noise. Choose any
+# other five and this is a script that bleeps.
+#
+# One voice, not five, and that is a decision rather than a limit: a piezo
+# plays one note at a time, so a column with three lit cells would sound like
+# whichever one reached the queue first. Each step holds one note or a rest,
+# which is also why the grid reads as a melody line instead of a wall.
+#
+# The pattern mutates two steps per loop. Enough that it is never quite the
+# same bar twice, slow enough that you can still hear it as the same tune.
+#
+# With no speaker it is a generative animation, and says so.
+
+class App
+  var NOTES        # Hz, low to high
+  var TINT         # one colour per row
+  var steps        # 16 entries: 0..4, or -1 for a rest
+  var at           # step the playhead is on
+  var last         # when that step began, on the device clock
+  var loops
+
+  def init()
+    # A, C, D, E, G - pentatonic minor, one octave up so a small speaker
+    # can actually produce them.
+    self.NOTES = [440, 523, 587, 659, 784]
+    self.TINT = [rgb(0, 160, 255), rgb(0, 200, 190), rgb(90, 210, 70),
+                 rgb(240, 170, 40), rgb(240, 70, 140)]
+    self.at = 0
+    self.last = 0
+    self.loops = 0
+    self._reroll()
+  end
+
+  def _reroll()
+    self.steps = []
+    var i = 0
+    while i &lt; 16
+      self.steps.push(self._note(i))
+      i += 1
+    end
+  end
+
+  # One step. Rests land on the off-beats, so the bar keeps a pulse
+  # instead of dissolving.
+  def _note(i)
+    if i % 2 == 1 &amp;&amp; (math.rand() % 3) == 0
+      return -1
+    end
+    return math.rand() % 5
+  end
+
+  def on_button(name)
+    self._reroll()
+    self.at = 0
+    self.loops = 0
+  end
+
+  def draw()
+    clear(rgb(0, 0, 0))
+    var now = now_ms()
+
+    # 125 ms a step: eight steps a second, two seconds to the bar. Driven
+    # by the clock, so the tune keeps its tempo whatever the panel is doing
+    # and does not speed up on an idle device.
+    #
+    # Coming back after the carousel has been elsewhere, this advances one
+    # step and re-anchors rather than replaying the bars that went past -
+    # sixty seconds away is four hundred and eighty steps, and nobody wants
+    # to hear them all at once.
+    var struck = false
+    if now - self.last &gt;= 125
+      self.last = now
+      self.at += 1
+      struck = true
+      if self.at &gt;= 16
+        self.at = 0
+        self.loops += 1
+        # Two steps rewritten a bar.
+        self.steps[math.rand() % 16] = self._note(math.rand() % 16)
+        self.steps[math.rand() % 16] = self._note(math.rand() % 16)
+      end
+    end
+
+    var note = self.steps[self.at]
+    if struck &amp;&amp; note &gt;= 0 &amp;&amp; audio_known()
+      tone(self.NOTES[note], 110)
+    end
+
+    # The playhead first, as a dim column, so the notes drawn over it stay
+    # the brightest thing on the panel.
+    rect_fill(2 + self.at * 3, 1, 3, 15, rgb(16, 16, 22))
+
+    var i = 0
+    while i &lt; 16
+      var n = self.steps[i]
+      if n &gt;= 0
+        var x = 2 + i * 3
+        # Row 0 is the top of the panel and the highest note, which is the
+        # way round anybody who has seen a piano roll expects.
+        var y = 1 + (4 - n) * 3
+        if i == self.at
+          rect_fill(x, y, 3, 3, rgb(255, 255, 255))
+        else
+          rect_fill(x, y, 2, 2, self.TINT[n])
+        end
+      end
+      i += 1
+    end
+
+    # A ruler on the free top row: four beats to the bar, so the eye can
+    # hear the phrasing even when the device cannot play it.
+    var b = 0
+    while b &lt; 4
+      pixel(2 + b * 12, 0, rgb(60, 60, 70))
+      b += 1
+    end
+
+    if !audio_known()
+      # No room for a word among sixteen columns, so it goes in the corner
+      # the grid does not use - and it is red, which nothing else here is.
+      pixel(50, 0, rgb(160, 40, 40))
+      pixel(51, 0, rgb(160, 40, 40))
+      pixel(50, 1, rgb(160, 40, 40))
+      pixel(51, 1, rgb(160, 40, 40))
+    end
+  end
+end
+
+return App()
+</code></pre></template>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/sequencer.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/sequencer.be">Raw</a>
         </p>
       </article>
 

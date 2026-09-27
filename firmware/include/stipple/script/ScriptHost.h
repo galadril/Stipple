@@ -122,6 +122,9 @@ public:
     /// builtins; set by the host before each frame.
     void setEnvironment(const ScriptEnvironment& environment) noexcept;
 
+    /// The speaker this script may use, or null on a device without one.
+    void setAudio(platform::IAudioOutput* audio) noexcept;
+
     /// Whether a script is loaded and has not failed.
     bool ready() const noexcept { return ready_; }
 
@@ -162,6 +165,7 @@ private:
     bool ready_ = false;
     std::uint32_t lastInstructions_ = 0;
     ScriptEnvironment environment_;
+    platform::IAudioOutput* audio_ = nullptr;
     std::vector<std::pair<std::string, Stored>> store_;
 };
 

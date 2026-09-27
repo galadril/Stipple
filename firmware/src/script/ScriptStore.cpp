@@ -81,6 +81,7 @@ ScriptPutResult ScriptStore::put(std::string id, std::string name, std::string s
     entry.host = std::move(host);
     // A script saved between frames should not see 1970 on its first one.
     entry.host->setEnvironment(environment_);
+    entry.host->setAudio(audio_);
     refresh(entry);
 
     ++revision_;
@@ -191,6 +192,15 @@ void ScriptStore::setEnvironment(const ScriptEnvironment& environment) noexcept 
     for (Entry& entry : entries_) {
         if (entry.host != nullptr) {
             entry.host->setEnvironment(environment);
+        }
+    }
+}
+
+void ScriptStore::setAudio(platform::IAudioOutput* audio) noexcept {
+    audio_ = audio;
+    for (Entry& entry : entries_) {
+        if (entry.host != nullptr) {
+            entry.host->setAudio(audio);
         }
     }
 }

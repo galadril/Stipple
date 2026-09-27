@@ -46,6 +46,7 @@ add_executable(stipple_tests
     test_update_image.cpp
     test_script.cpp
     test_script_store.cpp
+    test_script_audio.cpp
     test_shop_scripts.cpp
 )
 

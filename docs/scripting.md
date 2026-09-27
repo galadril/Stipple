@@ -117,6 +117,38 @@ dressed up as a plausible zero, and the tests hold published scripts to it.
 Same rule, same reason: a device with no battery and a device with a flat one
 both report zero, and only `battery_known()` tells them apart.
 
+### The speaker
+
+```berry
+if audio_known()
+  tone(880, 120)
+end
+```
+
+| Call | Does |
+|---|---|
+| `audio_known()` | Whether this device has a speaker at all. |
+| `tone(hz, ms)` | Queues a note. Returns whether it started. |
+| `sound(name)` | Queues a built-in sound. `beep`, `chime`, `alert`, `tick`, `tock`. Returns whether the name is one. |
+| `volume()` | 0-255, the level somebody set. Read only. |
+
+Both `tone` and `sound` return immediately - they queue, they do not wait, and
+a script that bleeps does not cost a frame.
+
+Three limits, all deliberate. **Four sounds per call**, because the panel would
+keep rendering happily while the speaker worked through a minute of backlog,
+which is a device nobody can use and nothing on screen to say why. The budget
+refills every frame, so the next one gets its own four. **Tones are clamped**
+to 1-20000 Hz and 5 seconds. And **there is no `set_volume`** - the volume is
+whatever its owner chose, and an app turning it up in the night is not a
+feature. `volume()` is offered so a script can show the level or go quiet when
+it is zero, not so it can change it.
+
+On a device with no speaker `audio_known()` is false and `tone()` returns
+false. Same rule as the clock and the battery: silence you chose and silence
+the hardware cannot break are different things, and a script is told which it
+has.
+
 ### The button
 
 ```berry

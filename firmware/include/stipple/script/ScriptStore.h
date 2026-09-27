@@ -68,6 +68,7 @@ public:
 
     bool button(std::string_view id, std::string_view name) override;
     void setEnvironment(const ScriptEnvironment& environment) noexcept override;
+    void setAudio(platform::IAudioOutput* audio) noexcept override;
     std::uint32_t durationMillis(std::string_view id) override;
     bool has(std::string_view id) const noexcept override;
     std::string_view problem(std::string_view id) const noexcept override;
@@ -101,6 +102,7 @@ private:
     /// host's last update still starts with a current clock rather than
     /// 1970 until the next frame.
     ScriptEnvironment environment_;
+    platform::IAudioOutput* audio_ = nullptr;
 
     Entry* findEntry(std::string_view id) noexcept;
     void refresh(Entry& entry) noexcept;

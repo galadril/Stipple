@@ -352,6 +352,10 @@ void ApplicationHost::setScriptRunner(script::IScriptRunner* runner) {
     // core and installed after the host is up, so at initialize() time there
     // is nothing to load into - and a script library that only appeared after
     // the next reboot would look exactly like one that had not saved.
+    // The speaker, if this device has one. Null is a supported answer and
+    // the builtins report it rather than pretending to play.
+    runner->setAudio(platform_.audio());
+
     loadScripts();
     persistedScriptRevision_ = runner->revision();
 }

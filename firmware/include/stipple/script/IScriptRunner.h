@@ -10,6 +10,10 @@ namespace stipple {
 
 class Canvas;
 
+namespace platform {
+class IAudioOutput;
+}
+
 namespace script {
 
 /// One script, as the rest of the firmware sees it.
@@ -146,6 +150,18 @@ public:
     /// script that cycles through three readouts needs longer than the
     /// default and nothing else can know that.
     virtual std::uint32_t durationMillis(std::string_view id) = 0;
+
+    /// Give scripts the speaker, or take it away.
+    ///
+    /// Null is a device with no audio, and the builtins then do nothing and
+    /// say so - `tone()` returns false rather than pretending. A script can
+    /// check once and draw a mute symbol instead of bleeping at a panel that
+    /// cannot bleep.
+    ///
+    /// Passed in rather than reached for, like everything else here: the
+    /// script layer does not own the speaker and must not decide when the
+    /// device has one.
+    virtual void setAudio(platform::IAudioOutput* audio) noexcept = 0;
 
     /// Tell every script what the device currently knows.
     ///

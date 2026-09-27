@@ -9,6 +9,7 @@ extern "C" {
 #include <cstring>
 
 #include "stipple/core/Rgb.h"
+#include "stipple/platform/PlatformServices.h"
 #include "stipple/graphics/Canvas.h"
 #include "stipple/graphics/Framebuffer.h"
 #include "stipple/text/Text.h"
@@ -34,6 +35,13 @@ struct Active {
     /// The drawing script's own remembered values. Null outside a call, so a
     /// builtin reached any other way writes nothing.
     std::vector<std::pair<std::string, ScriptHost::Stored>>* store = nullptr;
+
+    /// The speaker, for the duration of a call. Null on a device without one,
+    /// and null outside a call.
+    platform::IAudioOutput* audio = nullptr;
+
+    /// Tones asked for during this call. Bounded - see b_tone.
+    int tones = 0;
 };
 
 Active g_active;
@@ -392,6 +400,66 @@ int b_scroll_text(bvm* vm) {
 ///
 /// This was per-showing to begin with, and the aquarium's fish froze the
 /// first time the carousel came back round to them.
+/* --- the speaker -------------------------------------------------------------
+ *
+ * playTone and playSound are non-blocking by contract (blueprint §16): they
+ * queue and return, because audio must never hold up the panel. That is what
+ * makes them safe to hand to a script at all.
+ *
+ * Every one of these reports whether it actually did anything. A device with
+ * no speaker returns false rather than silently succeeding, so a script can
+ * draw a mute symbol instead of bleeping at something that cannot bleep.
+ */
+
+/// Tones a script may start in one call.
+///
+/// A script calling tone() in a loop would otherwise queue thousands, and the
+/// panel would be fine while the speaker worked through a minute of them. Four
+/// is enough for a chord or a short arpeggio, which is what anything drawing a
+/// 52x16 panel is plausibly doing.
+constexpr int kMaxTonesPerCall = 4;
+
+int b_tone(bvm* vm) {
+    bool started = false;
+    if (g_active.audio != nullptr && be_top(vm) >= 2 &&
+        g_active.tones < kMaxTonesPerCall) {
+        const int hz = argInt(vm, 1);
+        const int ms = argInt(vm, 2);
+        // Bounded on the way in. A script asking for an hour-long tone has
+        // made a mistake, and the speaker should not be the thing that finds
+        // out.
+        if (hz > 0 && hz <= 20000 && ms > 0) {
+            started = g_active.audio->playTone(hz, ms > 5000 ? 5000 : ms);
+            g_active.tones += 1;
+        }
+    }
+    be_pushbool(vm, started ? 1 : 0);
+    be_return(vm);
+}
+
+int b_sound(bvm* vm) {
+    bool played = false;
+    if (g_active.audio != nullptr && be_top(vm) >= 1 && be_isstring(vm, 1) &&
+        g_active.tones < kMaxTonesPerCall) {
+        played = g_active.audio->playSound(be_tostring(vm, 1));
+        g_active.tones += 1;
+    }
+    be_pushbool(vm, played ? 1 : 0);
+    be_return(vm);
+}
+
+int b_audio_known(bvm* vm) {
+    be_pushbool(vm, g_active.audio != nullptr ? 1 : 0);
+    be_return(vm);
+}
+
+int b_volume(bvm* vm) {
+    // Read-only. The volume is the user's setting, made on the device or in
+    // its web page, and an app quietly turning it up is not a feature.
+    be_pushint(vm, g_active.audio != nullptr ? g_active.audio->volume() : 0);
+    be_return(vm);
+}
+
 int b_now_ms(bvm* vm) {
     be_pushint(vm, static_cast<bint>(g_active.environment.monotonicMillis));
     be_return(vm);
@@ -420,6 +488,11 @@ void registerBuiltins(bvm* vm) {
     be_regfunc(vm, "text_ink_width", b_text_width);
     be_regfunc(vm, "now_ms", b_now_ms);
     be_regfunc(vm, "elapsed_ms", b_elapsed_ms);
+
+    be_regfunc(vm, "tone", b_tone);
+    be_regfunc(vm, "sound", b_sound);
+    be_regfunc(vm, "audio_known", b_audio_known);
+    be_regfunc(vm, "volume", b_volume);
 
     be_regfunc(vm, "hour", b_hour);
     be_regfunc(vm, "minute", b_minute);
@@ -583,6 +656,8 @@ std::uint32_t ScriptHost::durationMillis() {
 
     g_active.environment = environment_;
     g_active.store = &store_;
+    g_active.audio = audio_;
+    g_active.tones = 0;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -606,6 +681,10 @@ std::uint32_t ScriptHost::durationMillis() {
     }
     g_active.store = nullptr;
     return millis;
+}
+
+void ScriptHost::setAudio(platform::IAudioOutput* audio) noexcept {
+    audio_ = audio;
 }
 
 void ScriptHost::setEnvironment(const ScriptEnvironment& environment) noexcept {
@@ -686,6 +765,8 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
     g_active.elapsedMillis = elapsedMillis;
     g_active.environment = environment_;
     g_active.store = &store_;
+    g_active.audio = audio_;
+    g_active.tones = 0;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -700,6 +781,7 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
     }
     g_active.canvas = nullptr;
     g_active.store = nullptr;
+    g_active.audio = nullptr;
 
     if (result != EventResult::Handled) {
         // Disabled rather than retried. A script that throws thirty times a
@@ -724,6 +806,8 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
     g_active.canvas = nullptr;
     g_active.environment = environment_;
     g_active.store = &store_;
+    g_active.audio = audio_;
+    g_active.tones = 0;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -735,6 +819,7 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
         problem = "the button handler ran too long";
     }
     g_active.store = nullptr;
+    g_active.audio = nullptr;
 
     if (result == EventResult::Failed) {
         // A handler that loops for ever is exactly as bad as a draw() that
