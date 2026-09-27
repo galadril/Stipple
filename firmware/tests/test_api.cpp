@@ -1360,6 +1360,89 @@ STIPPLE_TEST(Assets, AnIconCanBeFetchedBackWithItsPixels) {
     STIPPLE_CHECK(one.body.find("16777215") != std::string::npos);
 }
 
+STIPPLE_TEST(Assets, ASixteenBySixteenIconFits) {
+    // The limit people actually hit, and it was invisible when they did.
+    //
+    // Pixels arrive as JSON integers, so every pixel is a token. A 16x16
+    // frame is 256 of them and the general budget was 512, which meant a
+    // single static icon squeaked through and a two-frame animation did not -
+    // on a device whose panel is sixteen pixels tall, and reported as
+    // "invalid JSON: too many tokens" on an icon well inside every size limit
+    // the page shows you.
+    Fixture fixture;
+
+    std::string upload = R"({"id":"big","width":16,"height":16,"frameMillis":120,"frames":[)";
+    for (int frame = 0; frame < 4; ++frame) {
+        upload += frame == 0 ? "[" : ",[";
+        for (int i = 0; i < 256; ++i) {
+            if (i > 0) { upload += ','; }
+            upload += std::to_string((frame * 256 + i) & 0xFFFFFF);
+        }
+        upload += ']';
+    }
+    upload += "]}";
+
+    STIPPLE_CHECK_EQ(fixture.call("POST", "/api/v1/assets", upload).status, 201);
+
+    const Response one = fixture.call("GET", "/api/v1/assets/big");
+    STIPPLE_CHECK_EQ(one.status, 200);
+    STIPPLE_CHECK(one.body.find("\"frames\":4") != std::string::npos);
+}
+
+STIPPLE_TEST(Assets, AFullSizeAnimationStillFits) {
+    // The largest geometry the store accepts: 32x32, sixteen frames, 16,384
+    // pixels. If the budgets do not cover this, then the store's own limits
+    // are advertising a size the API cannot carry.
+    Fixture fixture;
+
+    std::string upload = R"({"id":"max","width":32,"height":32,"frames":[)";
+    for (int frame = 0; frame < 16; ++frame) {
+        upload += frame == 0 ? "[" : ",[";
+        for (int i = 0; i < 1024; ++i) {
+            if (i > 0) { upload += ','; }
+            upload += std::to_string(i & 0xFF);
+        }
+        upload += ']';
+    }
+    upload += "]}";
+
+    STIPPLE_CHECK_EQ(fixture.call("POST", "/api/v1/assets", upload).status, 201);
+}
+
+STIPPLE_TEST(Assets, TheBudgetIsStillABudget) {
+    // Raised, not removed. Sixteen 32x32 animations is 786 KB of pixels and
+    // the store holds 256 KB, so somewhere in there it has to say no - and it
+    // has to say which no, because "too many icons" and "out of room" are
+    // different problems with different fixes.
+    Fixture fixture;
+
+    std::string frame;
+    for (int i = 0; i < 1024; ++i) {
+        if (i > 0) { frame += ','; }
+        frame += "255";
+    }
+
+    int accepted = 0;
+    int refused = 0;
+    for (int n = 0; n < 120; ++n) {
+        const std::string upload = std::string(R"({"id":"i)") + std::to_string(n) +
+                                   R"(","width":32,"height":32,"frames":[[)" + frame + "]]}";
+        const Response response = fixture.call("POST", "/api/v1/assets", upload);
+        if (response.status == 201) {
+            ++accepted;
+        } else {
+            ++refused;
+            // 3 KB each against a 256 KB budget: it runs out of room, not of
+            // slots, and says so.
+            STIPPLE_CHECK_EQ(response.status, 409);
+            break;
+        }
+    }
+
+    STIPPLE_CHECK(accepted > 64);   // more than the old cap allowed at any size
+    STIPPLE_CHECK_EQ(refused, 1);   // and it did stop
+}
+
 STIPPLE_TEST(Assets, TheCollectionStaysMetadataOnly) {
     // Sixty-four icons' worth of pixels would be several hundred kilobytes of
     // JSON, built whole in RAM before a byte of it can be sent.

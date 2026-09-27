@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "stipple/script/ScriptStore.h"
 
+#include "stipple/script/IScriptHttp.h"
 #include "stipple/script/IScriptMqtt.h"
 
 #include "stipple/script/ScriptHost.h"
@@ -85,14 +86,20 @@ ScriptPutResult ScriptStore::put(std::string id, std::string name, std::string s
     entry.host->setEnvironment(environment_);
     entry.host->setAudio(audio_);
     entry.host->setMqtt(mqtt_, entry.info.id);
+    entry.host->setHttp(http_, entry.info.id);
     refresh(entry);
 
     // A replacement starts with no watches. The new source may well want
     // different topics, and carrying the old ones over would leave the device
     // subscribed on behalf of code that no longer exists - visible only as a
     // filter in the broker's list that matches nothing in the script.
-    if (mqtt_ != nullptr && existing != nullptr) {
-        mqtt_->forget(entry.info.id);
+    if (existing != nullptr) {
+        if (mqtt_ != nullptr) {
+            mqtt_->forget(entry.info.id);
+        }
+        if (http_ != nullptr) {
+            http_->forget(entry.info.id);
+        }
     }
 
     ++revision_;
@@ -114,6 +121,9 @@ bool ScriptStore::remove(std::string_view id) {
             if (mqtt_ != nullptr) {
                 mqtt_->forget(id);
             }
+            if (http_ != nullptr) {
+                http_->forget(id);
+            }
             entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(i));
             ++revision_;
             return true;
@@ -124,9 +134,12 @@ bool ScriptStore::remove(std::string_view id) {
 
 void ScriptStore::clear() {
     if (!entries_.empty()) {
-        if (mqtt_ != nullptr) {
-            for (const Entry& entry : entries_) {
+        for (const Entry& entry : entries_) {
+            if (mqtt_ != nullptr) {
                 mqtt_->forget(entry.info.id);
+            }
+            if (http_ != nullptr) {
+                http_->forget(entry.info.id);
             }
         }
         entries_.clear();
@@ -229,6 +242,15 @@ void ScriptStore::setMqtt(IScriptMqtt* mqtt) noexcept {
     for (Entry& entry : entries_) {
         if (entry.host != nullptr) {
             entry.host->setMqtt(mqtt, entry.info.id);
+        }
+    }
+}
+
+void ScriptStore::setHttp(IScriptHttp* http) noexcept {
+    http_ = http;
+    for (Entry& entry : entries_) {
+        if (entry.host != nullptr) {
+            entry.host->setHttp(http, entry.info.id);
         }
     }
 }

@@ -273,15 +273,28 @@
                 </div>
             </div>
 
-            <!-- A plain textarea, deliberately. A syntax-highlighting editor
-                 means shipping one, and this page is compiled into the
-                 firmware of a device with 36 MB of RAM - see
-                 cmake/EmbedWebAssets.cmake. Tab inserts a tab, which is the
-                 one thing a textarea gets wrong for code. -->
+            <!-- A real textarea with a highlighted copy behind it.
+                 Still no editor library. This page is compiled into the
+                 firmware (cmake/EmbedWebAssets.cmake) and ADR 0012 keeps
+                 dependencies out of it, so the highlighting is a tokeniser
+                 in app.js drawing into the <pre> underneath - the textarea
+                 on top keeps its own caret, selection, undo stack, spell
+                 checking and mobile keyboard, none of which a contenteditable
+                 reimplementation gets right.
+                 The two elements must agree on font, size, line height,
+                 padding and wrapping to the pixel; app.css keeps them in one
+                 place for exactly that reason. -->
             <label for="script-source" class="sr-only">Source</label>
-            <textarea id="script-source" class="code" spellcheck="false"
-                      autocapitalize="off" autocomplete="off"
-                      rows="18" wrap="off"></textarea>
+            <div class="codebox" id="script-box">
+                <!-- Line numbers, because the compiler answers with one. -->
+                <div class="gutter" id="script-gutter" aria-hidden="true"></div>
+                <div class="codescroll">
+                    <pre class="hl" aria-hidden="true"><code id="script-hl"></code></pre>
+                    <textarea id="script-source" class="code" spellcheck="false"
+                              autocapitalize="off" autocomplete="off"
+                              rows="18" wrap="off"></textarea>
+                </div>
+            </div>
 
             <div class="toolbar">
                 <button class="btn primary" id="script-save" type="button">Save</button>

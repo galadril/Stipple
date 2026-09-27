@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "stipple/script/ScriptHost.h"
 
+#include "stipple/script/IScriptHttp.h"
 #include "stipple/script/IScriptMqtt.h"
 
 extern "C" {
@@ -53,6 +54,10 @@ struct Active {
 
     /// Messages published during this call. Bounded - see b_mqtt_publish.
     int publishes = 0;
+
+    /// The network, for the duration of a call. Scoped by the same script id
+    /// as the broker.
+    IScriptHttp* http = nullptr;
 };
 
 Active g_active;
@@ -562,6 +567,101 @@ int b_mqtt_age_ms(bvm* vm) {
     be_return(vm);
 }
 
+/* --- the network -----------------------------------------------------------
+ *
+ * Deliberately no call that fetches and returns.
+ *
+ * Such a call would have to block the thread that draws the panel, and
+ * blueprint §16 forbids that outright - a thirty-second connect timeout would
+ * be thirty seconds of frozen display. So a script says what it wants and how
+ * often, something else fetches it, and the script reads whatever arrived
+ * last.
+ *
+ * That is not a consolation prize. A script polling an API every five minutes
+ * and drawing its last answer with a visible age is strictly better behaved
+ * than the synchronous version: when the API goes down, the panel keeps its
+ * last reading and shows that it is old, instead of hanging.
+ */
+
+bool networkReady() noexcept {
+    return g_active.http != nullptr && g_active.scriptId != nullptr &&
+           !g_active.scriptId->empty();
+}
+
+int b_http_known(bvm* vm) {
+    be_pushbool(vm, (networkReady() && g_active.http->available()) ? 1 : 0);
+    be_return(vm);
+}
+
+int b_http_follow(bvm* vm) {
+    bool following = false;
+    if (networkReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        // Seconds from the script, milliseconds underneath. Seconds because a
+        // script author writing 300 means five minutes and writing 300000
+        // means they have made a mistake the floor would silently absorb.
+        std::uint32_t intervalMillis = 0;
+        if (be_top(vm) >= 2) {
+            const int seconds = argInt(vm, 2);
+            if (seconds > 0) {
+                intervalMillis = static_cast<std::uint32_t>(seconds) * 1000u;
+            }
+        }
+        following = g_active.http->follow(*g_active.scriptId, be_tostring(vm, 1),
+                                          intervalMillis);
+    }
+    be_pushbool(vm, following ? 1 : 0);
+    be_return(vm);
+}
+
+int b_http_get(bvm* vm) {
+    if (networkReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        const std::string* value =
+            g_active.http->body(*g_active.scriptId, be_tostring(vm, 1));
+        if (value != nullptr) {
+            be_pushstring(vm, value->c_str());
+            be_return(vm);
+        }
+    }
+    // nil, not "". An endpoint that returned nothing and one that has never
+    // answered are different states.
+    be_pushnil(vm);
+    be_return(vm);
+}
+
+int b_http_status(bvm* vm) {
+    int status = 0;
+    if (networkReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        status = g_active.http->status(*g_active.scriptId, be_tostring(vm, 1));
+    }
+    be_pushint(vm, status);
+    be_return(vm);
+}
+
+int b_http_age_ms(bvm* vm) {
+    std::int64_t age = -1;
+    if (networkReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        age = g_active.http->ageMillis(*g_active.scriptId, be_tostring(vm, 1));
+    }
+    be_pushint(vm, static_cast<bint>(age));
+    be_return(vm);
+}
+
+int b_http_error(bvm* vm) {
+    if (networkReady() && be_top(vm) >= 1 && be_isstring(vm, 1)) {
+        const std::string_view why =
+            g_active.http->failure(*g_active.scriptId, be_tostring(vm, 1));
+        if (!why.empty()) {
+            // Copied through a std::string because the view is not
+            // guaranteed to be null-terminated, and Berry wants a C string.
+            const std::string held(why);
+            be_pushstring(vm, held.c_str());
+            be_return(vm);
+        }
+    }
+    be_pushnil(vm);
+    be_return(vm);
+}
+
 int b_now_ms(bvm* vm) {
     be_pushint(vm, static_cast<bint>(g_active.environment.monotonicMillis));
     be_return(vm);
@@ -601,6 +701,13 @@ void registerBuiltins(bvm* vm) {
     be_regfunc(vm, "mqtt_watch", b_mqtt_watch);
     be_regfunc(vm, "mqtt_get", b_mqtt_get);
     be_regfunc(vm, "mqtt_age_ms", b_mqtt_age_ms);
+
+    be_regfunc(vm, "http_known", b_http_known);
+    be_regfunc(vm, "http_follow", b_http_follow);
+    be_regfunc(vm, "http_get", b_http_get);
+    be_regfunc(vm, "http_status", b_http_status);
+    be_regfunc(vm, "http_age_ms", b_http_age_ms);
+    be_regfunc(vm, "http_error", b_http_error);
 
     be_regfunc(vm, "hour", b_hour);
     be_regfunc(vm, "minute", b_minute);
@@ -769,6 +876,7 @@ std::uint32_t ScriptHost::durationMillis() {
     g_active.mqtt = mqtt_;
     g_active.scriptId = &scriptId_;
     g_active.publishes = 0;
+    g_active.http = http_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -793,6 +901,7 @@ std::uint32_t ScriptHost::durationMillis() {
     g_active.store = nullptr;
     g_active.audio = nullptr;
     g_active.mqtt = nullptr;
+    g_active.http = nullptr;
     g_active.scriptId = nullptr;
     return millis;
 }
@@ -803,6 +912,11 @@ void ScriptHost::setAudio(platform::IAudioOutput* audio) noexcept {
 
 void ScriptHost::setMqtt(IScriptMqtt* mqtt, std::string_view scriptId) {
     mqtt_ = mqtt;
+    scriptId_.assign(scriptId);
+}
+
+void ScriptHost::setHttp(IScriptHttp* http, std::string_view scriptId) {
+    http_ = http;
     scriptId_.assign(scriptId);
 }
 
@@ -889,6 +1003,7 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
     g_active.mqtt = mqtt_;
     g_active.scriptId = &scriptId_;
     g_active.publishes = 0;
+    g_active.http = http_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -905,6 +1020,7 @@ bool ScriptHost::draw(Canvas& canvas, std::uint64_t elapsedMillis, std::string& 
     g_active.store = nullptr;
     g_active.audio = nullptr;
     g_active.mqtt = nullptr;
+    g_active.http = nullptr;
     g_active.scriptId = nullptr;
 
     if (result != EventResult::Handled) {
@@ -935,6 +1051,7 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
     g_active.mqtt = mqtt_;
     g_active.scriptId = &scriptId_;
     g_active.publishes = 0;
+    g_active.http = http_;
     g_active.heartbeats = 0;
     g_active.overBudget = false;
 
@@ -948,6 +1065,7 @@ ScriptHost::EventResult ScriptHost::button(std::string_view name, std::string& p
     g_active.store = nullptr;
     g_active.audio = nullptr;
     g_active.mqtt = nullptr;
+    g_active.http = nullptr;
     g_active.scriptId = nullptr;
 
     if (result == EventResult::Failed) {

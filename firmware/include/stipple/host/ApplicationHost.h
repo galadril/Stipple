@@ -22,6 +22,7 @@
 #include "stipple/input/SetupHold.h"
 #include "stipple/json/Json.h"
 #include "stipple/mqtt/MqttService.h"
+#include "stipple/net/ScriptFetcher.h"
 #include "stipple/notify/Notifications.h"
 #include "stipple/platform/HttpServer.h"
 #include "stipple/platform/PlatformServices.h"
@@ -195,6 +196,11 @@ public:
 
     mqtt::MqttService& mqttService() noexcept { return mqtt_; }
     const mqtt::MqttService& mqttService() const noexcept { return mqtt_; }
+
+    /// What scripts fetch, and how often. Exposed for the diagnostics that
+    /// answer "is this device hammering my API".
+    net::ScriptFetcher& scriptFetcher() noexcept { return fetcher_; }
+    const net::ScriptFetcher& scriptFetcher() const noexcept { return fetcher_; }
     render::FrameScheduler& scheduler() noexcept { return scheduler_; }
     const render::FrameStats& frameStats() const noexcept { return scheduler_.stats(); }
 
@@ -523,6 +529,7 @@ private:
     api::ApiServer apiServer_;
     web::StaticFiles staticFiles_;
     mqtt::MqttService mqtt_;
+    net::ScriptFetcher fetcher_;
 };
 
 }  // namespace host

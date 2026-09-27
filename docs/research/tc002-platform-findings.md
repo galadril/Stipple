@@ -451,7 +451,19 @@ have, and it is 14 MB.
 
 So the budgets written when nobody had measured were far too cautious. The
 icon store was capped at 12 KB - under a tenth of a percent of what is there -
-which refused 16x16 icons on a panel 16 pixels tall. It is 64 KB now.
+which refused 16x16 icons on a panel 16 pixels tall. It went to 64 KB, and
+then to 256 KB when somebody upscaled a TC001 icon set and found that an 8x8
+icon costs 192 bytes and a 16x16 costs 768: doubling the size quarters how
+many fit, and sixty-four icons ran out long before the bytes did. 256 KB is
+1.8% of what is there.
+
+The limit people actually hit, though, was neither of those. Pixels arrive
+over the API as JSON integers, so every pixel is a token, and the parser's
+general budget was 512 tokens - which is two 16x16 frames. An icon well
+inside every size limit the page advertises was rejected as "invalid JSON",
+which is the worst kind of limit: correct, enforced, and describing something
+other than the thing that is wrong. Icons now get their own token and body
+ceilings, the way a firmware image does.
 
 Two things this does *not* license. The 8 MiB `res` partition is unchanged and
 is still the binding constraint on what can be flashed. And `VmRSS` grows with

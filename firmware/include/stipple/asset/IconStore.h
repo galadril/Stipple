@@ -65,15 +65,23 @@ public:
     ///     MemAvailable  14304 kB
     ///     Stipple RSS    7824 kB
     ///
-    /// So 64 KB is under half a percent of what is actually available, and
-    /// 12 KB was refusing sixteen-pixel icons on a panel sixteen pixels tall
-    /// for no reason anyone could point at.
+    /// 64 KB was still too tight, for a reason the arithmetic makes obvious
+    /// once somebody upscales a TC001 icon set: an 8x8 icon is 192 bytes and
+    /// a 16x16 is 768, so doubling the size quarters how many fit. Sixty-four
+    /// icons is a small library, and the count ran out long before the bytes
+    /// did.
+    ///
+    /// 256 KB is 1.8% of the 14.3 MB measured free above, which is still a
+    /// rounding error on this device. The count goes to 192 rather than
+    /// higher because the serialised format writes it in one byte, and a
+    /// limit that quietly corrupts the save file at 256 would be worse than
+    /// one that says no at 192.
     ///
     /// Still a total rather than a per-icon limit: sixty-four 8x8 glyphs and
     /// eight eight-frame animations cost the same RAM, and a per-icon cap
     /// would either forbid the first or permit far too much of the second.
-    static constexpr std::size_t kMaxTotalBytes = 64u * 1024u;
-    static constexpr int kMaxIcons = 64;
+    static constexpr std::size_t kMaxTotalBytes = 256u * 1024u;
+    static constexpr int kMaxIcons = 192;
     static constexpr int kMaxDimension = 32;
     static constexpr int kMaxFrames = 16;
     static constexpr std::size_t kMaxIdBytes = 48;

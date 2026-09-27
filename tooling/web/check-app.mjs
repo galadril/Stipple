@@ -235,13 +235,132 @@ for (const m of code.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)\s*\(/g)) {
     missing.set(name, (missing.get(name) || 0) + 1);
 }
 
-if (missing.size === 0) {
-    console.log(`check-app: ${defined.size} definitions, every call accounted for`);
-    process.exit(0);
+if (missing.size > 0) {
+    console.error('app.js calls functions that are not defined:');
+    for (const [name, count] of [...missing].sort()) {
+        console.error(`  ${name}  (${count} call${count === 1 ? '' : 's'})`);
+    }
+    process.exit(1);
 }
 
-console.error('app.js calls functions that are not defined:');
-for (const [name, count] of [...missing].sort()) {
-    console.error(`  ${name}  (${count} call${count === 1 ? '' : 's'})`);
+console.log(`check-app: ${defined.size} definitions, every call accounted for`);
+
+// --- Third check: does the highlighter give back what it was given? ---------
+//
+// The editor draws the source twice: once in a textarea whose text is
+// transparent, and once in a <pre> behind it. The caret, the selection and
+// every click land according to the textarea; the glyphs a person sees come
+// from the <pre>. The two only agree while the <pre> contains exactly the
+// same characters, in the same order, as the textarea.
+//
+// So the one thing that must never happen is a tokeniser that drops, adds or
+// reorders a character. A dropped tab is invisible in the output and moves
+// every caret position on that line by two columns, which reads as the editor
+// being haunted rather than as a bug in a function nobody is looking at.
+//
+// This runs highlightBerry over a set of awkward inputs, strips the tags it
+// added, and requires the result to be byte-identical to the input.
+
+const extract = /function highlightBerry\(source\)[\s\S]*?\n    \}\n/.exec(source);
+if (!extract) {
+    console.error('check-app: highlightBerry is gone from app.js');
+    console.error('The script editor would show an empty layer behind the textarea.');
+    process.exit(1);
 }
-process.exit(1);
+
+// The helpers it leans on, lifted the same way.
+const helpers = ['escapeHtml', 'span', 'isWordStart', 'isWord', 'isDigit']
+    .map((name) => {
+        const found = new RegExp(
+            `function ${name}\\([\\s\\S]*?\\n    \\}\\n`).exec(source);
+        if (!found) {
+            console.error(`check-app: highlightBerry's helper ${name} is gone`);
+            process.exit(1);
+        }
+        return found[0];
+    })
+    .join('\n');
+
+const tables = ['BERRY_KEYWORDS', 'BERRY_BUILTINS']
+    .map((name) => {
+        const found = new RegExp(`var ${name} = \\{[\\s\\S]*?\\n    \\};`).exec(source);
+        if (!found) {
+            console.error(`check-app: the ${name} table is gone`);
+            process.exit(1);
+        }
+        return found[0];
+    })
+    .join('\n');
+
+let highlightBerry;
+try {
+    // eslint-disable-next-line no-new-func
+    highlightBerry = new Function(
+        `${tables}\n${helpers}\n${extract[0]}\nreturn highlightBerry;`)();
+} catch (error) {
+    console.error(`check-app: highlightBerry will not load: ${error.message}`);
+    process.exit(1);
+}
+
+const strip = (html) => html
+    .replace(/<[^>]*>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+
+const cases = [
+    ['empty', ''],
+    ['one line', 'var x = 1'],
+    ['a comment', '# name: Big Clock\nvar x = 1'],
+    ['tabs', 'class App\n\tdef draw()\n\t\tpixel(0, 0, rgb(1, 2, 3))\n\tend\nend'],
+    ['both quotes', `text(0, 0, 'a', rgb(1,2,3))\ntext(0, 0, "b", rgb(1,2,3))`],
+    ['an escaped quote', `var s = 'it\\'s fine'`],
+    // The case that made the string scanner stop at newlines: somebody
+    // mid-edit has one open quote most of the time.
+    ['an unterminated string', `var s = 'open\nvar t = 2`],
+    ['a hash inside a string', `var s = "# not a comment"`],
+    ['angle brackets', 'if a < b && c > d\nend'],
+    ['an ampersand', 'var s = "a && b"'],
+    ['numbers', 'var a = 0\nvar b = 3.14\nvar c = 0xFF\nvar d = 1e3'],
+    ['trailing newline', 'var x = 1\n'],
+    ['blank lines', '\n\n\nvar x = 1\n\n\n'],
+    ['windows line endings', 'var x = 1\r\nvar y = 2\r\n'],
+    ['a lone hash at the end', 'var x = 1\n#'],
+    ['unicode', 'text(0, 0, "café — °C", rgb(1,2,3))'],
+];
+
+let failures = 0;
+for (const [label, input] of cases) {
+    const back = strip(highlightBerry(input));
+    if (back !== input) {
+        console.error(`check-app: highlightBerry changed the text (${label})`);
+        console.error(`  in:  ${JSON.stringify(input)}`);
+        console.error(`  out: ${JSON.stringify(back)}`);
+        failures += 1;
+    }
+}
+
+// And it must actually colour something, or the check above passes trivially
+// on a function that returns its input.
+if (!/tk-key/.test(highlightBerry('def draw()')) ||
+    !/tk-com/.test(highlightBerry('# hello')) ||
+    !/tk-str/.test(highlightBerry(`var s = 'x'`)) ||
+    !/tk-fn/.test(highlightBerry('pixel(0, 0, 0)')) ||
+    !/tk-num/.test(highlightBerry('var n = 42'))) {
+    console.error('check-app: highlightBerry is not highlighting anything');
+    failures += 1;
+}
+
+// Raw < and & must not reach the DOM as markup. A script containing
+// "<img onerror=...>" in a comment would otherwise run it in the editor.
+const injected = highlightBerry('# <img src=x onerror="alert(1)">');
+if (/<img/.test(injected)) {
+    console.error('check-app: highlightBerry does not escape markup');
+    failures += 1;
+}
+
+if (failures > 0) {
+    process.exit(1);
+}
+console.log('check-app: highlightBerry round-trips every awkward input');
+

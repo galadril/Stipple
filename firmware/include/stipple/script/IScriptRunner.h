@@ -17,6 +17,7 @@ class IAudioOutput;
 namespace script {
 
 class IScriptMqtt;
+class IScriptHttp;
 
 /// One script, as the rest of the firmware sees it.
 ///
@@ -172,6 +173,13 @@ public:
     /// speaker: the absence is visible to the script rather than showing up
     /// as messages that go nowhere.
     virtual void setMqtt(IScriptMqtt* mqtt) noexcept = 0;
+
+    /// Give scripts the network, or take it away.
+    ///
+    /// Null is a build or a platform that cannot fetch, and then
+    /// `http_known()` is false and nothing is requested. Third capability,
+    /// same contract: the absence is visible to the script.
+    virtual void setHttp(IScriptHttp* http) noexcept = 0;
 
     /// Tell every script what the device currently knows.
     ///

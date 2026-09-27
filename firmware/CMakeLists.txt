@@ -105,6 +105,8 @@ add_library(stipple_core
     src/audio/Tone.cpp
     src/time/Timezone.cpp
     src/net/DhcpClient.cpp
+    src/net/HttpFetch.cpp
+    src/net/ScriptFetcher.cpp
     src/net/DnsMessage.cpp
     src/net/SntpMessage.cpp
     src/core/Base64.cpp
@@ -168,6 +170,7 @@ endif()
 # keeping them apart is what makes that violation a link error rather than a
 # code review comment. The TC002 adapter becomes its sibling in Phase 7.
 add_library(stipple_platform_simulator
+    src/platform/simulator/SimulatorHttpClient.cpp
     src/platform/simulator/SimulatorPlatform.cpp
 )
 

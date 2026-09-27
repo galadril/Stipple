@@ -362,6 +362,12 @@ void ApplicationHost::setScriptRunner(script::IScriptRunner* runner) {
     // call from here.
     runner->setMqtt(&mqtt_.scripts());
 
+    // And the network. The fetcher reports its own availability, so a
+    // platform with no HTTP client is a script being told it cannot fetch
+    // rather than requests queueing for a socket that will never exist.
+    fetcher_.setClient(platform_.httpClient());
+    runner->setHttp(&fetcher_);
+
     loadScripts();
     persistedScriptRevision_ = runner->revision();
 }
@@ -1596,6 +1602,12 @@ bool ApplicationHost::tick(std::uint64_t nowMillis) {
         }
         mqtt_.setDeviceState(std::move(state));
         mqtt_.tick(nowMillis);
+
+        // Same loop, same reason. One request at a time, and the schedule
+        // decides which - see ScriptFetcher.
+        fetcher_.setNetworkUp(platform_.network() != nullptr &&
+                              platform_.network()->status().connected);
+        fetcher_.tick(nowMillis);
     }
 
     // Settings cannot outlive the user's attention: someone who walks away

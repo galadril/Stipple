@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "stipple/platform/Clock.h"
+#include "stipple/platform/HttpClient.h"
 #include "stipple/platform/Display.h"
 #include "stipple/platform/Input.h"
 #include "stipple/platform/Storage.h"
@@ -341,6 +342,13 @@ public:
     /// MQTT transport. Absent is the normal case, not a failure: §20 requires
     /// the device to be fully usable without a broker.
     virtual IMqttClient* mqtt() { return nullptr; }
+
+    /// Outbound HTTP, for the scripts that ask for it.
+    ///
+    /// Null is a platform that cannot fetch. That is a supported answer, not
+    /// a broken one - the WASM emulator has no sockets at all - and the script
+    /// builtins report it rather than queueing requests that go nowhere.
+    virtual IHttpClient* httpClient() { return nullptr; }
 };
 
 }  // namespace platform

@@ -133,6 +133,10 @@ public:
     /// script this is.
     void setMqtt(IScriptMqtt* mqtt, std::string_view scriptId);
 
+    /// The network this script may use, or null when there is none. Scoped by
+    /// id for the same reason the broker is.
+    void setHttp(IScriptHttp* http, std::string_view scriptId);
+
     /// Whether a script is loaded and has not failed.
     bool ready() const noexcept { return ready_; }
 
@@ -175,6 +179,7 @@ private:
     ScriptEnvironment environment_;
     platform::IAudioOutput* audio_ = nullptr;
     IScriptMqtt* mqtt_ = nullptr;
+    IScriptHttp* http_ = nullptr;
     std::string scriptId_;
     std::vector<std::pair<std::string, Stored>> store_;
 };

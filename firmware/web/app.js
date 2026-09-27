@@ -410,7 +410,13 @@
             var welcome = $('first-run');
             if (welcome) { welcome.hidden = !firstRunSeen; }
 
-            $('device-name').textContent = device.name || 'stipple';
+            // The wordmark beside this already says Stipple, and the default
+            // device name is "stipple" - so on a device nobody has renamed
+            // the header read "Stipple  stipple v0.2.0". Shown only when it
+            // is telling you something the wordmark is not.
+            var name = device.name || '';
+            $('device-name').textContent =
+                name.toLowerCase() === 'stipple' ? '' : name;
             $('device-version').textContent = 'v' + device.version;
 
             var facts = $('device-facts');
@@ -1745,6 +1751,189 @@
         ''
     ].join('\n');
 
+    // --- Berry syntax highlighting -------------------------------------------
+    //
+    // A tokeniser, not a parser. It reads left to right and never backtracks,
+    // which is enough to colour code and cheap enough to run on every
+    // keystroke of a 16 KB file inside a device's own web page.
+    //
+    // It runs against the textarea's exact text, so the highlighted copy
+    // behind it has identical glyphs in identical places. The moment this
+    // starts reformatting - collapsing tabs, trimming trailing spaces - the
+    // two layers drift apart and the caret lands in the wrong column.
+
+    var BERRY_KEYWORDS = {
+        'var': 1, 'def': 1, 'end': 1, 'if': 1, 'elif': 1, 'else': 1,
+        'while': 1, 'for': 1, 'do': 1, 'break': 1, 'continue': 1, 'return': 1,
+        'class': 1, 'static': 1, 'import': 1, 'as': 1, 'try': 1, 'except': 1,
+        'raise': 1, 'true': 1, 'false': 1, 'nil': 1, 'self': 1, 'super': 1
+    };
+
+    // The builtins the device actually registers. Picked out so that a
+    // misspelled `pixl` or a `http_get` on a build without one stops looking
+    // like a call - which is the one thing highlighting can tell you that
+    // reading cannot.
+    var BERRY_BUILTINS = {
+        'width': 1, 'height': 1, 'clear': 1, 'pixel': 1, 'line': 1,
+        'rect': 1, 'rect_fill': 1, 'text': 1, 'text_width': 1, 'rgb': 1,
+        'hour': 1, 'minute': 1, 'second': 1, 'weekday': 1, 'day': 1,
+        'month': 1, 'year': 1, 'time_known': 1, 'now_ms': 1, 'elapsed_ms': 1,
+        'battery': 1, 'battery_known': 1, 'charging': 1,
+        'tone': 1, 'sound': 1, 'audio_known': 1, 'volume': 1,
+        'mqtt_known': 1, 'mqtt_watch': 1, 'mqtt_get': 1, 'mqtt_age_ms': 1,
+        'mqtt_publish': 1,
+        'http_known': 1, 'http_follow': 1, 'http_get': 1, 'http_status': 1,
+        'http_age_ms': 1, 'http_error': 1,
+        'store': 1, 'str': 1, 'int': 1, 'real': 1, 'number': 1, 'size': 1,
+        'type': 1, 'print': 1
+    };
+
+    function escapeHtml(text) {
+        return text.replace(/[&<>]/g, function (c) {
+            return c === '&' ? '&amp;' : (c === '<' ? '&lt;' : '&gt;');
+        });
+    }
+
+    function span(cls, text) {
+        return '<span class="' + cls + '">' + escapeHtml(text) + '</span>';
+    }
+
+    function isWordStart(c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c === '_';
+    }
+
+    function isWord(c) {
+        return isWordStart(c) || (c >= '0' && c <= '9');
+    }
+
+    function isDigit(c) {
+        return c >= '0' && c <= '9';
+    }
+
+    function highlightBerry(source) {
+        var out = '';
+        var i = 0;
+        var n = source.length;
+        // Set by `def` and `class` so the name that follows is coloured as a
+        // definition rather than as a call.
+        var expectName = false;
+
+        while (i < n) {
+            var c = source.charAt(i);
+
+            // Comments run to the end of the line. Berry has no block comment,
+            // so there is nothing to nest.
+            if (c === '#') {
+                var eol = source.indexOf('\n', i);
+                if (eol < 0) { eol = n; }
+                out += span('tk-com', source.slice(i, eol));
+                i = eol;
+                continue;
+            }
+
+            if (c === '"' || c === "'") {
+                var quote = c;
+                var j = i + 1;
+                while (j < n) {
+                    var s = source.charAt(j);
+                    if (s === '\\') { j += 2; continue; }
+                    if (s === quote || s === '\n') { break; }
+                    j += 1;
+                }
+                // An unterminated string ends at the newline rather than
+                // swallowing the rest of the file. Somebody mid-edit has one
+                // open quote most of the time, and colouring everything below
+                // it green would be the editor shouting about a typo they are
+                // two keystrokes from fixing.
+                if (j < n && source.charAt(j) === quote) { j += 1; }
+                out += span('tk-str', source.slice(i, j));
+                i = j;
+                continue;
+            }
+
+            if (isDigit(c)) {
+                var k = i;
+                while (k < n && (isWord(source.charAt(k)) || source.charAt(k) === '.')) {
+                    k += 1;
+                }
+                out += span('tk-num', source.slice(i, k));
+                i = k;
+                continue;
+            }
+
+            if (isWordStart(c)) {
+                var w = i;
+                while (w < n && isWord(source.charAt(w))) { w += 1; }
+                var word = source.slice(i, w);
+
+                if (expectName) {
+                    out += span('tk-def', word);
+                    expectName = false;
+                } else if (BERRY_KEYWORDS[word] === 1) {
+                    out += span('tk-key', word);
+                    expectName = (word === 'def' || word === 'class');
+                } else if (BERRY_BUILTINS[word] === 1) {
+                    out += span('tk-fn', word);
+                } else {
+                    out += escapeHtml(word);
+                }
+                i = w;
+                continue;
+            }
+
+            out += escapeHtml(c);
+            i += 1;
+        }
+        return out;
+    }
+
+    // The line the compiler complained about, or 0. Set by showProblem.
+    var scriptErrorLine = 0;
+
+    function paintScript() {
+        var source = $('script-source');
+        var layer = $('script-hl');
+        if (!source || !layer) { return; }
+
+        var text = source.value;
+        // A trailing newline leaves the <pre> one line shorter than the
+        // textarea, so the last line scrolls out of step. One space costs
+        // nothing and keeps the two the same height.
+        layer.innerHTML = highlightBerry(text) + ' ';
+
+        var gutter = $('script-gutter');
+        if (gutter) {
+            var lines = text.split('\n').length;
+            var numbers = '';
+            for (var i = 1; i <= lines; i += 1) {
+                // Every line is its own block, including the good ones.
+                // Mixing a block element for the bad line with newlines for
+                // the rest puts an extra line box between them, and the
+                // numbers stop lining up with the code from there down.
+                numbers += (i === scriptErrorLine)
+                    ? '<b>' + i + '</b>'
+                    : '<span>' + i + '</span>';
+            }
+            gutter.innerHTML = numbers;
+            // Widen for four digits before it is needed, so the code does not
+            // shift sideways the moment a script passes line 99.
+            gutter.style.minWidth = (String(Math.max(lines, 99)).length + 1) + 'ch';
+        }
+        syncScriptScroll();
+    }
+
+    function syncScriptScroll() {
+        var source = $('script-source');
+        var layer = source && source.parentNode
+            ? source.parentNode.querySelector('.hl')
+            : null;
+        if (!source || !layer) { return; }
+        layer.scrollTop = source.scrollTop;
+        layer.scrollLeft = source.scrollLeft;
+        var gutter = $('script-gutter');
+        if (gutter) { gutter.scrollTop = source.scrollTop; }
+    }
+
     function showProblem(text) {
         var box = $('script-problem');
         if (!box) { return; }
@@ -1755,6 +1944,12 @@
             box.textContent = '';
             box.hidden = true;
         }
+        // Berry reports "line 12: unexpected token". Pulling the number out
+        // lets the gutter point at it, which is the difference between an
+        // error you read and an error you find.
+        var found = text ? /line[: ]\s*(\d+)/i.exec(text) : null;
+        scriptErrorLine = found ? parseInt(found[1], 10) : 0;
+        paintScript();
     }
 
     function updateScriptBytes() {
@@ -1772,6 +1967,7 @@
     function markScriptDirty() {
         scriptDirty = true;
         updateScriptBytes();
+        paintScript();
     }
 
     function highlightSelectedScript() {
@@ -1795,6 +1991,7 @@
         scriptDirty = !entry;
         showProblem(entry ? entry.problem : '');
         updateScriptBytes();
+        paintScript();
         highlightSelectedScript();
     }
 
@@ -1911,6 +2108,12 @@
         var source = $('script-source');
         if (source) {
             source.addEventListener('input', markScriptDirty);
+
+            // The highlighted layer does not scroll itself - it has no
+            // scrollbar and no pointer events - so it is moved to wherever
+            // the textarea went. Without this the colours stay behind the
+            // moment a script is longer than the box.
+            source.addEventListener('scroll', syncScriptScroll);
 
             // Tab indents instead of leaving the field. The one thing a plain
             // textarea gets wrong for code, and the fix is six lines.
