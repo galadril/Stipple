@@ -1,103 +1,199 @@
 name: Release
 
-# Tagging cuts a release of what actually exists, which is now three things:
-# the device library, the tools to build a flashable image from your own
-# capture, and the browser emulator.
+# Cutting a release is one button.
+#
+# Run this workflow from the Actions tab, pick how far to bump, and it works
+# out the version, writes it into the two files that have to agree, renames
+# the changelog's `## Unreleased` heading to it, runs the whole gate set,
+# packages, commits the bump to main, tags it and publishes.
+#
+# **Nothing is written until everything has passed.** The bump is applied to
+# each job's working tree so the artefacts carry the right version, and only
+# the publish job commits and tags. A run that fails leaves main exactly as it
+# was, which is the property that makes a one-button release safe.
+#
+# Pushing a `v*` tag by hand still works and still releases, for the case
+# where somebody wants to cut a release from something other than main's head.
 #
 # What is deliberately *not* here is update.img. A res image contains Ulanzi's
 # libzkgui.so - seven and a half megabytes of their firmware - so publishing
 # one would be redistributing it. The image-builder artifact is the honest
 # substitute: it carries our half and builds the rest against a capture of the
 # device it is going to be installed on, which never leaves that machine.
-
-# Publishing needs a tag. A manual run builds, checks and packages
-# everything, and deliberately publishes nothing.
-#
-# That is not a safety setting somebody can switch off - it is what the job
-# can actually do. `gh release create` names the release after the ref it ran
-# on, which for a tag push is `v0.2.0` and for a manual run is the *branch*.
-# A manual publish would produce a release tagged `feature/whatever`.
-#
-# There used to be a `dry_run` input here, defaulting to true. Nothing ever
-# read it: the publish job is gated on the event, not on the input, so the
-# checkbox did nothing whichever way it was set. An option that appears to
-# control something and does not is worse than no option.
 on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Which part of the version to raise'
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+      version:
+        description: 'Exact version instead (x.y.z). Overrides the choice above.'
+        type: string
+        default: ''
+      publish:
+        description: 'Publish it. Unticked builds and packages and releases nothing.'
+        type: boolean
+        default: true
   push:
     tags: ['v*']
-  workflow_dispatch:
 
 # Distinct from ci.yml's group on purpose: a release must not cancel the CI run
 # it depends on, and a half-published release is worse than a slow one.
 concurrency:
-  group: stipple-release-${{ github.ref_name }}
+  group: stipple-release
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  # The version lives in three places that can drift silently: the git tag,
-  # project(VERSION) in CMakeLists.txt, and kVersion in Version.h, which is what
-  # the device reports over /api/v1/version and paints on the splash. A release
-  # whose binary reports a different version than its tag is unsupportable, so
-  # disagreement fails here rather than being discovered in a bug report.
-  guard:
-    name: Version agreement
+  # Works out what version this is, and proves it can be released before
+  # anything is built.
+  #
+  # The version lives in three places that drift silently: project(VERSION) in
+  # CMakeLists.txt, kVersion in Version.h - what the device reports over
+  # /api/v1/version and paints on the splash - and the git tag. A release whose
+  # binary reports a different version than its tag is unsupportable.
+  #
+  # For a dispatch run this job *chooses* the version rather than checking one,
+  # by raising the highest released tag. The files are then written to match in
+  # every later job, so there is nothing to disagree about - which is a better
+  # guarantee than checking three things by hand and is the point of doing it
+  # this way.
+  plan:
+    name: Plan the release
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.check.outputs.version }}
+      version: ${{ steps.pick.outputs.version }}
+      tag: ${{ steps.pick.outputs.tag }}
+      bump: ${{ steps.pick.outputs.bump }}
+      publish: ${{ steps.pick.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Every tag, because the next version is derived from the highest one
+          # and a shallow clone has none of them.
+          fetch-depth: 0
 
-      - id: check
+      - id: pick
         run: |
           set -euo pipefail
 
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            # Tagged by hand. The tag is the source of truth, the files are
+            # checked against it, and nothing is rewritten.
             tag="${GITHUB_REF_NAME}"
             version="${tag#v}"
+            bump=false
+            publish=true
+
+            cmake_version="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -1)"
+            header_version="$(sed -nE 's/.*kVersion[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' firmware/include/stipple/core/Version.h | head -1)"
+            fail=0
+            [ "$version" = "$cmake_version" ] || { echo "::error::tag ${tag} disagrees with CMakeLists.txt ${cmake_version}"; fail=1; }
+            [ "$version" = "$header_version" ] || { echo "::error::tag ${tag} disagrees with Version.h ${header_version}"; fail=1; }
+            [ "$fail" -eq 0 ] || exit 1
           else
-            # A dispatch run has no tag; take the source of truth as given and
-            # verify the other two against it.
-            version="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -1)"
+            bump=true
+            publish='${{ inputs.publish }}'
+            asked='${{ inputs.version }}'
+
+            if [ -n "$asked" ]; then
+              version="$asked"
+              if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+                echo "::error::'${version}' is not a version"
+                exit 1
+              fi
+            else
+              # The highest tag, not the highest number in a file: a file can
+              # be ahead of what was actually released, and releasing the same
+              # version twice is the failure worth preventing.
+              latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+              if [ -z "$latest" ]; then
+                latest="0.0.0"
+                echo "::notice::no release tags yet; counting from 0.0.0"
+              fi
+              # Parameter expansion rather than a heredoc: a heredoc inside a
+              # YAML block scalar only works while its terminator lands at
+              # column zero after YAML strips the block indent, which is a
+              # thing that breaks when somebody re-indents the job.
+              major="${latest%%.*}"
+              rest="${latest#*.}"
+              minor="${rest%%.*}"
+              patch="${rest##*.}"
+              case '${{ inputs.bump }}' in
+                major) major=$((major + 1)); minor=0; patch=0 ;;
+                minor) minor=$((minor + 1)); patch=0 ;;
+                *)     patch=$((patch + 1)) ;;
+              esac
+              version="${major}.${minor}.${patch}"
+              echo "::notice::latest release is ${latest}; ${{ inputs.bump }} makes it ${version}"
+            fi
+
             tag="v${version}"
+            if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+              echo "::error::${tag} already exists. Pick a different version, or bump further."
+              exit 1
+            fi
           fi
 
-          cmake_version="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -1)"
-          header_version="$(sed -nE 's/.*kVersion[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' firmware/include/stipple/core/Version.h | head -1)"
+          echo "tag       ${tag}"
+          echo "version   ${version}"
+          echo "bump      ${bump}"
+          echo "publish   ${publish}"
 
-          echo "tag              ${tag}"
-          echo "CMakeLists.txt   ${cmake_version}"
-          echo "Version.h        ${header_version}"
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+            echo "bump=${bump}"
+            echo "publish=${publish}"
+          } >> "$GITHUB_OUTPUT"
 
-          if [ -z "$cmake_version" ] || [ -z "$header_version" ]; then
-            echo "::error::could not parse a version out of CMakeLists.txt or Version.h"
+      # The notes are checked before anything is built. A release with no
+      # notes is one nobody can decide whether to install, and finding that out
+      # after twenty minutes of cross-compiling wastes the twenty minutes.
+      #
+      # `## Unreleased` counts: the bump renames it, which is the whole point
+      # of writing notes while the work is fresh instead of at release time.
+      - name: Check there are notes
+        run: |
+          set -euo pipefail
+          version='${{ steps.pick.outputs.version }}'
+          if awk -v ver="## ${version}" 'index($0, ver) == 1 { f = 1 } END { exit !f }' CHANGELOG.md; then
+            echo "CHANGELOG.md has a '## ${version}' section"
+          elif grep -qiE '^## +Unreleased' CHANGELOG.md; then
+            echo "CHANGELOG.md has '## Unreleased', which becomes '## ${version}'"
+          else
+            echo "::error::CHANGELOG.md has neither '## ${version}' nor '## Unreleased'"
             exit 1
           fi
-
-          fail=0
-          [ "$version" = "$cmake_version" ] || { echo "::error::tag ${tag} disagrees with CMakeLists.txt ${cmake_version}"; fail=1; }
-          [ "$version" = "$header_version" ] || { echo "::error::tag ${tag} disagrees with Version.h ${header_version}"; fail=1; }
-          [ "$fail" -eq 0 ] || exit 1
-
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
   # The full gate set, not a copy of it. If CI is weakened or strengthened, the
   # release path moves with it.
   verify:
     name: Verify
-    needs: guard
+    needs: plan
     uses: ./.github/workflows/ci.yml
 
   package:
     name: Package
-    needs: [guard, verify]
+    needs: [plan, verify]
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ needs.guard.outputs.version }}
+      VERSION: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+
+      # Applied to the working tree, not committed. The artefacts have to
+      # report the version they are being released as, and main must not carry
+      # a bump for a release that has not passed yet - so every job that needs
+      # the new version writes it locally and only `publish` makes it
+      # permanent.
+      - name: Write the version
+        if: needs.plan.outputs.bump == 'true'
+        run: bash tooling/release/bump.sh "${VERSION}"
 
       - name: Set up Emscripten
         uses: mymindstorm/setup-emsdk@v14
@@ -236,11 +332,11 @@ jobs:
       # Said out loud, because "Publish release — Skipped" in the job list
       # looks like something went wrong rather than like the answer.
       - name: Note what happens next
-        if: github.event_name != 'push'
+        if: needs.plan.outputs.publish != 'true'
         run: |
-          echo "::notice::Built and packaged ${VERSION}. Nothing will be published:"
-          echo "::notice::a release is cut by pushing a tag, not by running this by hand."
-          echo "::notice::  git tag v${VERSION} && git push origin v${VERSION}"
+          echo "::notice::Built and packaged ${VERSION}, and published nothing:"
+          echo "::notice::this run had 'Publish it' unticked."
+          echo "::notice::Run it again with the box ticked to cut the release." 
 
       - name: Upload Pages bundle
         uses: actions/upload-pages-artifact@v3
@@ -249,22 +345,53 @@ jobs:
 
   publish:
     name: Publish release
-    needs: [guard, package]
-    # Tag pushes only. See the note on the triggers above: a manual run has no
-    # tag to release as, so this is skipped rather than made optional.
-    if: github.event_name == 'push'
+    needs: [plan, package]
+    # Everything has passed by the time this runs, which is the property that
+    # makes the bump safe to commit here and nowhere earlier.
+    if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
-      VERSION: ${{ needs.guard.outputs.version }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      TAG: ${{ needs.plan.outputs.tag }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # A branch, not the detached head a default checkout leaves on a tag
+          # run: the bump has to be committed somewhere that moves.
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      # The bump, made permanent. This is the only write to the repository in
+      # the whole workflow, and it happens after the gate set, the cross-build
+      # and the packaging have all passed - so a run that fails leaves main
+      # exactly as it was.
+      #
+      # No [skip ci] marker needed: a commit pushed with GITHUB_TOKEN does not
+      # start another workflow run, which is GitHub's loop protection doing
+      # what is wanted here for once.
+      - name: Commit the version bump
+        if: needs.plan.outputs.bump == 'true'
+        run: |
+          set -euo pipefail
+          bash tooling/release/bump.sh "${VERSION}"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet; then
+            echo "::notice::the tree already said ${VERSION}; nothing to commit"
+          else
+            git add CMakeLists.txt firmware/include/stipple/core/Version.h CHANGELOG.md
+            git commit -m "Release ${VERSION}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
       - uses: actions/download-artifact@v4
         with:
-          name: stipple-release-${{ needs.guard.outputs.version }}
+          name: stipple-release-${{ needs.plan.outputs.version }}
           path: dist
 
       # The section for this version, lifted out of CHANGELOG.md.
@@ -395,7 +522,11 @@ jobs:
 
           # 0.x is development, so never "latest stable". Prerelease stays
           # until the interfaces stop moving.
-          gh release create "${GITHUB_REF_NAME}" \
+          # --target creates the tag as part of creating the release, so
+          # there is no second push to get wrong and no window where a
+          # tag exists for a release that does not.
+          gh release create "${TAG}" \
+            --target "$(git rev-parse HEAD)" \
             --title "Stipple ${VERSION}" \
             --notes-file notes.md \
             --prerelease \

@@ -269,21 +269,22 @@ somebody's stack trace on the panel.
 **A kilobyte of body, and the first kilobyte.** Anything a 52-pixel panel can
 show is near the front of the document.
 
-**`https` is implemented but the TC002 cannot currently do it.** The code is
-there - certificate chain, hostname check, TLS 1.2 floor, no way to switch
-verification off - and it loads the device's own OpenSSL at runtime. That
-OpenSSL turns out to be 1.1.0i built by OpenWrt in 2018 with every TLS
-protocol version compiled out: a crypto library with a stub SSL layer, which
-answers `SSL_connect` with `NO_PROTOCOLS_AVAILABLE` for every protocol floor
-including none at all.
+**`https` works, and is never downgraded.** Stipple carries its own TLS
+(BearSSL), because the device's OpenSSL turned out to be an OpenWrt build with
+every protocol version compiled out. Three things are checked before a byte of
+your request goes out, and none of them can be switched off:
 
-So `http_error()` says `openssl has no tls` on a TC002, and plain http to
-anything on your own network works today. Closing this needs Stipple to carry
-its own TLS rather than borrow the device's.
+- the certificate chain verifies against the trusted roots;
+- the certificate names the host you asked for;
+- the certificate is valid *now*.
 
-It is never downgraded to plaintext. Fetching over http what you asked to
-fetch over https would put an API key on the wire of a network you believed
-was protected.
+That last one needs a clock. A device that has not synchronised yet sits at
+1970, which would reject every certificate ever issued - so it refuses with
+`clock not set` rather than skipping the check. Wait for the clock.
+
+Failures are named rather than generic: `certificate expired`,
+`issuer not trusted`, `wrong host on cert`. TLS 1.2 only, which is what
+BearSSL 0.6 speaks and what every API worth fetching still accepts.
 
 ### The microphone
 

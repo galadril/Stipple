@@ -8,6 +8,39 @@ Versions are `MAJOR.MINOR.PATCH`. While on `0.x` every release is a
 prerelease: the interfaces move, and nothing here installs onto a stock
 device without a capture of that device first.
 
+## Unreleased
+
+### Added
+
+- **`https` works.** Stipple carries its own TLS, so a script can fetch from
+  an API that requires it. The certificate chain is verified against trusted
+  roots, the certificate must name the host asked for, and it must be valid
+  *now* — none of which can be switched off. A device whose clock has not
+  synchronised yet refuses with `clock not set` rather than skipping the
+  validity check, because a device sitting at 1970 would reject every
+  certificate ever issued.
+
+### Fixed
+
+- **A release is now one button.** Run the Release workflow from the Actions
+  tab and it works out the next version, writes it into the files that have to
+  agree, names the changelog's `## Unreleased` section after it, runs the full
+  gate set, packages, commits the bump, tags it and publishes. Nothing is
+  written until everything has passed, so a failed run leaves `main` exactly as
+  it was.
+
+### Changed
+
+- **TLS is BearSSL, not the device's OpenSSL.** The TC002's OpenSSL turned out
+  to be an OpenWrt build from 2018 with every TLS protocol version compiled
+  out — a crypto library with a stub SSL layer, which answered
+  `NO_PROTOCOLS_AVAILABLE` for every protocol floor including none at all. So
+  there was nothing on the platform to borrow. BearSSL is MIT, allocates
+  nothing of its own, and cost about 130 KB.
+- Trusted roots ship as a file that can be replaced without reflashing, rather
+  than a table compiled into the firmware. A device needing a rebuild to trust
+  a new CA is one that stops working on a date nobody scheduled.
+
 ## 0.2.3 — Scripts that can hear, speak and ask
 
 Berry scripts get the speaker, the microphone, the broker and the network.
