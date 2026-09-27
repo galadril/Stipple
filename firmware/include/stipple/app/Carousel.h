@@ -13,6 +13,13 @@ namespace app {
 struct CarouselConfig {
     /// Used for apps that do not specify their own duration.
     int defaultDurationSeconds = 8;
+
+    /// Whether the carousel rotates on its own. When false the active app stays
+    /// put until an explicit next()/previous() (a button press or the API) moves
+    /// it - the dwell timer is simply never allowed to advance. Kept separate
+    /// from the runtime paused_ flag, which is a transient toggle; this is a
+    /// stored preference for a panel someone wants to hold on one screen.
+    bool autoAdvance = true;
 };
 
 /// App rotation (blueprint §14).

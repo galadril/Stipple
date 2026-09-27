@@ -136,6 +136,7 @@ void writeSettings(JsonWriter& writer, const config::Config& settings) {
         .beginObject()
         .member("defaultDurationSeconds", settings.apps.defaultDurationSeconds)
         .member("transitions", settings.apps.transitions)
+        .member("autoAdvance", settings.apps.autoAdvance)
         .member("transition", settings.apps.transition);
 
     // The arrangement, which is a setting like any other.
@@ -1726,6 +1727,9 @@ Response ApiServer::handleSettings(const Request& request) {
         }
         if (const json::Value transitions = apps["transitions"]; transitions.isBoolean()) {
             updated.apps.transitions = transitions.toBool(true);
+        }
+        if (const json::Value autoAdvance = apps["autoAdvance"]; autoAdvance.isBoolean()) {
+            updated.apps.autoAdvance = autoAdvance.toBool(true);
         }
         if (const json::Value order = apps["order"]; order.isArray()) {
             // Replaced wholesale rather than merged. An order is a sequence,

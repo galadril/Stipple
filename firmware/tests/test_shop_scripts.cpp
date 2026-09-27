@@ -300,12 +300,18 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
         Framebuffer framebuffer;
         Canvas canvas(framebuffer);
         for (int frame = 0; frame < kFrames; ++frame) {
-            // A script with an on_button is played rather than watched. A
-            // preview of a game showing its game-over screen is a preview of
-            // nothing.
-            if (frame % 12 == 0) {
-                store.button("shop", "select");
-            }
+            // Nothing is pressed here, deliberately.
+            //
+            // The preview shows what the panel does when nobody is touching
+            // it, which is what a visitor's device would be doing. Pressing
+            // seemed obviously right - a game previewing its idle screen
+            // looked like a waste - and it was wrong twice over: Flappy
+            // opened on its game-over screen, and one press put Selenograph
+            // into a caption that scrolls for eighteen seconds, so a preview
+            // three seconds long never drew the moon the script is for.
+            //
+            // The compile test above still presses every eleventh frame. That
+            // is where on_button needs exercising; this is a photograph.
             environment.monotonicMillis = static_cast<std::uint64_t>(frame) * kFrameMillis;
             store.setEnvironment(environment);
             store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * kFrameMillis);

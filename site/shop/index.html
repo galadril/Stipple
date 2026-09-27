@@ -64,9 +64,8 @@
         </header>
         <p class="card__summary">Three fish, a sunken chest and a bed of weed. Press to feed them.</p>
         <ul class="card__tags"><li>ambient</li><li>animation</li><li>button</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Aquarium
+        <button class="card__read" type="button" data-script="aquarium">Read it</button>
+        <template id="src-aquarium"><pre><code># name: Aquarium
 # summary: Three fish, a sunken chest and a bed of weed. Press to feed them.
 # author: Galadril
 # tags: ambient, animation, button
@@ -417,8 +416,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/aquarium.be">View on GitHub</a>
           ·
@@ -435,9 +433,8 @@ return App()
         </header>
         <p class="card__summary">Northern lights - green and violet curtains that drift, brighten and fade.</p>
         <ul class="card__tags"><li>ambient</li><li>animation</li><li>relaxing</li><li>colour</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Aurora
+        <button class="card__read" type="button" data-script="aurora">Read it</button>
+        <template id="src-aurora"><pre><code># name: Aurora
 # summary: Northern lights - green and violet curtains that drift, brighten and fade.
 # author: Galadril
 # tags: ambient, animation, relaxing, colour
@@ -490,8 +487,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/aurora.be">View on GitHub</a>
           ·
@@ -508,9 +504,8 @@ return App()
         </header>
         <p class="card__summary">Charge as a gauge, and nothing at all when there is no battery to report.</p>
         <ul class="card__tags"><li>status</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Battery
+        <button class="card__read" type="button" data-script="battery">Read it</button>
+        <template id="src-battery"><pre><code># name: Battery
 # summary: Charge as a gauge, and nothing at all when there is no battery to report.
 # author: Stipple
 # tags: status
@@ -567,8 +562,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/battery.be">View on GitHub</a>
           ·
@@ -585,9 +579,8 @@ return App()
         </header>
         <p class="card__summary">The time across the full width, with a bar that fills over the minute.</p>
         <ul class="card__tags"><li>clock</li><li>time</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Big Clock
+        <button class="card__read" type="button" data-script="big-clock">Read it</button>
+        <template id="src-big-clock"><pre><code># name: Big Clock
 # summary: The time across the full width, with a bar that fills over the minute.
 # author: Stipple
 # tags: clock, time
@@ -637,8 +630,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/big-clock.be">View on GitHub</a>
           ·
@@ -655,9 +647,8 @@ return App()
         </header>
         <p class="card__summary">Hours, minutes and seconds in columns of bits.</p>
         <ul class="card__tags"><li>clock</li><li>time</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Binary Clock
+        <button class="card__read" type="button" data-script="binary-clock">Read it</button>
+        <template id="src-binary-clock"><pre><code># name: Binary Clock
 # summary: Hours, minutes and seconds in columns of bits.
 # author: Stipple
 # tags: clock, time
@@ -705,8 +696,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/binary-clock.be">View on GitHub</a>
           ·
@@ -723,9 +713,8 @@ return App()
         </header>
         <p class="card__summary">How much of the day has gone, as a bar you can read from across a room.</p>
         <ul class="card__tags"><li>time</li><li>ambient</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Day Progress
+        <button class="card__read" type="button" data-script="day-progress">Read it</button>
+        <template id="src-day-progress"><pre><code># name: Day Progress
 # summary: How much of the day has gone, as a bar you can read from across a room.
 # author: Stipple
 # tags: time, ambient
@@ -771,8 +760,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/day-progress.be">View on GitHub</a>
           ·
@@ -789,9 +777,8 @@ return App()
         </header>
         <p class="card__summary">NS trains passing by - VIRM, ICM, ICNG, SLT, FLIRT and more, in both directions.</p>
         <ul class="card__tags"><li>animation</li><li>trains</li><li>netherlands</li><li>ambient</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Dutch Trains
+        <button class="card__read" type="button" data-script="dutch-trains">Read it</button>
+        <template id="src-dutch-trains"><pre><code># name: Dutch Trains
 # summary: NS trains passing by - VIRM, ICM, ICNG, SLT, FLIRT and more, in both directions.
 # author: Unknown (ported to TC002)
 # tags: animation, trains, netherlands, ambient
@@ -1229,8 +1216,7 @@ class DutchTrains
 end
 
 return DutchTrains()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/dutch-trains.be">View on GitHub</a>
           ·
@@ -1247,9 +1233,8 @@ return DutchTrains()
         </header>
         <p class="card__summary">Procedural fire, the whole panel. Embers, a coal bed and no two frames alike.</p>
         <ul class="card__tags"><li>ambient</li><li>animation</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Fireplace
+        <button class="card__read" type="button" data-script="fireplace">Read it</button>
+        <template id="src-fireplace"><pre><code># name: Fireplace
 # summary: Procedural fire, the whole panel. Embers, a coal bed and no two frames alike.
 # author: Galadril
 # tags: ambient, animation
@@ -1586,8 +1571,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/fireplace.be">View on GitHub</a>
           ·
@@ -1604,9 +1588,8 @@ return App()
         </header>
         <p class="card__summary">Rockets climb, burst into coloured sparks, then fade and fall. One at a time.</p>
         <ul class="card__tags"><li>ambient</li><li>animation</li><li>celebration</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Fireworks
+        <button class="card__read" type="button" data-script="fireworks">Read it</button>
+        <template id="src-fireworks"><pre><code># name: Fireworks
 # summary: Rockets climb, burst into coloured sparks, then fade and fall. One at a time.
 # author: Galadril
 # tags: ambient, animation, celebration
@@ -1720,8 +1703,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/fireworks.be">View on GitHub</a>
           ·
@@ -1738,9 +1720,8 @@ return App()
         </header>
         <p class="card__summary">One button, one pixel, gaps to fly through. Press to flap.</p>
         <ul class="card__tags"><li>game</li><li>button</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Flappy
+        <button class="card__read" type="button" data-script="flappy">Read it</button>
+        <template id="src-flappy"><pre><code># name: Flappy
 # summary: One button, one pixel, gaps to fly through. Press to flap.
 # author: Stipple
 # tags: game, button
@@ -1884,12 +1865,188 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/flappy.be">View on GitHub</a>
           ·
           <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/flappy.be">Raw</a>
+        </p>
+      </article>
+
+      <article class="card" id="game-of-life">
+        <img class="card__preview" src="game-of-life.gif" width="312" height="96"
+             loading="lazy" alt="Game of Life running on a 52 by 16 pixel panel">
+        <header class="card__head">
+          <h3>Game of Life</h3>
+          <p class="card__by">Galadril · 159 lines</p>
+        </header>
+        <p class="card__summary">Conway&#x27;s cells breed and die across the panel, reseeding when they stall.</p>
+        <ul class="card__tags"><li>animation</li><li>generative</li><li>classic</li></ul>
+        <button class="card__read" type="button" data-script="game-of-life">Read it</button>
+        <template id="src-game-of-life"><pre><code># name: Game of Life
+# summary: Conway&#x27;s cells breed and die across the panel, reseeding when they stall.
+# author: Galadril
+# tags: animation, generative, classic
+# panel: 52x16
+
+import math
+
+# Conway&#x27;s Game of Life on the full 52x16 grid.
+#
+# The interesting thing about Life on a panel this small is that most seeds
+# settle into a still life or a short blinker within a few hundred
+# generations - so this watches for a stall and reseeds, which is what makes
+# it something to leave running rather than a thing that stops.
+#
+# Written against the instruction budget from the start. The obvious shape -
+# a neighbour() method called eight times per cell - is 6,656 calls per
+# generation on this grid and does not fit. Everything below is written the
+# awkward way on purpose; see the comments in step().
+
+class App
+  var w, h
+  var cells, next    # flat width*height boolean arrays, current and scratch
+  var stale, seen    # stall detection: population, and how long it held
+  var last           # when the last generation ran, on the device clock
+
+  def init()
+    self.w = width()
+    self.h = height()
+    self.last = 0
+    self.seed()
+  end
+
+  def seed()
+    self.cells = []
+    self.next = []
+    var i = 0
+    var total = self.w * self.h
+    while i &lt; total
+      # About 30% filled gives lively first generations without saturating
+      # into large blocks that immediately die of overcrowding.
+      self.cells.push((math.rand() % 10) &lt; 3)
+      self.next.push(false)
+      i += 1
+    end
+    self.stale = -1
+    self.seen = 0
+  end
+
+  def step()
+    # Locals, and the neighbours written out rather than fetched through a
+    # method.
+    #
+    # Life reads eight neighbours per cell, so on 832 cells anything done
+    # per-neighbour happens 6,656 times a generation. A method call there is
+    # what put the first version of this over the budget, where it lost every
+    # frame it tried to step on.
+    #
+    # The edge wrapping - so gliders leave one side and return on the other
+    # rather than piling against a wall - is hoisted: rows above and below
+    # once per row, columns once per cell.
+    var c = self.cells
+    var nx = self.next
+    var w = self.w
+    var h = self.h
+    var pop = 0
+
+    var y = 0
+    while y &lt; h
+      var up = y - 1
+      if up &lt; 0 up = h - 1 end
+      var dn = y + 1
+      if dn &gt;= h dn = 0 end
+
+      var rowUp = up * w
+      var row = y * w
+      var rowDn = dn * w
+
+      var x = 0
+      while x &lt; w
+        var lf = x - 1
+        if lf &lt; 0 lf = w - 1 end
+        var rt = x + 1
+        if rt &gt;= w rt = 0 end
+
+        var n = 0
+        if c[rowUp + lf] n += 1 end
+        if c[rowUp + x]  n += 1 end
+        if c[rowUp + rt] n += 1 end
+        if c[row + lf]   n += 1 end
+        if c[row + rt]   n += 1 end
+        if c[rowDn + lf] n += 1 end
+        if c[rowDn + x]  n += 1 end
+        if c[rowDn + rt] n += 1 end
+
+        var alive = c[row + x]
+        var live = (alive &amp;&amp; (n == 2 || n == 3)) || (!alive &amp;&amp; n == 3)
+        nx[row + x] = live
+        if live pop += 1 end
+        x += 1
+      end
+      y += 1
+    end
+
+    var tmp = self.cells
+    self.cells = self.next
+    self.next = tmp
+
+    # A steady population means the board has settled into still lifes and
+    # blinkers. Reseed before it becomes wallpaper.
+    if pop == self.stale
+      self.seen += 1
+      if self.seen &gt; 40 || pop == 0
+        self.seed()
+      end
+    else
+      self.stale = pop
+      self.seen = 0
+    end
+  end
+
+  def draw()
+    # Eight generations a second, not thirty.
+    #
+    # On its own clock rather than the frame rate, so it runs at the same
+    # speed whatever else the panel is doing - and because stepping on every
+    # frame is both eight times the work and far faster than Life is worth
+    # watching at.
+    #
+    # now_ms() is the device clock, so this keeps its cadence across the
+    # carousel taking the app away and bringing it back.
+    var now = now_ms()
+    if now - self.last &gt;= 125
+      self.last = now
+      self.step()
+    end
+
+    clear(rgb(0, 0, 0))
+
+    var c = self.cells
+    var w = self.w
+    var i = 0
+    var y = 0
+    while y &lt; self.h
+      # The gradient is computed per row, so rgb() is called sixteen times a
+      # frame rather than once per living cell.
+      var colour = rgb(20, 150 + (y * 80) / self.h, 60)
+      var x = 0
+      while x &lt; w
+        if c[i] pixel(x, y, colour) end
+        i += 1
+        x += 1
+      end
+      y += 1
+    end
+  end
+end
+
+return App()
+</code></pre></template>
+        <p class="card__get">
+          <a href="https://github.com/galadril/Stipple/blob/main/scripts/game-of-life.be">View on GitHub</a>
+          ·
+          <a href="https://raw.githubusercontent.com/galadril/Stipple/main/scripts/game-of-life.be">Raw</a>
         </p>
       </article>
 
@@ -1898,13 +2055,12 @@ return App()
              loading="lazy" alt="Hootie running on a 52 by 16 pixel panel">
         <header class="card__head">
           <h3>Hootie</h3>
-          <p class="card__by">Galadril · 500 lines</p>
+          <p class="card__by">Galadril · 521 lines</p>
         </header>
         <p class="card__summary">A virtual pet owl with a full life - it hatches, grows, ages, and dies if neglected.</p>
         <ul class="card__tags"><li>pet</li><li>interactive</li><li>animation</li><li>ambient</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Hootie
+        <button class="card__read" type="button" data-script="hootie">Read it</button>
+        <template id="src-hootie"><pre><code># name: Hootie
 # summary: A virtual pet owl with a full life - it hatches, grows, ages, and dies if neglected.
 # author: Galadril
 # tags: pet, interactive, animation, ambient
@@ -1937,12 +2093,13 @@ class Hootie
   var deadtime              # now_ms at death, for the grave and auto-respawn
 
   # Life-stage timings, in seconds of on-screen age.
-  static HATCH = 60         # egg -&gt; baby
-  static GROW  = 600        # baby -&gt; adult
-  static ELDER = 1800       # adult -&gt; elder
-  static OLD   = 3600       # elder -&gt; death of old age
+  var HATCH, GROW, ELDER, OLD
 
   def init()
+    self.HATCH = 60           # egg -&gt; baby
+    self.GROW  = 600          # baby -&gt; adult
+    self.ELDER = 1800         # adult -&gt; elder
+    self.OLD   = 3600         # elder -&gt; death of old age
 	self.full   = self._clamp(store.get(&quot;owl_f&quot;, 80))
 	self.happy  = self._clamp(store.get(&quot;owl_h&quot;, 80))
 	self.energy = self._clamp(store.get(&quot;owl_e&quot;, 80))
@@ -2049,9 +2206,29 @@ class Hootie
   # ---------------------------------------------------------------- lifecycle
   def _age(dt)
 	self.ageacc += dt
-	while self.ageacc &gt;= 1000
+
+	# An owl off the carousel still ages.
+	#
+	# now_ms() is the device clock rather than time on screen, so the
+	# first frame after a night away sees the whole night as one delta -
+	# and catching that up a second at a time is thirty thousand
+	# iterations in a single frame, which loses the frame and stops the
+	# script. That is exactly how this died on a real device.
+	#
+	# So: never more than an hour owed, and never more than two minutes
+	# of it paid off per frame. An owl ignored overnight is hungry
+	# rather than dead of thirty thousand seconds of neglect, and it
+	# gets there over the next second of real time instead of trying to
+	# arrive all at once.
+	if self.ageacc &gt; 3600000
+	  self.ageacc = 3600000
+	end
+
+	var steps = 0
+	while self.ageacc &gt;= 1000 &amp;&amp; steps &lt; 120
 	  self.ageacc -= 1000
 	  self._second()
+	  steps += 1
 	end
   end
 
@@ -2404,8 +2581,7 @@ class Hootie
 end
 
 return Hootie()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/hootie.be">View on GitHub</a>
           ·
@@ -2422,9 +2598,8 @@ return Hootie()
         </header>
         <p class="card__summary">Slow glowing lava blobs drift, stretch and morph across the entire display.</p>
         <ul class="card__tags"><li>ambient</li><li>animation</li><li>relaxing</li><li>lava</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Lava
+        <button class="card__read" type="button" data-script="lava-lamp">Read it</button>
+        <template id="src-lava-lamp"><pre><code># name: Lava
 # summary: Slow glowing lava blobs drift, stretch and morph across the entire display.
 # author: Galadril
 # tags: ambient, animation, relaxing, lava
@@ -2694,8 +2869,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/lava-lamp.be">View on GitHub</a>
           ·
@@ -2712,9 +2886,8 @@ return App()
         </header>
         <p class="card__summary">Matrix visuals</p>
         <ul class="card__tags"><li>ambient</li><li>animation</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Matrix
+        <button class="card__read" type="button" data-script="matrix">Read it</button>
+        <template id="src-matrix"><pre><code># name: Matrix
 # summary: Matrix visuals
 # author: Galadril
 # tags: ambient, animation
@@ -2791,8 +2964,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/matrix.be">View on GitHub</a>
           ·
@@ -2809,9 +2981,8 @@ return App()
         </header>
         <p class="card__summary">Bright meteors streak across with glowing tails that fade behind them.</p>
         <ul class="card__tags"><li>animation</li><li>space</li><li>ambient</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Meteor Shower
+        <button class="card__read" type="button" data-script="meteor-shower">Read it</button>
+        <template id="src-meteor-shower"><pre><code># name: Meteor Shower
 # summary: Bright meteors streak across with glowing tails that fade behind them.
 # author: Galadril
 # tags: animation, space, ambient
@@ -2922,8 +3093,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/meteor-shower.be">View on GitHub</a>
           ·
@@ -2940,9 +3110,8 @@ return App()
         </header>
         <p class="card__summary">Classic rolling rainbow plasma, every pixel alive and shifting.</p>
         <ul class="card__tags"><li>ambient</li><li>animation</li><li>generative</li><li>colour</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Plasma
+        <button class="card__read" type="button" data-script="plasma">Read it</button>
+        <template id="src-plasma"><pre><code># name: Plasma
 # summary: Classic rolling rainbow plasma, every pixel alive and shifting.
 # author: Galadril
 # tags: ambient, animation, generative, colour
@@ -2999,8 +3168,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/plasma.be">View on GitHub</a>
           ·
@@ -3017,9 +3185,8 @@ return App()
         </header>
         <p class="card__summary">Slanted rain falling past, with the odd distant flash of lightning.</p>
         <ul class="card__tags"><li>ambient</li><li>animation</li><li>weather</li><li>relaxing</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Rain
+        <button class="card__read" type="button" data-script="rain">Read it</button>
+        <template id="src-rain"><pre><code># name: Rain
 # summary: Slanted rain falling past, with the odd distant flash of lightning.
 # author: Galadril
 # tags: ambient, animation, weather, relaxing
@@ -3094,8 +3261,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/rain.be">View on GitHub</a>
           ·
@@ -3112,9 +3278,8 @@ return App()
         </header>
         <p class="card__summary">Tonight&#x27;s real moon phase, worked out from the date alone - then the story on a click.</p>
         <ul class="card__tags"><li>time</li><li>space</li><li>astronomy</li><li>ambient</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Selenograph
+        <button class="card__read" type="button" data-script="selenograph">Read it</button>
+        <template id="src-selenograph"><pre><code># name: Selenograph
 # summary: Tonight&#x27;s real moon phase, worked out from the date alone - then the story on a click.
 # author: Galadril
 # tags: time, space, astronomy, ambient
@@ -3286,8 +3451,7 @@ class Selenograph
 end
 
 return Selenograph()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/selenograph.be">View on GitHub</a>
           ·
@@ -3304,9 +3468,8 @@ return Selenograph()
         </header>
         <p class="card__summary">Stars drifting past, at three depths. Quiet enough to leave on.</p>
         <ul class="card__tags"><li>ambient</li><li>animation</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Starfield
+        <button class="card__read" type="button" data-script="starfield">Read it</button>
+        <template id="src-starfield"><pre><code># name: Starfield
 # summary: Stars drifting past, at three depths. Quiet enough to leave on.
 # author: Stipple
 # tags: ambient, animation
@@ -3352,8 +3515,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/starfield.be">View on GitHub</a>
           ·
@@ -3370,9 +3532,8 @@ return App()
         </header>
         <p class="card__summary">A living nighttime skyline with traffic, twinkling stars and shooting stars.</p>
         <ul class="card__tags"><li>ambient</li><li>animation</li><li>city</li></ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code># name: Tiny City
+        <button class="card__read" type="button" data-script="tiny-city">Read it</button>
+        <template id="src-tiny-city"><pre><code># name: Tiny City
 # summary: A living nighttime skyline with traffic, twinkling stars and shooting stars.
 # author: Galadril
 # tags: ambient, animation, city
@@ -3648,8 +3809,7 @@ class App
 end
 
 return App()
-</code></pre>
-        </details>
+</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/tiny-city.be">View on GitHub</a>
           ·
@@ -3686,6 +3846,75 @@ return App()
   </section>
 
 </main>
+
+<!-- One dialog, reused. Nineteen scripts inline would be a page carrying
+     several thousand lines of Berry whether or not anybody opens one; the
+     sources sit in <template> elements, which browsers parse but do not
+     render, and are moved in on demand. -->
+<dialog id="reader" class="reader" aria-label="Script source">
+  <div class="reader__bar">
+    <h2 class="reader__title" id="reader-title"></h2>
+    <div class="reader__actions">
+      <button type="button" id="reader-copy" class="reader__btn">Copy</button>
+      <button type="button" id="reader-close" class="reader__btn" aria-label="Close">Close</button>
+    </div>
+  </div>
+  <div class="reader__body" id="reader-body"></div>
+</dialog>
+
+<script>
+(function () {
+    var dialog = document.getElementById('reader');
+    // No <dialog> means no lightbox. The card falls back to the GitHub link
+    // beside it, which is a worse experience and not a broken one.
+    if (!dialog || typeof dialog.showModal !== 'function') { return; }
+
+    var title = document.getElementById('reader-title');
+    var body = document.getElementById('reader-body');
+    var copy = document.getElementById('reader-copy');
+
+    function open(anchor, name) {
+        var template = document.getElementById('src-' + anchor);
+        if (!template) { return; }
+        body.textContent = '';
+        body.appendChild(template.content.cloneNode(true));
+        title.textContent = name;
+        copy.textContent = 'Copy';
+        dialog.showModal();
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('.card__read'), function (button) {
+        button.addEventListener('click', function () {
+            var card = button.closest('.card');
+            var heading = card ? card.querySelector('h3') : null;
+            open(button.getAttribute('data-script'), heading ? heading.textContent : 'Script');
+        });
+    });
+
+    document.getElementById('reader-close').addEventListener('click', function () {
+        dialog.close();
+    });
+
+    // Clicking the backdrop closes it. The dialog element reports those
+    // clicks as landing on itself rather than on any child, which is the only
+    // way to tell the two apart without wrapping the contents in another box.
+    dialog.addEventListener('click', function (event) {
+        if (event.target === dialog) { dialog.close(); }
+    });
+
+    copy.addEventListener('click', function () {
+        var code = body.querySelector('code');
+        if (!code || !navigator.clipboard) { return; }
+        navigator.clipboard.writeText(code.textContent).then(function () {
+            copy.textContent = 'Copied';
+        }, function () {
+            // Clipboard access can be refused, and saying so beats a button
+            // that silently did nothing.
+            copy.textContent = 'Press Ctrl+C';
+        });
+    });
+}());
+</script>
 
 <footer class="foot">
   <p>

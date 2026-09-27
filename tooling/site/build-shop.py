@@ -88,10 +88,8 @@ def card(meta):
         </header>
         <p class="card__summary">{summary}</p>
         <ul class="card__tags">{chips}</ul>
-        <details class="card__source">
-          <summary>Read it</summary>
-          <pre><code>{source}</code></pre>
-        </details>
+        <button class="card__read" type="button" data-script="{anchor}">Read it</button>
+        <template id="src-{anchor}"><pre><code>{source}</code></pre></template>
         <p class="card__get">
           <a href="https://github.com/galadril/Stipple/blob/main/scripts/{file}">View on GitHub</a>
           ·
@@ -196,6 +194,75 @@ PAGE = """<!DOCTYPE html>
   </section>
 
 </main>
+
+<!-- One dialog, reused. Nineteen scripts inline would be a page carrying
+     several thousand lines of Berry whether or not anybody opens one; the
+     sources sit in <template> elements, which browsers parse but do not
+     render, and are moved in on demand. -->
+<dialog id="reader" class="reader" aria-label="Script source">
+  <div class="reader__bar">
+    <h2 class="reader__title" id="reader-title"></h2>
+    <div class="reader__actions">
+      <button type="button" id="reader-copy" class="reader__btn">Copy</button>
+      <button type="button" id="reader-close" class="reader__btn" aria-label="Close">Close</button>
+    </div>
+  </div>
+  <div class="reader__body" id="reader-body"></div>
+</dialog>
+
+<script>
+(function () {{
+    var dialog = document.getElementById('reader');
+    // No <dialog> means no lightbox. The card falls back to the GitHub link
+    // beside it, which is a worse experience and not a broken one.
+    if (!dialog || typeof dialog.showModal !== 'function') {{ return; }}
+
+    var title = document.getElementById('reader-title');
+    var body = document.getElementById('reader-body');
+    var copy = document.getElementById('reader-copy');
+
+    function open(anchor, name) {{
+        var template = document.getElementById('src-' + anchor);
+        if (!template) {{ return; }}
+        body.textContent = '';
+        body.appendChild(template.content.cloneNode(true));
+        title.textContent = name;
+        copy.textContent = 'Copy';
+        dialog.showModal();
+    }}
+
+    Array.prototype.forEach.call(document.querySelectorAll('.card__read'), function (button) {{
+        button.addEventListener('click', function () {{
+            var card = button.closest('.card');
+            var heading = card ? card.querySelector('h3') : null;
+            open(button.getAttribute('data-script'), heading ? heading.textContent : 'Script');
+        }});
+    }});
+
+    document.getElementById('reader-close').addEventListener('click', function () {{
+        dialog.close();
+    }});
+
+    // Clicking the backdrop closes it. The dialog element reports those
+    // clicks as landing on itself rather than on any child, which is the only
+    // way to tell the two apart without wrapping the contents in another box.
+    dialog.addEventListener('click', function (event) {{
+        if (event.target === dialog) {{ dialog.close(); }}
+    }});
+
+    copy.addEventListener('click', function () {{
+        var code = body.querySelector('code');
+        if (!code || !navigator.clipboard) {{ return; }}
+        navigator.clipboard.writeText(code.textContent).then(function () {{
+            copy.textContent = 'Copied';
+        }}, function () {{
+            // Clipboard access can be refused, and saying so beats a button
+            // that silently did nothing.
+            copy.textContent = 'Press Ctrl+C';
+        }});
+    }});
+}}());
+</script>
 
 <footer class="foot">
   <p>

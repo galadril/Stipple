@@ -788,11 +788,13 @@ void ApplicationHost::applyCarouselSettings() {
     // carousel told its configuration had changed would be entitled to act on
     // that. Today it would not, but a free "nothing changed" check is cheaper
     // than depending on it never starting to.
-    if (carousel_.config().defaultDurationSeconds == settings_.apps.defaultDurationSeconds) {
+    if (carousel_.config().defaultDurationSeconds == settings_.apps.defaultDurationSeconds &&
+        carousel_.config().autoAdvance == settings_.apps.autoAdvance) {
         return;
     }
     app::CarouselConfig carousel;
     carousel.defaultDurationSeconds = settings_.apps.defaultDurationSeconds;
+    carousel.autoAdvance = settings_.apps.autoAdvance;
     carousel_.setConfig(carousel);
 }
 

@@ -110,6 +110,12 @@ bool Carousel::tick(std::uint64_t nowMillis) {
         return false;
     }
 
+    if (!config_.autoAdvance) {
+        // Auto-advance disabled: hold the current app. Manual next()/previous()
+        // still move because they do not go through tick().
+        return false;
+    }
+
     if (dwellMillis(nowMillis) >= durationMillis(*current)) {
         activateIndex(registry_.nextEnabled(currentIndex), nowMillis);
     }

@@ -66,31 +66,6 @@
   padding: 0.1rem 0.45rem;
 }
 
-/* Collapsed by default. Six scripts fully expanded is a page of six hundred
-   lines of Berry, which is a listing nobody can scan - and scanning is the
-   only thing somebody arriving here is trying to do. */
-.card__source summary {
-  cursor: pointer;
-  color: var(--cyan);
-  font-size: 0.875rem;
-  margin-bottom: 0.6rem;
-}
-
-.card__source pre {
-  margin: 0 0 0.75rem;
-  padding: 0.85rem;
-  background: var(--void);
-  border: 1px solid var(--rule);
-  overflow-x: auto;
-  font-size: 0.75rem;
-  line-height: 1.5;
-  /* Code wraps badly and Berry's blocks are read by their indentation, so it
-     scrolls instead. */
-  white-space: pre;
-}
-
-.card__source code { color: var(--ink); font-family: ui-monospace, Menlo, Consolas, monospace; }
-
 .card__get { margin: 0; font-size: 0.8125rem; color: var(--dim); }
 
 .shop__submit {
@@ -148,4 +123,96 @@
   background: var(--unlit);
   image-rendering: pixelated;
   border: 1px solid var(--rule);
+}
+
+/* --- reading a script ----------------------------------------------------- */
+
+/* "Read it" opens a dialog rather than expanding the card.
+ *
+ * Twenty scripts expanded in place is a page of several thousand lines of
+ * Berry, and scanning is the only thing somebody arriving here is trying to
+ * do. The sources sit in <template> elements - parsed, not rendered - and are
+ * moved into one shared dialog on demand. */
+.card__read {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--cyan);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 140ms var(--ease), color 140ms var(--ease);
+}
+
+.card__read:hover, .card__read:focus-visible {
+  border-color: var(--cyan);
+  color: var(--ink);
+}
+
+.reader {
+  width: min(64rem, 92vw);
+  max-height: 86vh;
+  padding: 0;
+  border: 1px solid var(--rule);
+  background: var(--panel);
+  color: var(--ink);
+  overflow: hidden;
+}
+
+/* The page behind it goes dark rather than blurry: this is a panel of code,
+   and anything soft behind it reads as a rendering fault. */
+.reader::backdrop {
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.reader__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--rule);
+  /* Sticky, because the body scrolls and Close should never scroll away. */
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+.reader__title { margin: 0; font-size: 1rem; letter-spacing: -0.01em; }
+.reader__actions { display: flex; gap: 0.5rem; flex: none; }
+
+.reader__btn {
+  padding: 0.35rem 0.8rem;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--dim);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.reader__btn:hover, .reader__btn:focus-visible { border-color: var(--cyan); color: var(--cyan); }
+
+.reader__body {
+  max-height: calc(86vh - 4rem);
+  overflow: auto;
+  padding: 1rem 1.1rem 1.4rem;
+}
+
+.reader__body pre {
+  margin: 0;
+  /* Code wraps badly and Berry's blocks are read by their indentation, so it
+     scrolls sideways instead. */
+  white-space: pre;
+  overflow-x: auto;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.reader__body code {
+  color: var(--ink);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
 }

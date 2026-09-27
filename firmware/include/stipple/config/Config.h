@@ -141,6 +141,11 @@ inline constexpr int kMaxRememberedApps = 32;
 struct AppSettings {
     int defaultDurationSeconds = 8;
 
+    /// Whether the carousel advances on its own. When false the panel holds
+    /// whatever app is showing until someone moves it with the button or the
+    /// API - for a display that should sit on one screen rather than rotate.
+    bool autoAdvance = true;
+
     /// Whether app changes animate at all. Kept as the master switch because
     /// "off" is a thing people want for its own sake - a panel in a bedroom
     /// that simply changes is less distracting than any animation, however
