@@ -2,129 +2,136 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace stipple {
 namespace platform {
 namespace tc002 {
 
-/// TLS for outbound fetches, using the OpenSSL already on the device.
+/// TLS for outbound fetches, using BearSSL.
 ///
-/// **Loaded with `dlopen`, not linked.** The device carries
-/// `/lib/libssl.so.1.1` and `/lib/libcrypto.so.1.1` — measured, not assumed —
-/// but nothing else in this project may depend on them: the host tests, the
-/// WASM emulator and CI have no such library, and ADR 0012 keeps the build
-/// dependency-free. So there are no OpenSSL headers here, every handle is a
-/// `void*`, and a device without the library gets a clear refusal instead of
-/// a binary that will not start. Same pattern as Tc002Audio and the LED HAL.
+/// **Not the device's OpenSSL, because that cannot do TLS.** The TC002 carries
+/// OpenSSL 1.1.0i built by OpenWrt in 2018 with every protocol version
+/// compiled out — a crypto library with a stub SSL layer. Measured rather than
+/// assumed: `SSL_connect` answered `NO_PROTOCOLS_AVAILABLE` for every floor
+/// including none at all, and `TLSv1_2_client_method` and its siblings are
+/// absent from its symbol table. An earlier version of this class loaded that
+/// library with `dlopen` and got exactly nowhere.
 ///
-/// **Verification is not optional and there is no flag to turn it off.**
-/// A switch like that gets set once while debugging and then ships. Three
-/// things must all hold before a byte of the request goes out:
+/// BearSSL instead: MIT, C99, no dependencies, and it allocates nothing of its
+/// own — every buffer is one the caller hands it, which is the constraint
+/// blueprint §38 already puts on this codebase. It links into the TC002
+/// adapter only, so `stipple_core` stays dependency-free (ADR 0012) and the
+/// host tests and the WASM emulator never see a byte of it.
 ///
-///   - the chain verifies against the trusted roots in `kCaBundlePath`;
-///   - the certificate actually names the host we asked for
-///     (`SSL_set1_host`) — without this, a valid certificate for *any*
-///     domain would pass, which is the classic way a hand-rolled TLS client
-///     is wrong while appearing to work;
-///   - TLS 1.2 or better.
+/// **Verification is not optional and there is no flag to turn it off.** A
+/// switch like that gets set once while debugging and then ships. Four things
+/// must hold before a byte of the request goes out:
 ///
-/// **The roots are a file we install, because the device has none.** There is
-/// no `/etc/ssl` on a TC002 and no `ca-certificates` package, so
-/// `SSL_CTX_set_default_verify_paths` would find nothing and every
-/// connection would fail with "unable to get local issuer certificate". The
-/// bundle ships with Stipple and lives in `/data`, where it can be replaced
-/// when a root expires without reflashing anything.
+///   - the chain verifies against the trusted roots in the bundle;
+///   - the certificate names the host we asked for — BearSSL's minimal X.509
+///     engine takes that name from `br_ssl_client_reset`, so unlike OpenSSL
+///     it cannot be forgotten as a separate step;
+///   - the certificate is valid *now*, which needs a clock the device
+///     believes in. Without one this refuses rather than skipping the check;
+///   - TLS 1.2, which is both the floor set here and the ceiling BearSSL 0.6
+///     offers.
 class Tls {
 public:
     /// Where the trusted roots are looked for, in order.
     ///
     /// The same shape as the application itself: something in `/data` wins,
     /// what was flashed is the fallback. Roots expire and get added, so the
-    /// set has to be replaceable without reflashing - and a device that has
+    /// set has to be replaceable without reflashing — and a device that has
     /// never been updated still needs to be able to fetch.
-    ///
-    /// A single PEM file rather than a hashed directory, because the device
-    /// has no `c_rehash` and a directory OpenSSL cannot index is one it
-    /// silently ignores.
     static constexpr const char* kCaBundlePath = "/data/stipple/ca-certificates.crt";
     static constexpr const char* kCaBundleFallback = "/res/lib/ca-certificates.crt";
 
+    /// Largest bundle read. Mozilla's is about 290 KB; this leaves room for it
+    /// to grow without leaving room for a runaway file to exhaust the device.
+    static constexpr std::size_t kMaxBundleBytes = 1024u * 1024u;
+
     /// The one instance, built on first use.
     ///
-    /// One `SSL_CTX` for the process, because loading it parses every root in
-    /// the bundle — about 150 of them — and doing that per request would put
-    /// a tenth of a second on every fetch to no purpose. OpenSSL 1.1 allows
-    /// one context to be shared across threads, which is what makes this safe
-    /// from the fetch worker.
+    /// The bundle is parsed once — about 150 roots, each an X.509 decode — and
+    /// doing that per request would put a visible pause on every fetch.
     static Tls& instance();
 
     /// Whether a TLS connection can be attempted at all.
-    bool usable() const noexcept { return context_ != nullptr; }
+    bool usable() const noexcept { return anchorCount() > 0; }
 
     /// Why not, when `usable()` is false. Written for a 52-pixel panel: short,
     /// and naming the thing to fix.
     std::string_view problem() const noexcept { return problem_; }
 
+    /// Roots loaded, for diagnostics. A bundle that parsed to three anchors
+    /// when it should have been a hundred and fifty is one that is truncated,
+    /// and nothing else on the device would say so.
+    int anchorCount() const noexcept;
+
     /// Wrap a connected socket and complete the handshake.
     ///
-    /// Returns null on any failure, leaving `problem` describing it — and a
-    /// verification failure is reported by name (`X509_verify_cert_error_string`)
-    /// rather than as a generic refusal, because "certificate has expired"
-    /// and "self signed certificate" need completely different responses from
+    /// Returns null on any failure, leaving `problem` naming it. BearSSL's
+    /// error codes tell an expired certificate from an unknown issuer from a
+    /// name mismatch, and those need completely different responses from
     /// whoever is reading the panel.
     void* connect(int fd, const std::string& host, std::string& problem);
 
-    /// Negative on error, zero at end of stream.
+    /// Bytes read, 0 at a clean end of stream, negative on error.
     int read(void* session, void* buffer, int length);
+
+    /// `length` on success, negative on failure.
+    ///
+    /// Flushes before returning: a request left sitting in BearSSL's output
+    /// buffer is a request the server never sees, and the symptom of
+    /// forgetting it is a read that times out rather than an error.
     int write(void* session, const void* buffer, int length);
+
     void close(void* session);
 
 private:
     Tls();
+    ~Tls();
 
     Tls(const Tls&) = delete;
     Tls& operator=(const Tls&) = delete;
 
-    /// Resolve every symbol, or fail as a whole.
+    /// One trusted root, and the storage BearSSL's view of it points into.
     ///
-    /// All or nothing on purpose: a half-resolved TLS client is one that
-    /// crashes at the worst moment rather than declining at the first.
-    bool resolve();
+    /// Heap-allocated and never moved, because `br_x509_trust_anchor` holds
+    /// raw pointers into these buffers. A `vector<Anchor>` that reallocated
+    /// would leave every earlier anchor pointing at freed memory — and it
+    /// would only start doing so once the bundle outgrew the initial
+    /// capacity, which is the kind of fault that survives every test written
+    /// against a three-certificate bundle.
+    struct Anchor {
+        std::vector<unsigned char> dn;
+        std::vector<unsigned char> keyA;  ///< RSA modulus, or the EC point
+        std::vector<unsigned char> keyB;  ///< RSA exponent; unused for EC
+    };
 
-    /// Turn OpenSSL's error queue into something that fits on the panel.
-    std::string describeError(void* session, int result);
+    /// The BearSSL anchor array, behind a forward declaration.
+    ///
+    /// Deliberately not spelled out here: naming the type would drag
+    /// `bearssl_x509.h` into everything that includes this header, and the
+    /// point of linking BearSSL PRIVATE to the adapter is that it does not
+    /// escape. The definition lives in the .cpp.
+    struct AnchorList;
 
-    void* ssl_ = nullptr;     ///< libssl handle
-    void* crypto_ = nullptr;  ///< libcrypto handle, for the error strings
-    void* context_ = nullptr;  ///< SSL_CTX*, null when unusable
+    bool loadBundle(const char* path);
+
+    /// Decode one DER certificate into an anchor. False for anything that is
+    /// not a usable CA, which is skipped rather than failing the whole
+    /// bundle: one unparseable root out of a hundred and fifty should cost
+    /// that root, not the device's ability to fetch anything.
+    bool addAnchor(const unsigned char* der, std::size_t length);
+
     std::string problem_;
-
-    // OpenSSL, as function pointers. `void*` throughout so no header is
-    // needed; the signatures come from the documented 1.1 ABI.
-    const void* (*clientMethod_)() = nullptr;
-    void* (*ctxNew_)(const void*) = nullptr;
-    void (*ctxFree_)(void*) = nullptr;
-    int (*ctxLoadVerify_)(void*, const char*, const char*) = nullptr;
-    void (*ctxSetVerify_)(void*, int, void*) = nullptr;
-    long (*ctxCtrl_)(void*, int, long, void*) = nullptr;
-    void* (*sslNew_)(void*) = nullptr;
-    void (*sslFree_)(void*) = nullptr;
-    int (*sslSetFd_)(void*, int) = nullptr;
-    long (*sslCtrl_)(void*, int, long, void*) = nullptr;
-    int (*sslSet1Host_)(void*, const char*) = nullptr;
-    int (*sslConnect_)(void*) = nullptr;
-    int (*sslRead_)(void*, void*, int) = nullptr;
-    int (*sslWrite_)(void*, const void*, int) = nullptr;
-    long (*sslVerifyResult_)(const void*) = nullptr;
-    int (*sslShutdown_)(void*) = nullptr;
-    const char* (*verifyErrorString_)(long) = nullptr;
-    int (*initSsl_)(unsigned long long, const void*) = nullptr;
-    int (*sslGetError_)(const void*, int) = nullptr;
-    unsigned long (*errGetError_)() = nullptr;
-    void (*errClearError_)() = nullptr;
-    void (*errStringN_)(unsigned long, char*, std::size_t) = nullptr;
+    std::vector<std::unique_ptr<Anchor>> storage_;
+    std::unique_ptr<AnchorList> anchors_;
 };
 
 }  // namespace tc002

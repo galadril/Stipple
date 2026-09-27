@@ -60,7 +60,10 @@ target_include_directories(stipple_berry SYSTEM PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/berry/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/berry/generate")
 
-set_target_properties(stipple_berry PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
+set_target_properties(stipple_berry PROPERTIES
+    C_STANDARD 99
+    C_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON)
 
 # Vendored code does not get this project's warning flags.
 #
@@ -75,6 +78,83 @@ endif()
 
 add_library(stipple::berry ALIAS stipple_berry)
 
+# Only the device build compiles BearSSL.
+#
+# It is 277 C files, and nothing but the TC002 adapter links it - so
+# building it for the host tests and the WASM emulator would be a minute
+# of CI spent on object files nothing references. The guard also makes the
+# ADR 0012 boundary structural rather than a matter of who remembers not
+# to link it.
+if(STIPPLE_DEVICE_BUILD)
+    # --- BearSSL ----------------------------------------------------------------
+    #
+    # TLS, because the device's own OpenSSL cannot do it.
+    #
+    # The TC002 carries OpenSSL 1.1.0i, built by OpenWrt in 2018 with every TLS
+    # protocol version compiled out - a crypto library with a stub SSL layer.
+    # Measured, not assumed: SSL_connect answers NO_PROTOCOLS_AVAILABLE for every
+    # protocol floor including none at all, and the per-version methods are absent
+    # from its symbol table. So borrowing the platform's TLS is not an option and
+    # Stipple has to carry its own.
+    #
+    # BearSSL rather than mbedTLS or wolfSSL: it is MIT, it is C99 with no
+    # dependencies, it allocates nothing on its own - the caller hands it every
+    # buffer, which is exactly the constraint §38 already puts on this codebase -
+    # and it is about a fifth of the size.
+    #
+    # **Only the TC002 adapter links this.** stipple_core must stay
+    # dependency-free (ADR 0012), and it does: a build without the device adapter
+    # is the same core it always was, and the host tests and the WASM emulator
+    # never see a byte of it.
+    file(GLOB_RECURSE STIPPLE_BEARSSL_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/bearssl/src/*.c")
+
+    if(NOT STIPPLE_BEARSSL_SOURCES)
+        message(FATAL_ERROR "third_party/bearssl/src is empty - see THIRD_PARTY_NOTICES.md")
+    endif()
+
+    add_library(stipple_bearssl STATIC ${STIPPLE_BEARSSL_SOURCES})
+
+    # SYSTEM for the same reason Berry's headers are: a consumer's warning flags
+    # are ours to satisfy, not a vendored tree's.
+    target_include_directories(stipple_bearssl SYSTEM PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/bearssl/inc")
+    target_include_directories(stipple_bearssl PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/bearssl/src")
+
+    set_target_properties(stipple_bearssl PROPERTIES
+        C_STANDARD 99
+        C_STANDARD_REQUIRED ON
+        # Every static library that ends up inside libstipple.so has to be
+        # position-independent, and CMake does not infer that for a STATIC target.
+        #
+        # Without it the device refuses the library at load time with
+        #
+        #     unexpected reloc type 0x03
+        #
+        # which is R_ARM_REL32 - a relocation that cannot appear in a shared
+        # object. The shim then falls back to the stock clock, so the symptom is
+        # a device that looks fine and is not running Stipple at all.
+        #
+        # The other vendored and internal targets below get the same property.
+        # They happen to work without it today, purely because none of them emits
+        # that relocation; that is luck, not design, and the next large const
+        # table would end it.
+        POSITION_INDEPENDENT_CODE ON)
+
+    # Vendored code does not get this project's warning flags. -Werror on somebody
+    # else's source means their next release cannot be taken without editing it,
+    # which is how a pinned dependency becomes a fork.
+    if(MSVC)
+        target_compile_options(stipple_bearssl PRIVATE /W0)
+    else()
+        target_compile_options(stipple_bearssl PRIVATE -w)
+    endif()
+
+    add_library(stipple::bearssl ALIAS stipple_bearssl)
+endif()
+
+
 # The bindings: Berry on one side, Canvas on the other.
 #
 # Separate from stipple_core for the same reason Berry is - core must stay
@@ -85,6 +165,7 @@ add_library(stipple_script STATIC
 
 target_include_directories(stipple_script PUBLIC include)
 target_link_libraries(stipple_script PUBLIC stipple_core PRIVATE stipple_berry stipple_warnings)
+set_target_properties(stipple_script PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(stipple::script ALIAS stipple_script)
 
 add_library(stipple_core
@@ -144,6 +225,7 @@ target_include_directories(stipple_core
 
 target_link_libraries(stipple_core PUBLIC stipple_warnings)
 
+set_target_properties(stipple_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(stipple::core ALIAS stipple_core)
 
 # PNG encoding is a host/emulator convenience (golden-image failure snapshots,
@@ -203,7 +285,13 @@ if(STIPPLE_DEVICE_BUILD)
         src/platform/tc002/WpaControl.cpp
     )
 
-    target_link_libraries(stipple_platform_tc002 PUBLIC stipple_core stipple_warnings ${CMAKE_DL_LIBS})
+    set_target_properties(stipple_platform_tc002 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+    # BearSSL is PRIVATE: it is how this adapter does TLS, and nothing above
+    # the §53 boundary should be able to reach it by accident.
+    target_link_libraries(stipple_platform_tc002
+        PUBLIC stipple_core stipple_warnings ${CMAKE_DL_LIBS}
+        PRIVATE stipple_bearssl)
 
     # PUBLIC, so it reaches everything that links this library.
     #

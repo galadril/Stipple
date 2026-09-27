@@ -975,15 +975,53 @@ Services are controlled with `setprop ctl.start zkswe` — Android's property
 service, not sysvinit or systemd. Anything Phase 7 writes to start, stop or
 supervise the application should expect that model.
 
-### TLS is available, via a bundled OpenSSL
+### The device's OpenSSL cannot do TLS — first-hand, and it corrects this document
 
-They ship "certificate-verified HTTPS with the bundled OpenSSL 3.5.8". So the
-device can do real TLS, at the cost of carrying the library.
+**This section used to say the opposite.** It read: *"They ship
+certificate-verified HTTPS with the bundled OpenSSL 3.5.8, so the device can do
+real TLS."* That was second-hand, flagged as such, and wrong in both halves.
 
-This does not threaten the no-dependencies rule. TLS belongs to the platform adapter, below the
-§53 boundary; `stipple_core` stays dependency-free either way. It does mean the
-8 MiB res ceiling has to be budgeted against a bundled crypto library if we ever
-want HTTPS.
+Measured on the device. It carries `/lib/libssl.so.1.1` and
+`/lib/libcrypto.so.1.1`, and they are not 3.5.8:
+
+```
+OpenSSL 1.1.0i  14 Aug 2018
+compiler: arm-openwrt-linux-gnueabi-gcc ... -DOPENSSL_API_COMPAT=0x10100000L
+```
+
+A native probe, trying every protocol floor against a real host, got the same
+answer every time:
+
+```
+no floor : SSL_connect=-1  error:141640BF  lib(20)=SSL reason(191)
+TLS1.0   : SSL_connect=-1  error:141640BF
+TLS1.1   : SSL_connect=-1  error:141640BF
+TLS1.2   : SSL_connect=-1  error:141640BF
+TLS1.3   : set_min_proto_version=0 (unsupported — 1.1.0 predates it)
+```
+
+Reason 191 is `SSL_R_NO_PROTOCOLS_AVAILABLE`, for every floor including none at
+all, and `TLSv1_2_client_method` and its siblings are absent from the symbol
+table. It is an OpenWrt build with the TLS protocol versions compiled out: a
+crypto library with a stub SSL layer, presumably because the vendor only wanted
+the hashing. There is nothing to configure around.
+
+Two things made this take far longer than it should have, both worth knowing
+before anyone reads an OpenSSL error again. Every sub-library numbers its
+reasons from 1, so "191" is meaningless without the library from the packed
+code's high byte. And the error queue is per-thread, cumulative, and
+`ERR_get_error` returns the *oldest* entry — so a stale error reads exactly
+like the cause of a fresh failure unless `ERR_clear_error()` is called first.
+
+**Stipple therefore carries its own TLS.** BearSSL, vendored, linked only into
+the TC002 adapter — see [ADR 0023](../../private/adr/0023-bearssl-for-tls.md).
+It cost about 130 KB of the 8 MiB `res` ceiling, measured. `stipple_core` stays
+dependency-free either way, because TLS belongs to the platform adapter, below
+the §53 boundary.
+
+There is also no CA store on the device at all — no `/etc/ssl`, no
+`ca-certificates` package — so the trust roots ship with Stipple as a file that
+can be replaced without reflashing.
 
 ### Audio, mDNS and NTP are all real
 
