@@ -85,6 +85,14 @@ jobs:
         if: runner.os == 'Linux'
         run: python3 tooling/site/build-shop.py
 
+      # Same reason: not to compare against a committed file, but because the
+      # renderer refuses markup it does not understand. A heading style or a
+      # nested link that it cannot handle fails here, on the pull request that
+      # wrote it, rather than silently on the published page.
+      - name: Check the reference pages build
+        if: runner.os == 'Linux'
+        run: python3 tooling/site/build-docs.py
+
       - name: Configure
         run: cmake --preset ci
 

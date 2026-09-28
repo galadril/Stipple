@@ -508,14 +508,22 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/stipple_device \
         $node = Get-Command node -ErrorAction SilentlyContinue
         if ($node) { & $node.Source (Join-Path $repoRoot 'tooling\site\check-site.mjs') }
 
+        # The listing and the reference pages, rendered from scripts/ and
+        # docs/ - none of the three is committed, so without this the preview
+        # is a site with three holes in it.
+        & $python.Source (Join-Path $repoRoot 'tooling\site\build-shop.py')
+        if ($LASTEXITCODE -ne 0) { throw 'could not build the script shop' }
+        & $python.Source (Join-Path $repoRoot 'tooling\site\build-docs.py')
+        if ($LASTEXITCODE -ne 0) { throw 'could not render the reference pages' }
+
         # The API page fetches the specification at runtime, so it has to sit
         # beside it - the same copy the Pages workflow makes.
         Copy-Item (Join-Path $repoRoot 'docs\openapi.yaml') `
                   (Join-Path $repoRoot 'site\api\openapi.yaml') -Force
 
-        # Assemble the same layout the Pages workflow publishes, so a local
-        # preview is the page that ships rather than a near miss - the
-        # emulator's links up to / and /api/ only resolve in that shape.
+        # The emulator is not published to Pages any more, but it is still
+        # worth having here: its links up to / and /api/ only resolve in this
+        # shape, so this is the one place they can be checked.
         $emulator = Join-Path $repoRoot 'simulator\web\public'
         $into = Join-Path $repoRoot 'site\emulator'
         if (Test-Path $emulator) {
