@@ -138,12 +138,7 @@ class App
       return
     end
 
-    # The play button, so it reads as YouTube without a logo nobody licensed.
-    rect_fill(0, 3, 11, 8, rgb(190, 30, 25))
-    line(4, 5, 4, 8, rgb(255, 255, 255))
-    line(5, 6, 5, 7, rgb(255, 255, 255))
-    pixel(6, 6, rgb(255, 255, 255))
-    pixel(6, 7, rgb(255, 255, 255))
+    self._logo()
 
     var label = self._short(self.subs)
     text(14, 0, label, rgb(240, 240, 240))
@@ -155,6 +150,62 @@ class App
     # once there are two readings that differ - a flat line built from one
     # number is a line that says something it does not know.
     self._trend()
+  end
+
+  # The play badge: twelve by nine, at (0,3).
+  #
+  # Four reds rather than one. A single flat rectangle is what this drew
+  # first and it read as a red box with a notch in it - at this size the only
+  # thing that makes a shape look like an object is the light falling on it,
+  # so there is a lit top edge, a body, a shadowed bottom and a darker rim
+  # where the corners are rounded off.
+  #
+  # Rounded by *dimming* the corner pixels rather than leaving them black.
+  # Leaving them black cuts a hard step out of the silhouette, which at
+  # twelve pixels wide reads as damage; a dark red there is the closest this
+  # panel gets to an anti-aliased corner.
+  def _logo()
+    var lit = rgb(255, 94, 84)      # top edge, catching the light
+    var body = rgb(216, 38, 33)     # the face
+    var shade = rgb(158, 20, 18)    # bottom, in shadow
+    var rim = rgb(96, 12, 11)       # the rounded corners
+
+    var y = 0
+    while y < 9
+      var colour = body
+      if y == 0
+        colour = lit
+      elif y == 1
+        colour = rgb(238, 62, 54)
+      elif y == 7
+        colour = shade
+      elif y == 8
+        colour = rgb(126, 14, 13)
+      end
+
+      # The first and last rows stop one short at each end, and the pixel
+      # they give up becomes the rim - that is the whole rounding.
+      if y == 0 || y == 8
+        line(1, 3 + y, 10, 3 + y, colour)
+        pixel(0, 3 + y, rim)
+        pixel(11, 3 + y, rim)
+      else
+        line(0, 3 + y, 11, 3 + y, colour)
+      end
+      y += 1
+    end
+
+    # The triangle: five pixels tall, tapering over three columns to a point.
+    #
+    # Nothing beside the tip. A first attempt put two grey pixels at (7,6)
+    # and (7,8) to soften the point, and they did the opposite - they filled
+    # in the notches either side of it, so the whole mark read as a white
+    # rectangle with a bite out of it rather than as an arrow. At five
+    # pixels tall the taper *is* the shape, and anything in the gaps
+    # destroys it.
+    line(5, 5, 5, 9, rgb(255, 255, 255))
+    line(6, 6, 6, 8, rgb(255, 255, 255))
+    pixel(7, 7, rgb(255, 255, 255))
   end
 
   def _trend()
