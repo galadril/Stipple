@@ -79,19 +79,52 @@ is the **only** place it appears.
 
 TLS is a **request, not a guarantee**: `mqtt.tls` asks the transport for it, and
 an adapter that cannot provide it must refuse to connect rather than quietly
-sending credentials in the clear. Whether the TC002 can do TLS at all is a §46
-unknown — a third-party port bundles OpenSSL, which suggests yes at the cost of
-carrying the library. See `docs/research/tc002-platform-findings.md`.
+sending credentials in the clear. `Tc002MqttClient` does exactly that — setting
+`mqtt.tls` on hardware fails the connection today. Falling back to plaintext
+would put the broker password on the wire of a network somebody believed was
+protected, which is worse than not connecting.
+
+That is a gap rather than an impossibility. The question used to be whether the
+device could do TLS at all; it is now answered. The TC002's own OpenSSL cannot
+— it is an OpenWrt build with every protocol version compiled out — so Stipple
+carries BearSSL, which is what makes `https` work for scripts. Pointing the
+MQTT transport at the same TLS is work that has not been done, not a wall.
+
+## Home Assistant
+
+Turn on `mqtt.discovery` and the device publishes Home Assistant discovery
+documents under `homeassistant/...`, retained, so the entities survive a Home
+Assistant restart rather than vanishing until the device next says something.
+
+Five entities, all carrying the same device block so they group under one
+device instead of scattering across the dashboard:
+
+| Entity | Component | What it is |
+|---|---|---|
+| Panel | `light` | On, off and brightness |
+| Volume | `number` | 0–100 |
+| Battery | `sensor` | Percentage, absent on a device that cannot report one |
+| Signal | `sensor` | RSSI |
+| App | `sensor` | Which app is on screen |
+
+The panel uses the **template** schema rather than the default. The default
+would send `ON` to a command topic, and this device speaks a settings patch — a
+template lets Home Assistant emit exactly the JSON that already works, so
+discovery adds no second control path to keep in step with the first.
+
+Turning the setting off withdraws the entities by publishing an empty payload
+to each config topic, which is how MQTT says "this is gone". Leaving them
+orphaned in somebody's dashboard would be worse than never publishing them.
 
 ## What is not built
 
-- **No transport.** `IPlatformServices::mqtt()` returns nullptr on every real
-  adapter; only the simulator implements `IMqttClient`. Everything above is
-  exercised against an in-memory broker. The device implementation arrives with
-  Phase 7, and nothing above the platform boundary changes when it does.
-- **No Home Assistant discovery.** `mqtt.discovery` is stored and does nothing
-  yet. It is a setting rather than a promise; the documents it would publish need
-  a real broker and a real Home Assistant to test against.
+- **MQTT over TLS.** See above: the device refuses `mqtt.tls` rather than
+  downgrading. The TLS itself now exists on the device for `https`; wiring the
+  MQTT transport to it has not been done.
+- **Tests for the discovery payloads.** The transport and the command path are
+  covered; what Home Assistant actually receives is not. The shapes above are
+  what the code emits, not what a test pins, so treat this table as the more
+  likely of the two to drift.
 - **QoS 2.** Deliberately not offered. It costs a four-way handshake and
   per-message state on a device with an unmeasured RAM budget, to solve a problem
   this product does not have: a duplicated "show a notification" is a much
