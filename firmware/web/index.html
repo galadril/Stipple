@@ -285,6 +285,20 @@
                 </div>
             </div>
 
+            <!-- What the script asked to be asked.
+                 Declared in `# @config` comments at the top of the source and
+                 rendered here, so changing a channel ID is filling in a field
+                 rather than editing Berry and hoping. Empty for a script that
+                 declares nothing, which is most of them. -->
+            <div class="settings" id="script-settings" hidden>
+                <h3 class="settings__title">Settings</h3>
+                <div id="script-settings-fields"></div>
+                <p class="help settings__note">
+                    Saved as you change them, separately from the source
+                    &mdash; so setting a value cannot recompile anything.
+                </p>
+            </div>
+
             <!-- A real textarea with a highlighted copy behind it.
                  Still no editor library. This page is compiled into the
                  firmware (cmake/EmbedWebAssets.cmake) and ADR 0012 keeps

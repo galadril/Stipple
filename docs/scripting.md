@@ -207,6 +207,48 @@ Reading is unrestricted and writing is not, which is deliberate: the broker
 belongs to whoever installed the script, and showing what is already on it is
 the entire point.
 
+### Settings somebody can fill in
+
+A script that needs a channel ID, a username or a city should not make people
+edit Berry to set it. Declare the field in a comment at the top and the
+device's web page renders it:
+
+```berry
+# @config chan text "Channel ID" default="UCpGLAL..." maxlen=32 help="The UC... part of the URL, not the @handle"
+# @config views boolean "Show total views instead" default=false
+
+def draw()
+  var id = store.get("chan", "UCpGLAL...")
+end
+```
+
+**You read it with the `store.get` you were already using.** The declaration
+names the same key, so there is no second API to learn and no second place
+for the value to live - and a script running on a firmware too old to know
+about `@config` still works, because `store.get` falls back on its own.
+
+| Part | |
+|---|---|
+| `key` | Lowercase letters, digits, `-` and `_`. This is the store key. |
+| type | `text`, `number` or `boolean`. |
+| label | Quoted. Shown beside the field. |
+| `default=` | What the field shows when nothing is set. |
+| `help=` | A line under the field. Worth writing. |
+| `maxlen=` | Text only. |
+| `min=` / `max=` | Numbers only. Values outside are refused. |
+
+Eight settings per script. The header ends at the first line that is not a
+comment or blank, so a `@config` written halfway down the file is a comment
+about the code there.
+
+**A malformed declaration costs that field and nothing else.** A typo in a
+settings line should not stop the script compiling, so an unknown type or a
+missing label is skipped and everything else still works.
+
+Values are stored with the type you declared, which matters more than it
+looks: `store.get("views", false)` has to come back as a boolean, because a
+string `"false"` is truthy in Berry and the check would silently always pass.
+
 ### The network
 
 ```berry
