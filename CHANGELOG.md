@@ -12,6 +12,32 @@ device without a capture of that device first.
 
 ### Added
 
+- **The website has pages for scripting and MQTT**, rendered from
+  `docs/scripting.md` and `docs/mqtt.md` rather than written a second time.
+  The script library opens with the scripts now instead of three paragraphs
+  explaining what Berry is.
+
+### Changed
+
+- **The emulator is no longer published to the website.** It is still built
+  and verified by CI, still shipped in releases, and still runs under
+  `dev.ps1 serve` - it just no longer costs the Pages build an Emscripten
+  toolchain on every deploy to serve a page almost nobody opened from there.
+
+### Fixed
+
+- **A release now builds the device library it ships**, instead of taking it
+  from the CI run it depends on. CI builds from the commit as it stands,
+  before the version bump exists, so the artifact was renamed to the new
+  version while the binary inside still reported the old one - an update that
+  installed correctly and then went on reporting the version it replaced. The
+  release also refuses to publish a library that does not contain its own
+  version string.
+
+## 0.2.4
+
+### Added
+
 - **`https` works.** Stipple carries its own TLS, so a script can fetch from
   an API that requires it. The certificate chain is verified against trusted
   roots, the certificate must name the host asked for, and it must be valid
