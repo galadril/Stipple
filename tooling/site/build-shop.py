@@ -164,8 +164,10 @@ PAGE = """<!DOCTYPE html>
     <span class="bar__name">Stipple</span>
   </a>
   <nav class="bar__nav" aria-label="Main">
-    <a href="../emulator/">Emulator</a>
     <a href="../#install">Install</a>
+    <a href="../shop/" aria-current="page">Library</a>
+    <a href="../scripting/">Scripting</a>
+    <a href="../mqtt/">MQTT</a>
     <a href="../api/">API</a>
     <a href="https://github.com/galadril/Stipple">Source</a>
   </nav>
@@ -174,24 +176,17 @@ PAGE = """<!DOCTYPE html>
 <main id="main" class="shop">
 
   <section class="shop__lede">
-    <h1>Scripts</h1>
+    <h1>Script library</h1>
     <p>
-      A script is a Berry class with a <code>draw()</code> method. It runs on
-      the device, inside a sandbox with no filesystem and no loader, under a
-      budget that stops a runaway loop costing anything more than its own
-      frame.
-    </p>
-    <p>
-      Copy one into <strong>Scripts</strong> in your device's web page and
-      save. It joins the carousel immediately. Or try it in the
-      <a href="../emulator/">emulator</a> first &mdash; that runs the same
-      interpreter, so what you see there is what the panel does.
+      __COUNT__ scripts for the panel. Copy one into <strong>Scripts</strong>
+      in your device's web page and save &mdash; it joins the carousel
+      immediately. <a href="../scripting/">Writing your own</a> is a page of
+      its own.
     </p>
     <p class="shop__gate">
-      Every script here is compiled and run by the test suite before it is
-      published: ninety frames on a real 52&nbsp;&times;&nbsp;16 framebuffer,
-      buttons pressed, then six hundred more frames checked for leaks. Nothing
-      reaches this page without surviving that.
+      Every one is compiled and run before it is published: ninety frames on a
+      real 52&nbsp;&times;&nbsp;16 framebuffer, buttons pressed, then six
+      hundred more checked for leaks.
     </p>
   </section>
 
@@ -222,26 +217,20 @@ __CARDS__
   <section class="shop__submit">
     <h2>Add one</h2>
     <p>
-      The button below opens GitHub's editor with the file already named and
-      a working script in it. Change it to yours, commit, and GitHub offers
-      you the pull request. Nothing to clone, nothing to install.
+      The button opens GitHub's editor with the file named and a working
+      script already in it. Change it to yours, commit, and GitHub offers you
+      the pull request &mdash; nothing to clone, nothing to install.
     </p>
     <p class="shop__cta">
       <a class="shop__button" href="https://github.com/galadril/Stipple/new/main?filename=scripts/my-script.be&value=%23%20name%3A%20My%20Script%0A%23%20summary%3A%20One%20sentence%2C%20shown%20in%20the%20listing.%0A%23%20author%3A%20your-github-handle%0A%23%20tags%3A%20clock%2C%20animation%0A%23%20panel%3A%2052x16%0A%0Aclass%20App%0A%20%20def%20draw%28%29%0A%20%20%20%20clear%28rgb%280%2C%200%2C%200%29%29%0A%20%20%20%20text%282%2C%205%2C%20%22hello%22%2C%20rgb%280%2C%20190%2C%20255%29%29%0A%20%20end%0Aend%0A%0Areturn%20App%28%29%0A">Write a script</a>
     </p>
     <p>
-      That is the whole submission. The test suite picks the file up on its
-      own &mdash; it builds its list from this directory &mdash; so your script
-      is compiled, run for ninety frames and checked for leaks by the same
-      pull request that adds it.
-    </p>
-    <p>
-      Two things the tests will hold you to, both learned the hard way. Text
-      that runs past pixel&nbsp;51 is clipped without complaint, so measure it
-      rather than centring by eye. And if your script shows the time or the
-      battery, check <code>time_known()</code> and
-      <code>battery_known()</code> first: a device that has never synchronised
-      its clock does not have a time, and drawing 00:00 invents one.
+      That is the whole submission. The test suite builds its list from this
+      directory, so your script is compiled, run and checked for leaks by the
+      same pull request that adds it &mdash; and this page rebuilds itself
+      once that merges. The
+      <a href="../scripting/">scripting reference</a> covers what it will
+      hold you to.
     </p>
   </section>
 
@@ -482,7 +471,9 @@ def main():
     # one of them doubled - a rule that holds right up until somebody adds a
     # line and forgets, at which point the page breaks somewhere unrelated to
     # the edit.
-    page = PAGE.replace("__CARDS__", cards).replace("__CHIPS__", filters(counts))
+    page = (PAGE.replace("__CARDS__", cards)
+                .replace("__CHIPS__", filters(counts))
+                .replace("__COUNT__", str(len(entries))))
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     # Newlines pinned to LF. Without it Python translates to CRLF on Windows,
