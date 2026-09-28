@@ -2233,7 +2233,10 @@ Response ApiServer::handleFirmware(const Request& request) {
             .member("installedBytes", static_cast<std::int64_t>(upgrade->installedBytes()))
             .member("canRollBack", upgrade->hasPrevious())
             .member("maxBytes", static_cast<std::int64_t>(options_.maxImageBytes))
+            // The version of the process answering, which is not necessarily
+            // the version of the file named by `path` - see `restartPending`.
             .member("version", std::string(kVersion))
+            .member("restartPending", upgrade->restartPending())
             .endObject();
         return ok(writer.take());
     }
@@ -2247,6 +2250,7 @@ Response ApiServer::handleFirmware(const Request& request) {
         writer.beginObject()
             .member("status", "rolled-back")
             .member("rebootRequired", true)
+            .member("restartPending", upgrade->restartPending())
             .member("note", "The previous version is back. Reboot to run it.")
             .endObject();
         return ok(writer.take());
@@ -2281,6 +2285,10 @@ Response ApiServer::handleFirmware(const Request& request) {
         .member("bytes", static_cast<std::int64_t>(request.body.size()))
         .member("canRollBack", upgrade->hasPrevious())
         .member("rebootRequired", true)
+        .member("restartPending", upgrade->restartPending())
+        // The version still running, so a page can say which one it is
+        // replacing rather than leaving somebody to guess.
+        .member("runningVersion", std::string(kVersion))
         // Said plainly, because "installed" could otherwise be read as
         // "running", and the difference is a reboot.
         .member("note",

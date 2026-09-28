@@ -527,6 +527,10 @@
         <input id="firmware-file" type="file" accept=".so,application/octet-stream">
         <button class="btn" id="firmware-upload" type="button">Install</button>
         <button class="btn" id="firmware-rollback" type="button" hidden>Go back</button>
+        <!-- Beside the thing that needs it. There is a Restart device button
+             further down this tab, but an update that only takes effect on
+             restart should not send somebody looking for it. -->
+        <button class="btn" id="firmware-restart" type="button" hidden>Restart now</button>
     </div>
     <p class="help">
         Upload <code>libstipple.so</code> from a release. It is checked here

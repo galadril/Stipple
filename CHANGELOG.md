@@ -12,32 +12,6 @@ device without a capture of that device first.
 
 ### Added
 
-- **The website has pages for scripting and MQTT**, rendered from
-  `docs/scripting.md` and `docs/mqtt.md` rather than written a second time.
-  The script library opens with the scripts now instead of three paragraphs
-  explaining what Berry is.
-
-### Changed
-
-- **The emulator is no longer published to the website.** It is still built
-  and verified by CI, still shipped in releases, and still runs under
-  `dev.ps1 serve` - it just no longer costs the Pages build an Emscripten
-  toolchain on every deploy to serve a page almost nobody opened from there.
-
-### Fixed
-
-- **A release now builds the device library it ships**, instead of taking it
-  from the CI run it depends on. CI builds from the commit as it stands,
-  before the version bump exists, so the artifact was renamed to the new
-  version while the binary inside still reported the old one - an update that
-  installed correctly and then went on reporting the version it replaced. The
-  release also refuses to publish a library that does not contain its own
-  version string.
-
-## 0.2.4
-
-### Added
-
 - **`https` works.** Stipple carries its own TLS, so a script can fetch from
   an API that requires it. The certificate chain is verified against trusted
   roots, the certificate must name the host asked for, and it must be valid
@@ -45,15 +19,10 @@ device without a capture of that device first.
   synchronised yet refuses with `clock not set` rather than skipping the
   validity check, because a device sitting at 1970 would reject every
   certificate ever issued.
-
-### Fixed
-
-- **A release is now one button.** Run the Release workflow from the Actions
-  tab and it works out the next version, writes it into the files that have to
-  agree, names the changelog's `## Unreleased` section after it, runs the full
-  gate set, packages, commits the bump, tags it and publishes. Nothing is
-  written until everything has passed, so a failed run leaves `main` exactly as
-  it was.
+- **The website has pages for scripting and MQTT**, rendered from
+  `docs/scripting.md` and `docs/mqtt.md` rather than written a second time.
+  The script library opens with the scripts now instead of three paragraphs
+  explaining what Berry is.
 
 ### Changed
 
@@ -66,6 +35,38 @@ device without a capture of that device first.
 - Trusted roots ship as a file that can be replaced without reflashing, rather
   than a table compiled into the firmware. A device needing a rebuild to trust
   a new CA is one that stops working on a date nobody scheduled.
+- **The emulator is no longer published to the website.** It is still built
+  and verified by CI, still shipped in releases, and still runs under
+  `dev.ps1 serve` — it just no longer costs the Pages build an Emscripten
+  toolchain on every deploy to serve a page almost nobody opened from there.
+
+### Fixed
+
+- **A release is now one button.** Run the Release workflow from the Actions
+  tab and it works out the next version, writes it into the files that have to
+  agree, names the changelog's `## Unreleased` section after it, runs the full
+  gate set, packages, commits the bump, tags it and publishes. Nothing is
+  written until everything has passed, so a failed run leaves `main` exactly as
+  it was.
+- **A release now builds the device library it ships**, instead of taking it
+  from the CI run it depends on. CI builds from the commit as it stands,
+  before the version bump exists, so the artifact was renamed to the new
+  version while the binary inside still reported the old one — an update that
+  installed correctly and then went on reporting the version it replaced. The
+  release also refuses to publish a library that does not contain its own
+  version string.
+- **The web page said an update was running when it was not.** Installing
+  writes the new library and stops there; the device goes on running what it
+  was already running until it restarts. The page reported that as "Running an
+  installed update (1306 KB). Version 0.2.3." — where the size described the
+  file just uploaded and the version described the process still serving the
+  page. Two true halves that read as one sentence saying the update had taken
+  effect. It now names the running version, says the update starts on restart,
+  and offers a Restart button beside the install control.
+
+  The install handler had the right words all along and threw them away: it
+  set "Installed. Restart to run it", then reloaded the state on the very next
+  line, which overwrote it. The rollback handler did the same thing.
 
 ## 0.2.3 — Scripts that can hear, speak and ask
 

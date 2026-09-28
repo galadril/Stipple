@@ -114,6 +114,20 @@ get back in.
 | `POST /system/reset` | Configuration back to defaults |
 | `POST /system/reboot` | Restart |
 
+### Updating is two steps, not one
+
+`POST /system/firmware` writes the new library and stops. It does not reload
+anything, and the device goes on running the version it was already running
+until it restarts.
+
+That matters because the obvious fields do not say so. `version` is the
+version of the *process answering the request*, never the file just uploaded,
+and `installedBytes` reports the same number whether the override is waiting
+for a restart or already loaded — after a restart it is both. Read
+`restartPending` instead: it is true when an install or rollback has happened
+since the process started, which is exactly the case where what is on disk is
+not what is running. It lives in memory, so a restart clears it.
+
 Anything under `/api/` that is not `/api/v1/` answers `404` saying so
 explicitly. There is no compatibility layer for other projects' APIs and none
 is planned; if you want one it belongs outside the firmware, as a translating
