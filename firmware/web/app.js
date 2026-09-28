@@ -1302,15 +1302,26 @@
     function describeFirmware(state) {
         var note = $('firmware-state');
         var back = $('firmware-rollback');
+        var restart = $('firmware-restart');
         if (!note) { return; }
 
         if (!state) {
             note.textContent = 'This build cannot install firmware.';
             if (back) { back.hidden = true; }
+            if (restart) { restart.hidden = true; }
             return;
         }
 
-        if (state.installedBytes > 0) {
+        if (state.restartPending) {
+            // The state this whole flag exists for. `version` is the process
+            // answering right now, and an installed file is not it yet -
+            // reporting only "an update is installed" left somebody watching
+            // for a change that cannot happen until the device restarts.
+            note.textContent = 'Version ' + state.version + ' is running. ' +
+                               'An update is installed (' +
+                               Math.round(state.installedBytes / 1024) + ' KB) ' +
+                               'and starts when you restart.';
+        } else if (state.installedBytes > 0) {
             note.textContent = 'Running an installed update (' +
                                Math.round(state.installedBytes / 1024) + ' KB). ' +
                                'Version ' + state.version + '.';
@@ -1322,6 +1333,24 @@
         }
 
         if (back) { back.hidden = !state.canRollBack; }
+        if (restart) { restart.hidden = !state.restartPending; }
+    }
+
+    function wireFirmwareRestart() {
+        var restart = $('firmware-restart');
+        if (!restart) { return; }
+        restart.addEventListener('click', function () {
+            if (!window.confirm('Restart now to start the installed update?')) {
+                return;
+            }
+            restart.disabled = true;
+            send('POST', '/api/v1/system/reboot')
+                .then(function () { toast('Restarting'); })
+                .catch(function (err) {
+                    restart.disabled = false;
+                    fail(err);
+                });
+        });
     }
 
     function loadFirmwareState() {
@@ -1334,17 +1363,21 @@
         var button = $('firmware-upload');
         var back = $('firmware-rollback');
 
+        wireFirmwareRestart();
+
         if (back) {
             back.addEventListener('click', function () {
                 var note = $('firmware-state');
                 back.disabled = true;
                 send('DELETE', '/api/v1/system/firmware')
                     .then(function (body) {
-                        if (note) {
-                            note.textContent = (body && body.note) ||
-                                               'Previous version restored.';
-                        }
-                        return loadFirmwareState();
+                        // Same reason as the install path: setting the note
+                        // here and reloading on the next line meant the
+                        // device's own sentence never survived to be read.
+                        return loadFirmwareState().then(function () {
+                            toast((body && body.note) ||
+                                  'Previous version restored.');
+                        });
                     })
                     .catch(function (err) {
                         if (note) {
@@ -1390,17 +1423,17 @@
                     return body;
                 });
             }).then(function (body) {
-                if (note) {
-                    // "Installed" is not "running", and the difference is a
-                    // reboot. Saying only the first would have somebody
-                    // looking for a change that has not happened yet.
-                    note.textContent = 'Installed ' + Math.round(body.bytes / 1024) +
-                                       ' KB. Restart to run it - if it will not ' +
-                                       'load, the device falls back to the version ' +
-                                       'flashed with it rather than to nothing.';
-                }
                 if (picker) { picker.value = ''; }
-                return loadFirmwareState();
+                // This used to set the message itself - "Installed N KB.
+                // Restart to run it" - and then call loadFirmwareState() on
+                // the next line, which immediately overwrote it with the
+                // steady-state sentence. The correct text was on screen for
+                // about a frame. The state line says it now, so reloading is
+                // the whole job.
+                return loadFirmwareState().then(function () {
+                    toast('Installed ' + Math.round(body.bytes / 1024) +
+                          ' KB. Restart to run it.');
+                });
             }).catch(function (err) {
                 // Shown as-is. The device writes these for a person: "that
                 // file is not built for ARM", "that file is not a shared

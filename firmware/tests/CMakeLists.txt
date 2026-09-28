@@ -16,6 +16,7 @@ add_executable(stipple_tests
     test_scroll.cpp
     test_notifications.cpp
     test_api.cpp
+    test_firmware_update.cpp
     test_memory_budget.cpp
     test_log.cpp
     test_frame_scheduler.cpp
