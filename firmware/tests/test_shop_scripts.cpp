@@ -28,6 +28,7 @@
 #include "stipple/platform/simulator/SimulatorPlatform.h"
 #include "stipple/platform/MqttClient.h"
 #include "stipple/graphics/Framebuffer.h"
+#include "stipple/text/Text.h"
 #include "stipple/script/ScriptHost.h"
 #include "stipple/script/ScriptStore.h"
 #include "support/TestFramework.h"
@@ -302,7 +303,8 @@ STIPPLE_TEST(ShopScripts, EachAudioScriptSaysWhenTheDeviceCannotMakeASound) {
     // Checking that it draws *something* would pass a script that ignored
     // the question entirely, so this renders the same frame twice, once
     // with a speaker and once without, and requires the two to differ.
-    const char* needAudio[] = {"metronome.be", "kitchen-timer.be", "sequencer.be"};
+    const char* needAudio[] = {"metronome.be", "kitchen-timer.be", "sequencer.be",
+                               "pomodoro.be"};
 
     for (const char* name : needAudio) {
         const std::string source = readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/" + name);
@@ -422,7 +424,7 @@ STIPPLE_TEST(ShopScripts, EachMicScriptSaysWhenTheDeviceCannotHear) {
 }
 
 STIPPLE_TEST(ShopScripts, EachHttpScriptSaysWhenItCannotFetch) {
-    const char* needNetwork[] = {"weather.be"};
+    const char* needNetwork[] = {"weather.be", "daylight.be"};
 
     for (const char* name : needNetwork) {
         const std::string source = readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/" + name);
@@ -443,6 +445,97 @@ STIPPLE_TEST(ShopScripts, EachHttpScriptSaysWhenItCannotFetch) {
         }
         STIPPLE_CHECK(countLit(framebuffer) > 0);
     }
+}
+
+STIPPLE_TEST(ShopScripts, TheDaylightScriptReadsRealSunriseTimes) {
+    // The shop gate runs it with no network, where it draws "fetching" and
+    // returns before touching the JSON - so nothing else here would notice
+    // if Open-Meteo renamed a field or moved the hour within the timestamp.
+    //
+    // The timestamp parsing is the fragile part: the script reads the hour
+    // and minute at fixed offsets in "2026-09-27T07:23", which is correct
+    // right up until the API starts returning seconds.
+    const std::string source =
+        readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/daylight.be");
+    STIPPLE_REQUIRE(!source.empty());
+
+    stipple::platform::simulator::SimulatorHttpClient client;
+    stipple::net::ScriptFetcher fetcher;
+    fetcher.setClient(&client);
+    fetcher.setNetworkUp(true);
+
+    // Midday, so the sun is up and the arc has a dot on it.
+    stipple::script::ScriptEnvironment environment;
+    environment.timeKnown = true;
+    environment.hour = 12;
+    environment.minute = 30;
+
+    ScriptStore store;
+    store.setHttp(&fetcher);
+    store.setEnvironment(environment);
+    STIPPLE_REQUIRE(store.put("shop", "daylight.be", source) ==
+                    stipple::script::ScriptPutResult::Added);
+
+    Framebuffer waiting;
+    Canvas waitingCanvas(waiting);
+    STIPPLE_REQUIRE(store.draw("shop", waitingCanvas, 0));
+    STIPPLE_REQUIRE(fetcher.feedCount() == 1);
+
+    fetcher.tick(0);
+    STIPPLE_REQUIRE(!client.asked().empty());
+
+    stipple::platform::simulator::SimulatorHttpClient::Route route;
+    route.url = client.asked().front();
+    route.latencyMillis = 0;
+    route.body =
+        R"({"latitude":52.37,"longitude":4.89,"timezone":"Europe/Amsterdam",)"
+        R"("daily":{"time":["2026-09-27"],)"
+        R"("sunrise":["2026-09-27T07:23"],"sunset":["2026-09-27T19:34"]}})";
+    client.answer(route);
+
+    for (std::uint64_t now = 0;
+         now < stipple::net::ScriptFetcher::kFailureBackoffMillis + 2000; now += 100) {
+        fetcher.tick(now);
+    }
+
+    Framebuffer drawn;
+    Canvas canvas(drawn);
+    STIPPLE_REQUIRE(store.draw("shop", canvas, 33));
+
+    STIPPLE_CHECK(countLit(drawn) > countLit(waiting));
+    STIPPLE_CHECK(!(drawn == waiting));
+    STIPPLE_CHECK(store.problem("shop").empty());
+
+    // Sunset is 19:34 and the script draws the *next* event, so those digits
+    // have to be on the panel. Rendering them separately and comparing beats
+    // asserting a pixel count, which would pass on any five characters.
+    Framebuffer expected;
+    Canvas expectedCanvas(expected);
+    // x=8, matching the script: the triangle before it ends at pixel 6.
+    // This is pixel-exact on purpose - it caught the time moving by one
+    // column when the day-length label was removed, which no "did it draw
+    // something" check would have noticed.
+    stipple::text::drawLine(expectedCanvas, "19:34", 8, 9,
+                            stipple::text::font5x7(), stipple::colors::kWhite);
+
+    int overlap = 0;
+    int wanted = 0;
+    for (int y = 0; y < Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            if (expected.at(x, y) != colors::kBlack) {
+                ++wanted;
+                if (drawn.at(x, y) != colors::kBlack) {
+                    ++overlap;
+                }
+            }
+        }
+    }
+    STIPPLE_REQUIRE(wanted > 0);
+    if (overlap != wanted) {
+        std::printf("    [shop] daylight.be drew %d of %d pixels of \"19:34\"\n",
+                    overlap, wanted);
+    }
+    STIPPLE_CHECK(overlap == wanted);
 }
 
 STIPPLE_TEST(ShopScripts, TheWeatherScriptReadsARealOpenMeteoReply) {
@@ -580,10 +673,15 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
     // three seconds of the word "fetching" is a picture of this test runner
     // rather than of a device on somebody's shelf.
     stipple::platform::simulator::SimulatorHttpClient http;
+    // One body that satisfies every script that fetches, because the harness
+    // cannot know which URL belongs to which card. Open-Meteo's own shape,
+    // with the fields all of them ask for.
     http.setDefaultAnswer(
         200,
         R"({"current":{"temperature_2m":21.4,"weather_code":61},)"
-        R"("daily":{"temperature_2m_max":[23.1],"temperature_2m_min":[12.8]}})");
+        R"("daily":{"time":["2026-09-27"],)"
+        R"("temperature_2m_max":[23.1],"temperature_2m_min":[12.8],)"
+        R"("sunrise":["2026-09-27T07:23"],"sunset":["2026-09-27T19:34"]}})");
 
     for (const Example& example : loadExamples()) {
         if (example.source.empty()) { continue; }

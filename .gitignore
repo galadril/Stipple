@@ -91,6 +91,20 @@ site/emulator/
 # is repository weight for something reproducible in a minute.
 site/shop/*.gif
 
+# The shop page itself, for the same reason and a better one.
+#
+# It is generated from scripts/ by tooling/site/build-shop.py and rebuilt by
+# the Pages job on every deploy, so committing it bought nothing. What it
+# cost was the submission promise: adding a script was supposed to be one
+# file and a pull request, and a committed page meant every contributor also
+# had to run a Python script and commit a two-hundred-line diff of generated
+# HTML - or watch CI fail on a check they had no reason to expect.
+#
+# CI still runs the generator, because that is what catches a script with no
+# `# name:` header. It just no longer demands the output match a file in the
+# repository.
+site/shop/index.html
+
 # Integration scripts that run somewhere else.
 #
 # A Domoticz or Home Assistant script talks to Stipple over the API; it is not

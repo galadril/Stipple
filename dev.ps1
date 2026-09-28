@@ -22,6 +22,19 @@
 # linked for the speaker, and a Debian 12 binary demands a glibc this device
 # does not have. 'device' still uses bookworm, because the smoke test it builds
 # is static and does not care.
+#
+# **Neither of these is the compiler CI's ARMv7 job uses, and that gap has
+# already cost one red release.** That job installs crossbuild-essential-armhf
+# on the runner, so it is whatever ubuntu-latest ships - GCC 13 at the time of
+# writing, against bullseye's 10 and bookworm's 12. Newer libstdc++ headers
+# prune transitive includes, so a translation unit that forgot <cstdint> and
+# used std::uint32_t compiled clean in both containers and failed in CI.
+#
+# To check against CI's compiler before pushing:
+#
+#   podman run --rm -v "${PWD}:/src" ubuntu:24.04 bash -c '
+#     apt-get update -qq && apt-get install -y -qq crossbuild-essential-armhf ninja-build cmake
+#     cd /src && cmake -S . -B /tmp/arm -G Ninja #       -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/arm-linux-gnueabihf.cmake #       -DSTIPPLE_DEVICE_BUILD=ON -DSTIPPLE_BUILD_TESTS=OFF #       -DSTIPPLE_WARNINGS_AS_ERRORS=ON && cmake --build /tmp/arm'
 
 [CmdletBinding()]
 param(
