@@ -76,6 +76,12 @@ public:
     bool has(std::string_view id) const noexcept override;
     std::string_view problem(std::string_view id) const noexcept override;
 
+    std::vector<Setting> settings(std::string_view id) const override;
+    std::string settingValue(std::string_view id,
+                             std::string_view key) const override;
+    bool setSetting(std::string_view id, std::string_view key,
+                    std::string_view value) override;
+
     std::size_t memoryBytes() const noexcept override;
     std::size_t maxSourceBytes() const noexcept override;
 
@@ -92,6 +98,12 @@ private:
     struct Entry {
         Script info;
         std::unique_ptr<ScriptHost> host;
+
+        /// Parsed once, when the source is stored. The web UI asks for these
+        /// every time somebody opens a script, and re-reading the header on
+        /// each request would be work done over and over for an answer that
+        /// only changes when the source does.
+        std::vector<Setting> settings;
     };
 
     std::vector<Entry> entries_;

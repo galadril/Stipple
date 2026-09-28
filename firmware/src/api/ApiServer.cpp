@@ -1363,6 +1363,38 @@ void writeScript(JsonWriter& writer, const script::Script& entry, bool withSourc
     writer.endObject();
 }
 
+/// The `@config` fields a script declared, with what each currently holds.
+///
+/// Only on the single-script fetch. The list view is metadata, and the editor
+/// is the only place anybody fills a form in.
+void writeSettings(JsonWriter& writer, const script::IScriptRunner& scripts,
+                   const std::string& id) {
+    writer.key("settings").beginArray();
+    for (const script::Setting& setting : scripts.settings(id)) {
+        writer.beginObject()
+            .member("key", setting.key)
+            .member("type", script::settingTypeName(setting.type))
+            .member("label", setting.label)
+            .member("help", setting.help)
+            .member("default", setting.fallback);
+
+        // Empty means nothing has been set and the script's own fallback
+        // applies. Deliberately distinct from a stored empty string, which
+        // is a value somebody chose.
+        writer.member("value", scripts.settingValue(id, setting.key));
+
+        if (setting.type == script::Setting::Type::Text && setting.maxLength > 0) {
+            writer.member("maxLength", static_cast<std::int64_t>(setting.maxLength));
+        }
+        if (setting.type == script::Setting::Type::Number && setting.bounded) {
+            writer.member("minimum", static_cast<std::int64_t>(setting.minimum));
+            writer.member("maximum", static_cast<std::int64_t>(setting.maximum));
+        }
+        writer.endObject();
+    }
+    writer.endArray();
+}
+
 Response noScripting() {
     // Not a 500. The device is working exactly as built; it simply has no
     // interpreter in it, and saying "internal error" would send somebody
@@ -1502,8 +1534,80 @@ Response ApiServer::handleScriptItem(const Request& request, const std::string& 
         if (entry == nullptr) {
             return notFound("no such script");
         }
+        // Built by hand rather than through writeScript, because the
+        // settings belong inside the same object and writeScript closes it.
         JsonWriter writer;
-        writeScript(writer, *entry, /*withSource=*/true);
+        writer.beginObject();
+        writer.member("id", entry->id);
+        writer.member("name", entry->name);
+        writer.member("ok", entry->ok);
+        writer.member("problem", entry->problem);
+        writer.member("bytes", static_cast<std::int64_t>(entry->source.size()));
+        writer.member("lastInstructions",
+                      static_cast<std::int64_t>(entry->lastInstructions));
+        writer.member("memoryBytes", static_cast<std::int64_t>(entry->memoryBytes));
+        writer.member("source", entry->source);
+        writeSettings(writer, *context_.scripts, id);
+        writer.endObject();
+        return ok(writer.take());
+    }
+
+    // Settings only. The source is written by POSTing to the collection,
+    // which is a different operation with different consequences - saving a
+    // channel ID should not be able to recompile anything.
+    if (request.method == Method::Patch) {
+        if (context_.scripts->find(id) == nullptr) {
+            return notFound("no such script");
+        }
+
+        Body body(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+        if (!body.valid()) {
+            return badRequest(std::string("invalid JSON: ") + body.errorText());
+        }
+        const json::Value root = body.root();
+        if (!root.isObject()) {
+            return badRequest("body must be a JSON object");
+        }
+        const json::Value wanted = root["settings"];
+        if (!wanted.isObject()) {
+            return unprocessable("expected a \"settings\" object");
+        }
+
+        // Every field or none. A partial apply leaves the device in a state
+        // the person who sent it did not ask for and cannot see.
+        std::string refused;
+        for (int i = 0; i < wanted.size(); ++i) {
+            const json::Value key = wanted.keyAt(i);
+            const json::Value value = wanted.valueAt(i);
+            if (!key.isString()) {
+                continue;
+            }
+            std::string text;
+            if (value.isString()) {
+                text = value.toString();
+            } else if (value.isNumber()) {
+                text = std::to_string(value.toInt(0));
+            } else if (value.isBoolean()) {
+                text = value.toBool(false) ? "true" : "false";
+            } else {
+                refused = key.toString();
+                break;
+            }
+            if (!context_.scripts->setSetting(id, key.toString(), text)) {
+                refused = key.toString();
+                break;
+            }
+        }
+        if (!refused.empty()) {
+            return unprocessable("cannot set \"" + refused +
+                                 "\": no such setting, or the value does not fit it");
+        }
+
+        JsonWriter writer;
+        writer.beginObject();
+        writer.member("id", id);
+        writeSettings(writer, *context_.scripts, id);
+        writer.endObject();
         return ok(writer.take());
     }
 

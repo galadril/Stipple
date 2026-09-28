@@ -204,6 +204,7 @@ add_library(stipple_core
     src/apps/StopwatchApp.cpp
     src/apps/VisualizerApp.cpp
     src/apps/Unavailable.cpp
+    src/script/ScriptConfig.cpp
     src/script/ScriptMqtt.cpp
     src/script/ScriptRunner.cpp
     src/apps/SplashScreen.cpp

@@ -24,6 +24,7 @@
 #include "stipple/platform/PlatformServices.h"
 #include "stipple/mqtt/ScriptGateway.h"
 #include "stipple/net/ScriptFetcher.h"
+#include "stipple/net/HttpFetch.h"
 #include "stipple/platform/simulator/SimulatorHttpClient.h"
 #include "stipple/platform/simulator/SimulatorPlatform.h"
 #include "stipple/platform/MqttClient.h"
@@ -424,7 +425,8 @@ STIPPLE_TEST(ShopScripts, EachMicScriptSaysWhenTheDeviceCannotHear) {
 }
 
 STIPPLE_TEST(ShopScripts, EachHttpScriptSaysWhenItCannotFetch) {
-    const char* needNetwork[] = {"weather.be", "daylight.be"};
+    const char* needNetwork[] = {"weather.be", "daylight.be", "youtube.be",
+                                 "github.be"};
 
     for (const char* name : needNetwork) {
         const std::string source = readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/" + name);
@@ -445,6 +447,193 @@ STIPPLE_TEST(ShopScripts, EachHttpScriptSaysWhenItCannotFetch) {
         }
         STIPPLE_CHECK(countLit(framebuffer) > 0);
     }
+}
+
+STIPPLE_TEST(ShopScripts, TheGitHubScriptReadsAFullYearOfContributions) {
+    // A real-sized body, not a token one. The whole design of this script is
+    // about the 15 KB the contributions API actually sends: it splits on
+    // `"level":` instead of parsing JSON, because building 365 Berry maps in
+    // one frame would cost the frame. A three-entry fixture would prove none
+    // of that.
+    const std::string source =
+        readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/github.be");
+    STIPPLE_REQUIRE(!source.empty());
+
+    std::string body = R"({"total":{"lastYear":928},"contributions":[)";
+    for (int i = 0; i < 365; ++i) {
+        if (i > 0) { body += ','; }
+        // Levels cycle so every shade is exercised, and the count field is
+        // present because the real one has it and it is what makes the
+        // payload big.
+        body += R"({"date":"2026-01-01","count":)" + std::to_string(i % 17) +
+                R"(,"level":)" + std::to_string(i % 5) + "}";
+    }
+    body += "]}";
+    STIPPLE_REQUIRE(body.size() > 12000);
+    STIPPLE_REQUIRE(body.size() < stipple::net::http::ResponseParser::kMaxBodyBytes);
+
+    stipple::platform::simulator::SimulatorHttpClient client;
+    stipple::net::ScriptFetcher fetcher;
+    fetcher.setClient(&client);
+    fetcher.setNetworkUp(true);
+
+    stipple::script::ScriptEnvironment environment;
+    environment.timeKnown = true;
+    environment.year = 2026;
+    environment.month = 9;
+    environment.day = 28;
+    environment.weekday = 1;
+
+    ScriptStore store;
+    store.setHttp(&fetcher);
+    store.setEnvironment(environment);
+    STIPPLE_REQUIRE(store.put("shop", "github.be", source) ==
+                    stipple::script::ScriptPutResult::Added);
+
+    Framebuffer waiting;
+    Canvas waitingCanvas(waiting);
+    STIPPLE_REQUIRE(store.draw("shop", waitingCanvas, 0));
+    STIPPLE_REQUIRE(fetcher.feedCount() == 1);
+
+    fetcher.tick(0);
+    STIPPLE_REQUIRE(!client.asked().empty());
+    // The declared default username, and the year off the clock.
+    STIPPLE_CHECK(client.asked().front().find("galadril") != std::string::npos);
+    STIPPLE_CHECK(client.asked().front().find("y=2026") != std::string::npos);
+
+    stipple::platform::simulator::SimulatorHttpClient::Route route;
+    route.url = client.asked().front();
+    route.latencyMillis = 0;
+    route.body = body;
+    client.answer(route);
+
+    for (std::uint64_t now = 0;
+         now < stipple::net::ScriptFetcher::kFailureBackoffMillis + 2000; now += 100) {
+        fetcher.tick(now);
+    }
+
+    Framebuffer drawn;
+    Canvas canvas(drawn);
+    STIPPLE_REQUIRE(store.draw("shop", canvas, 33));
+    STIPPLE_CHECK(store.problem("shop").empty());
+
+    // The grid occupies the top seven rows and every column, so a parse that
+    // produced nothing would leave them black.
+    int grid = 0;
+    for (int y = 0; y < 7; ++y) {
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            if (drawn.at(x, y) != colors::kBlack) { ++grid; }
+        }
+    }
+    if (grid < 200) {
+        std::printf("    [shop] github.be lit only %d of 364 grid pixels\n",
+                    grid);
+    }
+    STIPPLE_CHECK(grid > 200);
+
+    // And the headline number, pixel-exact.
+    Framebuffer expected;
+    Canvas expectedCanvas(expected);
+    stipple::text::drawLine(expectedCanvas, "928", 0, 9,
+                            stipple::text::font5x7(), stipple::colors::kWhite);
+
+    int overlap = 0;
+    int wanted = 0;
+    for (int y = 0; y < Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            if (expected.at(x, y) != colors::kBlack) {
+                ++wanted;
+                if (drawn.at(x, y) != colors::kBlack) { ++overlap; }
+            }
+        }
+    }
+    STIPPLE_REQUIRE(wanted > 0);
+    STIPPLE_CHECK(overlap == wanted);
+
+    // Parsing is not repeated on every frame. Fifteen kilobytes through
+    // string.split once is affordable; thirty times a second is not, and the
+    // only signal a script gets that the body changed is the age resetting.
+    const std::uint32_t after = store.find("shop")->lastInstructions;
+    Canvas again(drawn);
+    STIPPLE_REQUIRE(store.draw("shop", again, 66));
+    STIPPLE_CHECK(store.find("shop")->lastInstructions <= after);
+}
+
+STIPPLE_TEST(ShopScripts, TheYouTubeScriptReadsARealSocialCountsReply) {
+    // Recorded from api.socialcounts.org, byte for byte. The nesting is the
+    // fragile part - counters.api.subscriberCount, with an `estimation`
+    // sibling that is a guess rather than a published figure - and nothing
+    // else in the suite would notice if that shape changed.
+    const std::string source =
+        readFile(std::string(STIPPLE_SCRIPTS_DIR) + "/youtube.be");
+    STIPPLE_REQUIRE(!source.empty());
+
+    stipple::platform::simulator::SimulatorHttpClient client;
+    stipple::net::ScriptFetcher fetcher;
+    fetcher.setClient(&client);
+    fetcher.setNetworkUp(true);
+
+    ScriptStore store;
+    store.setHttp(&fetcher);
+    STIPPLE_REQUIRE(store.put("shop", "youtube.be", source) ==
+                    stipple::script::ScriptPutResult::Added);
+
+    Framebuffer waiting;
+    Canvas waitingCanvas(waiting);
+    STIPPLE_REQUIRE(store.draw("shop", waitingCanvas, 0));
+    STIPPLE_REQUIRE(fetcher.feedCount() == 1);
+
+    fetcher.tick(0);
+    STIPPLE_REQUIRE(!client.asked().empty());
+
+    // The URL carries the declared default channel, which is also the check
+    // that `@config` reached the script at all.
+    STIPPLE_CHECK(client.asked().front().find("UCpGLALzRO0uaasWTsm9M99w") !=
+                  std::string::npos);
+
+    stipple::platform::simulator::SimulatorHttpClient::Route route;
+    route.url = client.asked().front();
+    route.latencyMillis = 0;
+    route.body =
+        R"({"counters":{"estimation":{"subscriberCount":424,"viewCount":374271,)"
+        R"("videoCount":109},"api":{"subscriberCount":424,"viewCount":374263,)"
+        R"("videoCount":109}}})";
+    client.answer(route);
+
+    for (std::uint64_t now = 0;
+         now < stipple::net::ScriptFetcher::kFailureBackoffMillis + 2000; now += 100) {
+        fetcher.tick(now);
+    }
+
+    Framebuffer drawn;
+    Canvas canvas(drawn);
+    STIPPLE_REQUIRE(store.draw("shop", canvas, 33));
+    STIPPLE_CHECK(store.problem("shop").empty());
+    STIPPLE_CHECK(!(drawn == waiting));
+
+    // 424 subscribers, drawn as "424" at x=14. Pixel-exact, because
+    // "it drew something" would pass on the word "fetching".
+    Framebuffer expected;
+    Canvas expectedCanvas(expected);
+    stipple::text::drawLine(expectedCanvas, "424", 14, 0,
+                            stipple::text::font5x7(), stipple::colors::kWhite);
+
+    int overlap = 0;
+    int wanted = 0;
+    for (int y = 0; y < Framebuffer::kHeight; ++y) {
+        for (int x = 0; x < Framebuffer::kWidth; ++x) {
+            if (expected.at(x, y) != colors::kBlack) {
+                ++wanted;
+                if (drawn.at(x, y) != colors::kBlack) { ++overlap; }
+            }
+        }
+    }
+    STIPPLE_REQUIRE(wanted > 0);
+    if (overlap != wanted) {
+        std::printf("    [shop] youtube.be drew %d of %d pixels of \"424\"\n",
+                    overlap, wanted);
+    }
+    STIPPLE_CHECK(overlap == wanted);
 }
 
 STIPPLE_TEST(ShopScripts, TheDaylightScriptReadsRealSunriseTimes) {
@@ -673,15 +862,55 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
     // three seconds of the word "fetching" is a picture of this test runner
     // rather than of a device on somebody's shelf.
     stipple::platform::simulator::SimulatorHttpClient http;
-    // One body that satisfies every script that fetches, because the harness
-    // cannot know which URL belongs to which card. Open-Meteo's own shape,
-    // with the fields all of them ask for.
-    http.setDefaultAnswer(
-        200,
-        R"({"current":{"temperature_2m":21.4,"weather_code":61},)"
-        R"("daily":{"time":["2026-09-27"],)"
-        R"("temperature_2m_max":[23.1],"temperature_2m_min":[12.8],)"
-        R"("sunrise":["2026-09-27T07:23"],"sunset":["2026-09-27T19:34"]}})");
+    // Plausible data per API, matched on the host in the URL.
+    //
+    // One canned body for everything was the first version and stopped
+    // working the moment a second API was involved: a weather reply has no
+    // subscriber count in it, so the YouTube card showed "fetching" for
+    // three seconds. The harness cannot know which URL a card will ask for
+    // until it has drawn once, so the routes are registered as the requests
+    // appear.
+    //
+    // Stand-ins, and labelled as such: the shop cannot know what is on
+    // anybody's channel.
+    const auto answerFor = [](const std::string& url) -> std::string {
+        if (url.find("socialcounts") != std::string::npos) {
+            return R"({"counters":{"estimation":{"subscriberCount":12400,)"
+                   R"("viewCount":982143,"videoCount":109},)"
+                   R"("api":{"subscriberCount":12400,"viewCount":982143,)"
+                   R"("videoCount":109}}})";
+        }
+        if (url.find("contributions") != std::string::npos) {
+            std::string body = R"({"total":{"lastYear":928},"contributions":[)";
+            for (int i = 0; i < 365; ++i) {
+                if (i > 0) { body += ','; }
+                // A year that looks like somebody's: busier midweek, quiet
+                // at the edges, with a couple of dead fortnights.
+                int level = (i % 7 == 0 || i % 7 == 6) ? (i % 3 == 0 ? 1 : 0)
+                                                       : (1 + (i * 7) % 4);
+                if ((i / 14) % 9 == 3) { level = 0; }
+                body += R"({"date":"2026-01-01","count":)" + std::to_string(level * 3) +
+                        R"(,"level":)" + std::to_string(level) + "}";
+            }
+            return body + "]}";
+        }
+        return R"({"current":{"temperature_2m":21.4,"weather_code":61},)"
+               R"("daily":{"time":["2026-09-27"],)"
+               R"("temperature_2m_max":[23.1],"temperature_2m_min":[12.8],)"
+               R"("sunrise":["2026-09-27T07:23"],"sunset":["2026-09-27T19:34"]}})";
+    };
+
+    // Registered up front and matched on a fragment of the URL, because the
+    // first fetch has to get the right body. Answering it with the wrong one
+    // still counts as a success, and the feed would then not ask again for
+    // the length of its interval - half an hour, against a three-second
+    // card.
+    http.answerMatching("socialcounts", 200, answerFor("socialcounts"));
+    http.answerMatching("contributions", 200, answerFor("contributions"));
+
+    // Anything unrecognised still answers, so a new script that fetches gets
+    // a card rather than three seconds of the word "fetching".
+    http.setDefaultAnswer(200, answerFor(""));
 
     for (const Example& example : loadExamples()) {
         if (example.source.empty()) { continue; }

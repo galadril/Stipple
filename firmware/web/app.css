@@ -601,6 +601,41 @@ input[type="color"] {
     background-position: 0 0, 0 4px, 4px -4px, -4px 0;
 }
 
+/* A script's own settings, above its source.
+ *
+ * Boxed and labelled so it does not read as part of the code below it: these
+ * are two different things to save, and conflating them is how somebody
+ * edits a channel ID and wonders why the script did not recompile.
+ */
+.settings {
+    margin: 0 0 0.9rem;
+    padding: 0.85rem 1rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+}
+
+.settings__title {
+    margin: 0 0 0.7rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.settings .field { margin-bottom: 0.7rem; }
+.settings .field:last-of-type { margin-bottom: 0.2rem; }
+
+.settings__note { margin: 0.4rem 0 0; }
+
+/* A value the device refused. Marked on the field, because by the time
+   somebody reads a message at the bottom of the page they have forgotten
+   which box it was about. */
+.settings input.bad {
+    border-color: var(--danger);
+}
+
 /* --- the script editor --------------------------------------------------- */
 
 /* Two columns on a desktop, stacked on a phone. The list is narrow because it

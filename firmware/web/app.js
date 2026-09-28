@@ -1978,6 +1978,103 @@
         });
     }
 
+    // --- what a script asked to be asked -------------------------------------
+    //
+    // `# @config` declarations, rendered as a small form. The values go to
+    // the script's own store, which is where its `store.get(key, fallback)`
+    // was already reading from - so a script works unchanged on a firmware
+    // that has never heard of settings, and gains a form on one that has.
+
+    function renderScriptSettings(entry) {
+        var box = $('script-settings');
+        var fields = $('script-settings-fields');
+        if (!box || !fields) { return; }
+
+        fields.textContent = '';
+        var list = (entry && entry.settings) || [];
+        // Most scripts declare nothing, and an empty "Settings" heading is
+        // furniture that means "this is broken".
+        box.hidden = list.length === 0;
+        if (!list.length) { return; }
+
+        list.forEach(function (setting) {
+            var field = document.createElement('div');
+            field.className = 'field';
+
+            var id = 'set-' + setting.key;
+            var input;
+
+            if (setting.type === 'boolean') {
+                var wrap = document.createElement('label');
+                wrap.className = 'check';
+                input = document.createElement('input');
+                input.type = 'checkbox';
+                input.id = id;
+                // An unset boolean falls back to what the declaration said,
+                // which is what the script would have read anyway.
+                input.checked = (setting.value !== '' ? setting.value : setting['default']) === 'true';
+                wrap.appendChild(input);
+                wrap.appendChild(document.createTextNode(' ' + setting.label));
+                field.appendChild(wrap);
+            } else {
+                var label = document.createElement('label');
+                label.setAttribute('for', id);
+                label.textContent = setting.label;
+                field.appendChild(label);
+
+                input = document.createElement('input');
+                input.id = id;
+                input.type = setting.type === 'number' ? 'number' : 'text';
+                input.value = setting.value;
+                // The declared default as the placeholder, so an empty box
+                // still shows what the script will use.
+                if (setting['default']) { input.placeholder = setting['default']; }
+                if (setting.maxLength) { input.maxLength = setting.maxLength; }
+                if (setting.minimum !== undefined) { input.min = setting.minimum; }
+                if (setting.maximum !== undefined) { input.max = setting.maximum; }
+                input.spellcheck = false;
+                input.autocomplete = 'off';
+                field.appendChild(input);
+            }
+
+            if (setting.help) {
+                var help = document.createElement('p');
+                help.className = 'help';
+                help.textContent = setting.help;
+                field.appendChild(help);
+            }
+
+            // Saved on change rather than on a button. There is no draft
+            // state worth having for one field, and a Save button beside the
+            // source's Save button is two things that look like the same
+            // thing and are not.
+            input.addEventListener('change', function () {
+                var value = setting.type === 'boolean' ? input.checked : input.value;
+                saveScriptSetting(entry.id, setting.key, value, input);
+            });
+
+            fields.appendChild(field);
+        });
+    }
+
+    function saveScriptSetting(id, key, value, input) {
+        var body = { settings: {} };
+        body.settings[key] = value;
+
+        send('PATCH', '/api/v1/scripts/' + encodeURIComponent(id), body)
+            .then(function () {
+                input.classList.remove('bad');
+                toast('Saved');
+            })
+            .catch(function (error) {
+                // Marked on the field rather than only in a toast: by the
+                // time somebody reads a message at the bottom of the page
+                // they have forgotten which box it was about.
+                input.classList.add('bad');
+                fail(error);
+            });
+    }
+
     // entry is null for a script that does not exist yet.
     function openScript(entry) {
         editingId = entry ? entry.id : null;
@@ -1990,6 +2087,7 @@
         $('script-source').value = entry ? (entry.source || '') : SCRIPT_TEMPLATE;
         scriptDirty = !entry;
         showProblem(entry ? entry.problem : '');
+        renderScriptSettings(entry);
         updateScriptBytes();
         paintScript();
         highlightSelectedScript();
