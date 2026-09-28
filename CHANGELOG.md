@@ -8,7 +8,7 @@ Versions are `MAJOR.MINOR.PATCH`. While on `0.x` every release is a
 prerelease: the interfaces move, and nothing here installs onto a stock
 device without a capture of that device first.
 
-## Unreleased
+## 0.2.4
 
 ### Added
 
