@@ -169,8 +169,16 @@ STIPPLE_TEST(ShopScripts, EveryPublishedScriptCompilesAndDraws) {
             // its death. It also means the handler's own instruction budget
             // and stack balance are covered for every published script, not
             // only for the ones in the unit tests.
+            //
+            // **"select", because that is the name ApplicationHost sends.**
+            // This said "action" for a long time, and every published script
+            // guards its handler with `if name != "select" return`, so the
+            // press arrived, was rejected on the first line, and the test
+            // proved nothing about the code underneath. A whole class of
+            // handler bug could not fail here - and one did reach a device,
+            // where pressing the button killed the script outright.
             if (frame % 11 == 0) {
-                store.button("shop", "action");
+                store.button("shop", "select");
             }
         }
 
@@ -209,7 +217,32 @@ STIPPLE_TEST(ShopScripts, NoneOfThemLeak) {
         for (int frame = 0; frame < 600; ++frame) {
             moving.monotonicMillis = static_cast<std::uint64_t>(120 + frame) * 33u;
             store.setEnvironment(moving);
-            store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * 33u);
+            const bool drew =
+                store.draw("shop", canvas, static_cast<std::uint64_t>(frame) * 33u);
+
+            // Checked here as well as in the compile test, because this is
+            // the only loop long enough to reach a steady state. A script
+            // that accumulates - a pile of sand, a filling well - costs more
+            // per frame the fuller it gets, and its most expensive frame is
+            // nowhere near the first ninety.
+            //
+            // That is exactly how Sandbox shipped a script that died when
+            // somebody pressed the button: three seconds in, the pile was
+            // small and the shake was cheap.
+            if (!drew) {
+                std::printf("    [shop] %s died on frame %d of 600: %s\n",
+                            example.name.c_str(), frame,
+                            store.find("shop")->problem.c_str());
+            }
+            STIPPLE_REQUIRE(drew);
+
+            // Not checked for a return: false also means "this script has
+            // no on_button", which most of them do not. What matters is that
+            // the frame after a press still draws, which the check above
+            // does for every frame.
+            if (frame % 37 == 0) {
+                store.button("shop", "select");
+            }
         }
         store.collectGarbage("shop");
         const std::size_t after = store.find("shop")->memoryBytes;
@@ -881,6 +914,10 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
                    R"("api":{"subscriberCount":12400,"viewCount":982143,)"
                    R"("videoCount":109}}})";
         }
+        if (url.find("air-quality") != std::string::npos) {
+            return R"({"current":{"time":"2026-09-29T08:00","pm2_5":20.7,)"
+                   R"("pm10":24.5,"european_aqi":43}})";
+        }
         if (url.find("ipify") != std::string::npos ||
             url.find("checkip") != std::string::npos) {
             // What these services actually return: the address and nothing
@@ -914,6 +951,7 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
     // card.
     http.answerMatching("socialcounts", 200, answerFor("socialcounts"));
     http.answerMatching("contributions", 200, answerFor("contributions"));
+    http.answerMatching("air-quality", 200, answerFor("air-quality"));
     http.answerMatching("ipify", 200, answerFor("ipify"));
     http.answerMatching("checkip", 200, answerFor("checkip"));
 
@@ -1094,7 +1132,7 @@ STIPPLE_TEST(ShopScripts, PreviewsOnRequest) {
                 // Play it, rather than watch it fall. A preview of a game
                 // showing its game-over screen is a preview of nothing.
                 if (frame % 12 == 0) {
-                    store.button("shop", "action");
+                    store.button("shop", "select");
                 }
             }
             previous = target;

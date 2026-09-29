@@ -20,6 +20,35 @@ device without a capture of that device first.
   original, and the extra height is spent on showing everything at once
   rather than making somebody press the button eight times to find out what
   the house is doing.
+- **Plane Spotter**, the nearest aircraft overhead - callsign, altitude, and
+  an arrow pointing at which window to look out of. The feed is adsb.lol,
+  which is free, needs no key and is fed by volunteers with receivers on
+  their roofs. Anything on the ground is skipped, because near an airport
+  that would be most of them and none of them are visible from a window.
+- **Tetris**, which plays itself. A sixteen-pixel-tall panel is exactly the
+  shape of a well, so the board takes the left and the score the right, the
+  way an arcade cabinet laid it out for the same reason. It arrives
+  mid-game rather than on an empty board, and it is meant to lose
+  eventually - a player that never tops out would draw the same picture for
+  ever.
+- **Sandbox**, falling sand that pours, piles and slumps, with the button to
+  shake the whole thing loose.
+- **Air Quality**, the European AQI and particulates for your street from
+  Open-Meteo, which needs no key. The band is named as well as numbered,
+  because 43 means nothing to most people and "MOD" means something to
+  everybody, and a colour scale underneath says whether that is nearly clean
+  or nearly bad.
+- **Split Flap**, a departure-board clock whose characters only ever turn
+  forwards, so getting from Y to A means going the whole way round. That is
+  most of what makes a departure board look like one.
+- **Now Playing**, whatever is on the speakers, over MQTT - title, artist and
+  a progress bar that only appears when both the position and the duration
+  are known. Guessing a duration would draw a bar that runs out at the wrong
+  time, which is worse than no bar.
+- **Langton's Ant**: two rules, ten thousand steps of chaos, and then it
+  builds a road and leaves.
+- **Bin Day**, which bin goes out next and how long you have. Unglamorous,
+  and the one that stays on screen.
 - **Internet Monitor**, which answers "is the line up, and what is my public
   address" against two independent services so that one of them being down is
   not reported as the internet being down. The address is split across two
@@ -48,6 +77,21 @@ device without a capture of that device first.
 
 ### Fixed
 
+- **A script could be killed by pressing the button, and the tests could not
+  see it.** Two faults met: the shop test pressed a button named `action`
+  while the firmware sends `select`, so every published script rejected the
+  press on its handler's first line and the test proved nothing about the
+  code underneath; and the long-running test never checked that a script was
+  still alive, only that it had not leaked. A script that accumulates - a
+  pile of sand, a filling well - costs more per frame the fuller it gets, and
+  its most expensive frame is nowhere near the first ninety. Both are fixed,
+  and the combination reproduced the failure immediately.
+- **Sandbox and Tetris were too expensive per frame.** Sandbox went over the
+  instruction budget once the panel filled and somebody pressed the button,
+  which disables the script outright. Reading the grid directly instead of
+  through helpers halved it, and Tetris - whose peak frame sat one heartbeat
+  under the ceiling, which is a script that dies the first time anything else
+  is slightly slower - came down by a third the same way.
 - **Home Assistant discovery is now tested.** It was implemented and working
   but had no coverage, which mattered more than it sounds: discovery is the
   one output nothing reads back, so a wrong topic or a device block that
