@@ -1,6 +1,6 @@
 # name: Dutch Trains
 # summary: NS trains passing by - VIRM, ICM, ICNG, SLT, FLIRT and more, in both directions.
-# author: Unknown (ported to TC002)
+# author: Stipple
 # tags: animation, trains, netherlands, ambient
 # panel: 52x16
 
