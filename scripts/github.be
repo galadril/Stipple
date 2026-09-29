@@ -9,23 +9,6 @@
 
 import string
 
-# The contribution graph, at exactly the size it wants to be.
-#
-# Fifty-two weeks across and seven days down is 52 x 7 pixels, and this panel
-# is 52 x 16. That is not a coincidence worth wasting: one pixel per day, one
-# column per week, laid out the way GitHub lays it out, with the rest of the
-# panel left for the number.
-#
-# **It does not use json.load.** The response is about fifteen kilobytes and
-# three hundred and sixty-five objects, and building that many Berry maps
-# inside one frame would cost the frame. Splitting on `"level":` is a single
-# call into C that hands back the digits already separated, and the loop over
-# them is three hundred cheap iterations instead.
-#
-# It parses only when new data lands, not every frame: the fetch interval is
-# half an hour and the answer does not change in between. `http_age_ms`
-# dropping is how a script sees a new body arrive - there is no callback.
-
 class App
   var URL, who
   var levels          # 0..4 per day, index 0 = January 1st
@@ -43,10 +26,7 @@ class App
 
   def _point()
     self.who = store.get("user", "galadril")
-    # The current year rather than a rolling window. A rolling window puts
-    # the newest day at an arbitrary place in the array; a calendar year puts
-    # January 1st at index zero, which is the only anchor that needs no
-    # arithmetic to find.
+
     var y = time_known() ? year() : 2026
     self.URL = "https://github-contributions-api.jogruber.de/v4/" +
                self.who + "?y=" + str(y)
@@ -166,10 +146,6 @@ class App
 
     self._grid()
 
-    # The number alone. "928 this year" is thirteen characters at six pixels
-    # each, which is seventy-eight on a panel fifty-two wide - measured after
-    # it shipped clipped to "928 this ye". The grid above it already says
-    # what is being counted.
     if store.get("total", true) && self.total >= 0
       text(0, 9, str(self.total), rgb(200, 210, 220))
     else
@@ -178,9 +154,7 @@ class App
   end
 
   def _grid()
-    # GitHub's own five shades. Level zero is a lit dark square rather than
-    # nothing, because the shape of the grid is half of what the graph says -
-    # an empty week should read as an empty week, not as a gap in the data.
+
     var shades = [rgb(14, 18, 24), rgb(10, 52, 34), rgb(0, 86, 40),
                   rgb(32, 128, 52), rgb(60, 200, 90)]
 
@@ -199,9 +173,7 @@ class App
 
     while x >= 0 && index >= 0
       var level = self.levels[index]
-      # Days after today have not happened. Drawn as nothing at all rather
-      # than as level zero, which would claim a quiet day that has not
-      # arrived yet.
+
       pixel(x, y, shades[level])
 
       index -= 1

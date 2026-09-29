@@ -1,6 +1,6 @@
 # name: EVCC Energy
 # summary: Live energy balance from EVCC - solar, house, car, battery and grid as one picture, with detail on the button.
-# author: Galadril
+# author: Stipple
 # tags: mqtt, energy, solar, car, home
 # panel: 52x16
 
@@ -8,52 +8,6 @@
 # @config binv boolean "Battery sign is inverted" default=false help="Tick if charging and discharging show the wrong way round. Some EVCC versions report the opposite sign."
 
 import string
-
-# EVCC's site and loadpoint readings, drawn as a balance rather than a list.
-#
-# Ported from the 32x8 original, and the extra height is spent on showing
-# everything at once instead of making somebody press the button eight times
-# to find out what the house is doing. The default view is the whole picture:
-# what is producing on one bar, what is consuming on the other, the two
-# headline numbers above them, and the battery underneath.
-#
-# **Six topics, and that is the whole budget.** A script gets six MQTT
-# watches, and a wildcard does not help: the device caches the last payload
-# per *filter*, so `evcc/site/#` would leave every reading overwriting the
-# same slot with no way to tell which topic it came from. The original could
-# subscribe with a callback and switch on the topic; here the six have to be
-# named.
-#
-# What that bought, and what it cost:
-#
-#   pvPower, gridPower, homePower, batteryPower, batterySoc, chargePower
-#
-# The first five are non-negotiable because the *bars* need them. A balance
-# that does not know battery flow cannot tell discharge from grid import and
-# would quietly draw one as the other - a picture that is wrong rather than
-# incomplete, which is the worse of the two. So `vehicleSoc`, `charging` and
-# `mode` are not read. Car charge power is, which is the number that actually
-# changes minute to minute.
-#
-# **Changing the loadpoint needs the script saved again.** Watches are
-# released when a script is replaced, not when a setting changes, so a new
-# loadpoint topic would be a seventh watch and be refused. The script checks
-# whether its own watch was accepted and says so on the panel rather than
-# showing a car that is silently always nil.
-#
-# **The views change on the button and nothing else.** There is no timer
-# rotating them: the balance stays up until somebody presses the action
-# button, which steps through solar, grid, house, car and battery and then
-# back to the balance. That is deliberate - a panel that reshuffles itself
-# every few seconds cannot be glanced at, because whatever you came to read
-# has already gone.
-#
-# The knob is not available to scripts at all. It is how somebody moves
-# between apps, and a script that took it would be one you could not leave.
-#
-# Topic names are EVCC's current ones. Older builds published
-# `evcc/site/grid/power` and `evcc/site/battery/soc`; if the grid and battery
-# stay blank while solar works, that is the version you have.
 
 class App
   var CPV, CBAT, CIMP, CEXP, CHOME, CCAR, CDIM, CGAP
@@ -126,9 +80,6 @@ class App
 
   # --- reading -------------------------------------------------------------
 
-  # Watts, or nil when nothing has arrived on that topic. nil is not zero: a
-  # house drawing 0 W and a reading that never came are different facts, and
-  # the bars have to be able to tell them apart.
   def _v(i)
     var raw = mqtt_get(self.TOPICS[i])
     if raw == nil
@@ -144,11 +95,6 @@ class App
     return v
   end
 
-  # Youngest reading across the six, or -1 when none has ever arrived.
-  #
-  # Youngest rather than oldest on purpose: a device with no battery never
-  # publishes batterySoc, and taking the oldest would call the whole feed
-  # stale for a topic that is never coming.
   def _age()
     var best = -1
     var i = 0
@@ -166,9 +112,6 @@ class App
 
   # --- formatting ----------------------------------------------------------
 
-  # Four characters at most, so two of these fit on one line with room to
-  # breathe. The decimal point carries the unit: "340W" is watts, "3.4k" is
-  # kilowatts, "12k" is a lot of kilowatts.
   def _w(v)
     if v == nil
       return "--"
@@ -196,10 +139,6 @@ class App
 
   # --- the balance ---------------------------------------------------------
 
-  # A stacked bar whose segments are shares of the total, not absolute widths.
-  # Every visible contributor gets at least one pixel, because a car drawing
-  # 200 W next to 9 kW of solar would otherwise round away to nothing and the
-  # panel would say the car was off.
   def _stack(y, h, vals, cols)
     var w = width()
     var total = 0
@@ -278,10 +217,6 @@ class App
       pvw = 0
     end
 
-    # Headline numbers. Solar on the left because it is the one people look
-    # for; the grid on the right, coloured rather than signed - red is going
-    # out of your pocket, green is coming back, and a minus sign is easy to
-    # miss at this size.
     var ps = self._w(pv)
     text(0, 0, ps, self.CPV)
 
@@ -337,9 +272,7 @@ class App
     if lv < 20
       c = self.CIMP
     end
-    # Rounded, not truncated. Five segments for a hundred percent means each
-    # is worth twenty, and truncating showed 57% as two bars - a battery
-    # reading under half when it is over. The +50 is half a segment.
+
     var n = int((lv * 5 + 50) / 100)
     var i = 0
     while i < n
@@ -454,9 +387,6 @@ class App
       self._detail()
     end
 
-    # A corpse marker. Retained messages arrive the instant the device
-    # connects and look exactly like live readings, so the only thing that
-    # separates a working EVCC from one that stopped an hour ago is age.
     if age > self.STALE
       pixel(width() - 1, 7, self.CIMP)
     end

@@ -1,61 +1,30 @@
 # name: Internet Monitor
 # summary: Your public IPv4 and whether the internet is actually up, checked against two independent services.
-# author: Spectral
+# author: Stipple
 # tags: http, network, status, tool
 # panel: 52x16
 
 # @config refresh number "Check every (seconds)" default=300 min=60 max=3600 help="How often to ask. Free services are free because nobody hammers them."
 # @config fails number "Offline after this many missed checks" default=3 min=1 max=10 help="One failed check is usually a hiccup. This is how many in a row it takes before the panel says OFFLINE."
 # @config rainbow boolean "Colour the address" default=true
+# @config url1 text "Address service" default="https://api.ipify.org" maxlen=120 help="Must return your public IPv4 somewhere in the reply. Save the script again after changing this."
+# @config url2 text "Backup service" default="https://checkip.amazonaws.com" maxlen=120 help="Asked only once the first one has failed, so one service being down is not reported as the internet being down."
 
 import string
 
-# Ported from the AWTRIX NG script by Spectral:
+# Ported from Spectral's AWTRIX NG script:
 # https://git.mike-lindner.net/mike/awtrix-ng-internet-monitor
-#
-# Same job, different machinery, because almost none of the original's API
-# exists here and the differences are worth knowing before you edit this.
-#
-# **Fetching is a subscription, not a call.** There is no `http.get(url, cb)`
-# - it would have to block the thread that draws the panel, and a thirty
-# second connect timeout would be thirty seconds of frozen display. A script
-# says what it wants and how often; the device fetches on its own schedule and
-# the script draws whatever arrived last. So the original's in-flight flag,
-# retry timer and attempt counter are all gone: there is nothing to sequence.
-#
-# **Offline is a duration, not a tally.** The original counted consecutive
-# failed attempts because it could see each one. Here the honest equivalent is
-# "no good answer for longer than it should have taken", which is the missed
-# check count times the interval. It means the same thing and it cannot drift
-# out of step with a retry schedule this script does not own.
-#
-# **No regular expressions.** `re` is not in the sandbox, so the address is
-# found by scanning for four groups of digits separated by dots, validating
-# each group is 0-255 as it goes. IPv4 only, deliberately, exactly as the
-# original said.
-#
-# **No `hsv()` and no scrolling.** The rainbow is computed here, and the
-# address does not scroll because it does not need to: split at the second dot
-# it fits on two lines, which can be read at a glance instead of over four
-# seconds. The panel is 52 x 16 rather than 32 x 8, and that is most of what
-# the extra room is for.
-#
-# Also gone: the `rotation.pause()` sequence, because a script cannot hold the
-# carousel, and the "MY IP" intro, because two lines of address under a tick
-# do not need announcing.
 
 class App
   var U1, U2
   var DIGITS
   var refresh, graceMs, rainbow
-  var ip
+  var ip, following
 
   def init()
-    # ipify returns the bare address and nothing else. The AWS endpoint is the
-    # second opinion - two services so that "the internet is down" is not
-    # actually "one company is down".
-    self.U1 = "https://api.ipify.org"
-    self.U2 = "https://checkip.amazonaws.com"
+
+    self.U1 = store.get("url1", "https://api.ipify.org")
+    self.U2 = store.get("url2", "https://checkip.amazonaws.com")
 
     self.DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
@@ -67,6 +36,7 @@ class App
     # Remembered across a restart, so a device that boots while the line is
     # down can still tell you what the address was.
     self.ip = store.get("ip", nil)
+    self.following = true
   end
 
   def duration()
@@ -86,13 +56,6 @@ class App
     return -1
   end
 
-  # The first dotted quad in the body, or nil.
-  #
-  # Each group is validated as it is read rather than afterwards, so
-  # "999.1.1.1" is rejected where a shape-only check would have shown it. The
-  # bodies come from services that return nothing but an address, but a script
-  # that will happily print any four numbers it finds is one that prints
-  # something wrong the first time a service returns an error page.
   def _find(body)
     if body == nil
       return nil
@@ -144,17 +107,6 @@ class App
     return nil
   end
 
-  # How long ago each of two different things last happened, in milliseconds,
-  # with -1 for never: [an address we could read, a reply of any kind].
-  #
-  # Two numbers rather than one, because a service that answers with something
-  # this cannot parse is not the same as a service that does not answer. The
-  # first version returned only the address age and showed an unreadable reply
-  # as CHECK - stuck for ever on a panel that had, in fact, just proved the
-  # internet works by receiving something over it.
-  #
-  # Sets self.ip as a side effect, which is what makes the last known address
-  # survive the line going down.
   def _ages()
     var bestIp = -1
     var bestAny = -1
@@ -216,11 +168,6 @@ class App
     line(ox, oy + 4, ox + 4, oy, c)
   end
 
-  # "192.168.178.42" -> "192.168." and "178.42".
-  #
-  # Split after the second dot, which puts the network half on top and the
-  # host half underneath - the half that changes is the one on the bottom
-  # line, where the eye lands last.
   def _split(ip)
     var seen = 0
     var i = 0
@@ -247,14 +194,6 @@ class App
       return
     end
 
-    # A slow sweep along the address rather than a scroll. Same idea as the
-    # original's rainbow, without moving the thing you are trying to read.
-    #
-    # Fourteen degrees a character, not thirty. The first attempt spread the
-    # full spectrum across fourteen characters and the address came out as
-    # noise - every digit a different colour reads as decoration rather than
-    # as a number. A narrow span sweeping slowly is a gradient the eye can
-    # follow across something it is still trying to read.
     var phase = int(now_ms() / 70) % 360
     var x = 0
     var i = 0
@@ -295,13 +234,18 @@ class App
     end
 
     # Every frame, because there is nowhere else to ask. Asking again is free.
-    http_follow(self.U1, self.refresh)
+    self.following = http_follow(self.U1, self.refresh)
 
-    # The second service is only taken up once the first has let us down.
-    # Following both from the start would double the load on two free
-    # endpoints to answer a question one of them almost always answers.
     if http_error(self.U1) != nil || http_age_ms(self.U1) > self.graceMs
       http_follow(self.U2, self.refresh)
+    end
+
+    # A refused feed means the URL was changed without re-saving, which would
+    # otherwise read as the internet being down.
+    if !self.following
+      text(0, 0, "re-save", rgb(230, 150, 60))
+      text(0, 9, "to apply", rgb(120, 90, 50))
+      return
     end
 
     var ages = self._ages()
@@ -315,11 +259,6 @@ class App
       return
     end
 
-    # Something replied recently but there was no address in it. The internet
-    # is plainly up - a reply came over it - so calling this OFFLINE would be
-    # the wrong answer to the question the panel is actually being asked. The
-    # service has changed what it returns, and saying so beats blaming the
-    # line.
     if (age < 0 || age > self.graceMs) && any >= 0 && any <= self.graceMs
       self._tick(46, 1, rgb(190, 160, 60))
       if self.ip == nil

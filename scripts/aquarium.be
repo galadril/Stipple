@@ -1,6 +1,6 @@
 # name: Aquarium
 # summary: Three fish, a sunken chest and a bed of weed. Press to feed them.
-# author: Galadril
+# author: Stipple
 # tags: ambient, animation, button
 # panel: 52x16
 
@@ -45,9 +45,6 @@ class App
     self.lastBubble = 0
   end
 
-  # Night is quieter and darker. Without a clock it is always day - a tank
-  # that decided it was night because the device had not synchronised yet
-  # would just look broken.
   def night()
     if !time_known()
       return false
@@ -161,9 +158,6 @@ class App
       clear(0x001028)
     end
 
-    # The surface: a line that moves, so the top of the tank is not a hard
-    # edge. Two pixels of it at a time, drifting - a whole lit row would read
-    # as a lid.
     var lit = 0x0A3A5A
     if self.night()
       lit = 0x05202F

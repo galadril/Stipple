@@ -1,6 +1,6 @@
 # name: Time Glass
 # summary: A living pixel landscape that flows through the day and periodically reveals the current time.
-# author: Galadril
+# author: Stipple
 # tags: clock, ambient, animation, time, button
 # panel: 52x16
 
@@ -111,12 +111,6 @@ class App
       pixel(f3 + 3, 11, rgb(130, 110, 50))
     end
 
-    # --- time reveal ---
-    #
-    # Every 12 seconds:
-    # 0-7 sec  = landscape
-    # 8-11 sec = large time
-    #
     var cycle = (p / 150) % 12
 
     if self.flash == 1
