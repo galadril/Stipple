@@ -192,8 +192,19 @@ SECTIONS: list[Section] = [
                                  "|| echo 'bluetooth core not present'"),
             ("Line disciplines", "cat /proc/tty/ldiscs 2>/dev/null || echo 'none'"),
             ("Loaded modules", "cat /proc/modules"),
-            ("Modules on disk", "find /lib/modules /res /data -name '*.ko' 2>/dev/null "
-                                "|| echo 'none'"),
+            # `ls`, not `find`. The first version of this line used find and
+            # reported "none" on a device that plainly has two modules on
+            # disk: there is no `find` on the TC002, the command failed, and
+            # the `|| echo` branch dressed the failure up as a finding. A
+            # probe that cannot tell "absent" from "the tool is missing" is
+            # worse than no probe, because its answer looks like data.
+            ("Modules on disk", "ls -la /lib/modules/*/ 2>/dev/null || echo 'none'"),
+            # uhid decides whether a userspace BLE HID client could hand the
+            # kernel an input device. It is not on this hardware, which is
+            # why a gamepad has to be decoded in the adapter instead.
+            ("Misc devices", "cat /proc/misc 2>/dev/null || echo 'none'"),
+            ("HID drivers", "ls /sys/bus/hid/drivers 2>/dev/null || echo 'no hid bus'"),
+            ("USB drivers", "ls /sys/bus/usb/drivers 2>/dev/null || echo 'no usb bus'"),
             ("Bluetooth userland", "ls /bin /sbin /usr/sbin /res/bin 2>/dev/null",
              "hciattach bluetoothd hcitool bccmd btmgmt rfkill bluetooth"),
             ("Bluetooth libraries", "ls -la /lib/libbluetooth* /lib/libbt* "

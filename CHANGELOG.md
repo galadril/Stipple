@@ -44,12 +44,26 @@ device without a capture of that device first.
 ### Changed
 
 - `tooling/probe/probe.py` gained a Bluetooth and USB host section, and now
-  lists `/res/bin`. The device has a live Bluetooth controller nobody had
-  noticed: `hci0` is attached at boot by `/res/bin/hciattach -n ttyS3 aic`,
-  as its own init service, independently of the vendor application. The
-  research notes said `/bin` was "the complete contents" and reasoned from it
-  that the device had no DHCP client — `/bin` was complete, but `/res/bin`
-  exists and had never been listed.
+  lists `/res/bin`. Run against a real clock, it settles what a second
+  controller would cost.
+
+  **A USB gamepad needs no firmware code at all**: `usbhid` and
+  `hid-generic` are bound, the EHCI root hub is live, and the OTG port is in
+  host role, so a wired pad appears as another `/dev/input/eventN` — which
+  `Tc002Input` already takes as a parameter. The catch is that the port is
+  also the charge port.
+
+  **Bluetooth is half a stack.** L2CAP, SMP and the HCI UART line discipline
+  are all in the kernel, and BlueZ tools ship in `/res/bin` — but `hidp`,
+  `rfcomm` and `uhid` are all absent, so a Bluetooth gamepad cannot become an
+  input device by any kernel route. It would have to be decoded in the
+  adapter.
+
+  Two documentation bugs fell out of it. The research notes said `/bin` was
+  "the complete contents" — it was, but `/res/bin` exists and had never been
+  listed, which is where `hciattach` lives. And the first version of the
+  probe's module scan used `find`, which the device does not have, so it
+  reported "none" for a directory holding two modules.
 
 ## 0.2.6
 
