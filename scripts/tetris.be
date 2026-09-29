@@ -89,10 +89,23 @@ class App
     return self.well[y * self.W + x] >= 0 ? 1 : 0
   end
 
+  # The well is read directly here rather than through _at. _plan tests
+  # roughly eight hundred placements per piece, and at four method calls a
+  # test that was most of a frame's instruction budget - the peak frame sat
+  # one heartbeat under the ceiling, which is a script that dies the first
+  # time anything else is slightly slower.
   def _fits(shape, ox, oy)
+    var W = self.W
+    var H = self.H
+    var w = self.well
     var i = 0
     while i < 8
-      if self._at(ox + shape[i], oy + shape[i + 1]) != 0
+      var x = ox + shape[i]
+      var y = oy + shape[i + 1]
+      if x < 0 || x >= W || y >= H
+        return false
+      end
+      if y >= 0 && w[y * W + x] >= 0
         return false
       end
       i += 2
@@ -159,6 +172,9 @@ class App
   end
 
   def _score(shape, ox, oy)
+    var W = self.W
+    var H = self.H
+    var w = self.well
     var deep = 0
     var holes = 0
     var i = 0
@@ -168,7 +184,7 @@ class App
       deep += cy
       # Anything empty directly beneath a block it cannot reach again.
       var below = cy + 1
-      while below < self.H && self._at(cx, below) == 0
+      while below < H && w[below * W + cx] < 0
         holes += 1
         below += 1
       end
