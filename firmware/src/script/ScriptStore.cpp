@@ -90,6 +90,7 @@ ScriptPutResult ScriptStore::put(std::string id, std::string name, std::string s
     entry.host->setHttp(http_, entry.info.id);
     entry.host->setMicrophone(microphone_);
     entry.settings = parseSettings(entry.info.source);
+    entry.input = parseInputMode(entry.info.source);
     refresh(entry);
 
     // A replacement starts with no watches. The new source may well want
@@ -212,6 +213,20 @@ bool ScriptStore::button(std::string_view id, std::string_view name) {
     }
     refresh(*entry);
     return result == ScriptHost::EventResult::Handled;
+}
+
+InputMode ScriptStore::inputMode(std::string_view id) const {
+    // Deliberately not gated on the script being ready. A script that failed
+    // to compile is still the app on screen, and the controls should behave
+    // the way its header says while somebody is looking at the error - not
+    // silently revert to driving the carousel, which is the one thing that
+    // would make the failure hard to read.
+    for (const Entry& entry : entries_) {
+        if (entry.info.id == id) {
+            return entry.input;
+        }
+    }
+    return InputMode::ActionOnly;
 }
 
 std::uint32_t ScriptStore::durationMillis(std::string_view id) {

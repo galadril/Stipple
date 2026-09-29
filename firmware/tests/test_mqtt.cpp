@@ -197,6 +197,12 @@ STIPPLE_TEST(MqttBridge, CommandsBecomeApiCalls) {
     STIPPLE_CHECK_EQ(activate.request.path, std::string("/api/v1/apps/clock/activate"));
     STIPPLE_CHECK(activate.request.method == stipple::api::Method::Post);
 
+    auto input = translate("stipple/abc/cmd/input", R"({"control":"plus"})");
+    STIPPLE_CHECK(input.understood);
+    STIPPLE_CHECK_EQ(input.request.path, std::string("/api/v1/input"));
+    STIPPLE_CHECK(input.request.method == stipple::api::Method::Post);
+    STIPPLE_CHECK_EQ(input.request.body, std::string(R"({"control":"plus"})"));
+
     auto reboot = translate("stipple/abc/cmd/reboot", "");
     STIPPLE_CHECK(reboot.understood);
     STIPPLE_CHECK_EQ(reboot.request.path, std::string("/api/v1/system/reboot"));

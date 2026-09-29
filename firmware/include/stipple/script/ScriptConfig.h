@@ -84,5 +84,32 @@ const char* settingTypeName(Setting::Type type) noexcept;
 /// still compiles and still runs, and the editor shows what was understood.
 std::vector<Setting> parseSettings(std::string_view source);
 
+/// How much of the panel's input a script has asked for (ADR 0024).
+enum class InputMode : std::uint8_t {
+    /// The default, and what every script written before this got: the action
+    /// press reaches `on_button("select")` and nothing else does.
+    ActionOnly,
+
+    /// Declared as `# @input exclusive`. The - and + buttons, the knob press
+    /// and both knob detents all reach `on_button`, by the same names
+    /// `/api/v1/input` uses: minus, plus, select, left, right.
+    ///
+    /// **The middle button is never included, and neither is a held knob.**
+    /// Those are how somebody leaves, and a script that could take them would
+    /// be a script you could not leave - which was the whole objection to
+    /// offering the knob at all. Keeping one control reserved answers it
+    /// without withholding the rest.
+    Exclusive,
+};
+
+/// Read the `# @input` declaration out of a script's header.
+///
+/// Same rules as parseSettings: header comments only, stops at the first line
+/// of code, and anything unrecognised is ignored rather than failing the
+/// script. A script that asks for an input mode this firmware has never heard
+/// of gets the default and still runs, which is what lets the set grow without
+/// stranding anyone on an older device.
+InputMode parseInputMode(std::string_view source);
+
 }  // namespace script
 }  // namespace stipple

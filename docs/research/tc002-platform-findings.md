@@ -173,7 +173,8 @@ LED driver chips expect. The MCU on `/dev/ttyS1` is the other half — the
 blueprint's warning that the MCU must be initialised before normal LED operation
 now has a concrete place to happen.
 
-`/dev/ttyS3` is Bluetooth (`hciattach -n ttyS3 aic`), not ours.
+`/dev/ttyS3` is Bluetooth (`hciattach -n ttyS3 aic`). **It is more ours than
+that line suggests — see "The Bluetooth radio is already up" below.**
 
 ### The vendor HAL, and a correction
 
@@ -1195,6 +1196,62 @@ documented way back.
 9. Crash-loop visibility is now a Phase 7 requirement, not a nicety: the
    platform falls back to the vendor launcher after three failed start-ups, and
    that state must be reported rather than left looking like a failed install.
+
+## The Bluetooth radio is already up (2026-09-29)
+
+First-hand, and it had been sitting in the probe report since the first one
+was taken. Nobody looked, because this document said "not ours" and that was
+enough to stop anyone asking.
+
+```
+[init.svc.hciattach]: [running]
+
+ 1256 0  1864 S    /res/bin/hciattach -n ttyS3 aic
+ 1258 0     0 SW<  [hci0]
+ 1259 0     0 SW<  [hci0]
+  685 0     0 DW   [ehci_monitor]
+```
+
+Four things follow.
+
+**`hci0` exists as kernel worker threads**, so the Bluetooth core and the HCI
+UART line discipline are compiled into the 4.9.84 kernel. They cannot be
+modules: `/lib/modules/4.9.84/` holds the two Wi-Fi `.ko` files and nothing
+else.
+
+**It is its own init service**, not something `zkgui` starts. `setprop
+ctl.stop zkswe` leaves it running, so STIPPLE inherits a live controller
+rather than having to bring one up.
+
+**`aic_btusb.ko` was a red herring.** `libzkgui.so` carries the string, but
+the transport here is the UART on `/dev/ttyS3` and it is already attached.
+Same shape as `libzkhw.so`'s `ledc_*`: a vendor symbol describing a board
+this is not.
+
+**There is a USB host controller.** `ehci_monitor` is an EHCI kernel thread,
+which makes a wired HID gamepad a cheaper question than a wireless one.
+
+What is still unknown decides the cost of using any of it, and all of it is
+readable: whether `CONFIG_BT_HIDP` is in the kernel (`/proc/tty/ldiscs`,
+`/sys/class/bluetooth`), whether `/dev/uhid` exists, and whether the USB HID
+bus is populated. `tooling/probe/probe.py` now asks all three.
+
+With HIDP, a paired gamepad becomes another `/dev/input/eventN` and
+`Tc002Input` already takes its node paths as parameters. Without it, a BLE
+HID host would have to be written from nothing, which is a multi-thousand-line
+subsystem and wants an ADR before a line of it.
+
+### And `/bin` was never the whole story
+
+This document says, under "There is no DHCP client on this device":
+
+> The complete contents of `/bin`:
+
+That listing is accurate and the word "complete" is doing damage. `/res/bin`
+exists, has never been enumerated, and `hciattach` lives in it. The DHCP
+conclusion happens to be right for other reasons — nothing in `/res/bin`
+turned out to be a DHCP client — but it was reached by reading one directory
+and calling it the filesystem. The probe now lists `/res/bin` too.
 
 ## The Wi-Fi control interface
 

@@ -8,6 +8,49 @@ Versions are `MAJOR.MINOR.PATCH`. While on `0.x` every release is a
 prerelease: the interfaces move, and nothing here installs onto a stock
 device without a capture of that device first.
 
+## Unreleased
+
+### Added
+
+- **Scripts can take the controls.** A script declaring `# @input exclusive`
+  in its header receives the − and + buttons, the knob press and both knob
+  detents, instead of the single action press it used to get. Games were the
+  reason: three of the published scripts play themselves — Auto Pong's own
+  summary is *"two computer players rally forever"* — not as a design choice
+  but because one button is not a game.
+
+  **The middle button is never handed over, and neither is a held knob.**
+  Middle always goes back and a held knob always reaches settings, in every
+  app, so there is no script you can write that a person cannot walk away
+  from. That is what makes giving away the rest safe. Holding − or + still
+  changes brightness for the same reason.
+
+  Opt-in, so every script written before this keeps exactly the behaviour it
+  was written against.
+
+- **Pong**, the playable counterpart to Auto Pong. You take the left paddle;
+  the clock takes the right.
+
+- **A controller page at `/gamepad.html`**, linked from the top of the web
+  UI. Open it on a phone on the same network and you have a gamepad, with
+  arrow keys and the space bar wired up if there is a keyboard to hand. It
+  posts to `/api/v1/input`, which has accepted every control with separate
+  press and release phases since the API existed — the page is thumb-sized
+  targets over plumbing that was already there.
+
+- **`cmd/input` over MQTT**, so an automation can press a button. It maps to
+  the same `POST /api/v1/input` the browser uses.
+
+### Changed
+
+- `tooling/probe/probe.py` gained a Bluetooth and USB host section, and now
+  lists `/res/bin`. The device has a live Bluetooth controller nobody had
+  noticed: `hci0` is attached at boot by `/res/bin/hciattach -n ttyS3 aic`,
+  as its own init service, independently of the vendor application. The
+  research notes said `/bin` was "the complete contents" and reasoned from it
+  that the device had no DHCP client — `/bin` was complete, but `/res/bin`
+  exists and had never been listed.
+
 ## 0.2.6
 
 ### Added

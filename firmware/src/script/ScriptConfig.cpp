@@ -233,5 +233,57 @@ std::vector<Setting> parseSettings(std::string_view source) {
     return settings;
 }
 
+InputMode parseInputMode(std::string_view source) {
+    std::size_t at = 0;
+    while (at < source.size()) {
+        std::size_t end = source.find('\n', at);
+        if (end == std::string_view::npos) {
+            end = source.size();
+        }
+        std::string_view line = source.substr(at, end - at);
+        at = end + 1;
+
+        while (!line.empty() && space(line.front())) {
+            line.remove_prefix(1);
+        }
+        while (!line.empty() && (space(line.back()) || line.back() == '\r')) {
+            line.remove_suffix(1);
+        }
+
+        if (line.empty()) {
+            continue;
+        }
+        if (line.front() != '#') {
+            break;  // the header is over, same rule as parseSettings
+        }
+
+        line.remove_prefix(1);
+        while (!line.empty() && space(line.front())) {
+            line.remove_prefix(1);
+        }
+
+        constexpr std::string_view kDirective = "@input";
+        if (line.size() <= kDirective.size() ||
+            line.substr(0, kDirective.size()) != kDirective ||
+            !space(line[kDirective.size()])) {
+            continue;
+        }
+
+        Lexer lexer{line.substr(kDirective.size()), 0};
+        std::string token;
+        if (!lexer.next(token)) {
+            continue;
+        }
+        if (token == "exclusive") {
+            return InputMode::Exclusive;
+        }
+        // Anything else is a mode this firmware has not heard of. The script
+        // keeps the default and still runs, rather than being refused by a
+        // device that is merely older than it.
+    }
+
+    return InputMode::ActionOnly;
+}
+
 }  // namespace script
 }  // namespace stipple
