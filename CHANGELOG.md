@@ -20,6 +20,19 @@ device without a capture of that device first.
   original, and the extra height is spent on showing everything at once
   rather than making somebody press the button eight times to find out what
   the house is doing.
+- **Plane Spotter**, the nearest aircraft overhead - callsign, altitude, and
+  an arrow pointing at which window to look out of. The feed is adsb.lol,
+  which is free, needs no key and is fed by volunteers with receivers on
+  their roofs. Anything on the ground is skipped, because near an airport
+  that would be most of them and none of them are visible from a window.
+- **Tetris**, which plays itself. A sixteen-pixel-tall panel is exactly the
+  shape of a well, so the board takes the left and the score the right, the
+  way an arcade cabinet laid it out for the same reason. It arrives
+  mid-game rather than on an empty board, and it is meant to lose
+  eventually - a player that never tops out would draw the same picture for
+  ever.
+- **Sandbox**, falling sand that pours, piles and slumps, with the button to
+  shake the whole thing loose.
 - **Internet Monitor**, which answers "is the line up, and what is my public
   address" against two independent services so that one of them being down is
   not reported as the internet being down. The address is split across two
