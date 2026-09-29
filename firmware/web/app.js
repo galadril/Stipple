@@ -469,6 +469,26 @@
             if (can.reboot === false) {
                 $('reboot').disabled = true;
             }
+
+            // Said before it is switched on, not after the broker goes quiet.
+            //
+            // Turning this on used to look exactly like a broker that had
+            // stopped answering: the device refuses the connection - which is
+            // right, plaintext would put the password on the wire - but a
+            // refusal and an unreachable broker are the same silence from
+            // here. ADR 0013 again: an absent capability has to be visible as
+            // absent.
+            if (can.mqttTls === false) {
+                var tls = $('mqtt-tls');
+                if (tls) {
+                    tls.disabled = true;
+                    tls.checked = false;
+                }
+                $('mqtt-tls-help').textContent =
+                    'This build cannot do MQTT over TLS, so the switch is off. ' +
+                    'The device carries TLS for scripts, but the broker ' +
+                    'transport does not use it yet.';
+            }
         });
     }
 

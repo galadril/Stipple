@@ -25,6 +25,7 @@ add_executable(stipple_tests
     test_icons.cpp
     test_web.cpp
     test_mqtt.cpp
+    test_mqtt_discovery.cpp
     test_rotary_decoder.cpp
     test_mcu_protocol.cpp
     test_navigator.cpp

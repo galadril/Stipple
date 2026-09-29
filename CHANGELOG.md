@@ -42,6 +42,23 @@ device without a capture of that device first.
 
 ### Fixed
 
+- **Home Assistant discovery is now tested.** It was implemented and working
+  but had no coverage, which mattered more than it sounds: discovery is the
+  one output nothing reads back, so a wrong topic or a device block that
+  differed between entities would have failed silently in somebody's house
+  rather than on the device. Eight tests pin the properties that make it
+  correct - one shared device block, identifiers that cannot collide between
+  two devices on one broker, withdrawal that removes entities rather than
+  orphaning them, and templates that yield nothing for a reading the device
+  does not have.
+- **Asking for MQTT over TLS now says why it cannot.** The device refuses the
+  connection rather than downgrading, which was always right - plaintext would
+  put the broker password on the wire of a network somebody believed was
+  protected. But a refusal looks exactly like an unreachable broker from the
+  web page, so turning the switch on simply made MQTT stop working with no
+  explanation, and the reconnect policy retried it forever. The capability is
+  now reported as `capabilities.mqttTls`, the switch is disabled and explains
+  itself, and the refusal no longer feeds the retry loop.
 - **A release is now one button.** Run the Release workflow from the Actions
   tab and it works out the next version, writes it into the files that have to
   agree, names the changelog's `## Unreleased` section after it, runs the full

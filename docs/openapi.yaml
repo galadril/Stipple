@@ -1075,6 +1075,15 @@ components:
             reboot: { type: boolean }
             battery: { type: boolean }
             microphone: { type: boolean }
+            mqttTls:
+              type: boolean
+              description: |
+                Whether the broker transport can honour `mqtt.tls`. False on
+                current builds: the device carries TLS for outbound `https`,
+                but the MQTT transport does not use it yet and refuses the
+                connection rather than downgrading. Reported so a client can
+                say so before the switch is turned on, rather than leaving a
+                refusal looking like an unreachable broker.
         battery:
           type: object
           properties:

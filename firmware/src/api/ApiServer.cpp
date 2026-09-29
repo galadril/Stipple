@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "stipple/api/ApiServer.h"
 
+#include "stipple/platform/MqttClient.h"
 #include "stipple/update/ElfCheck.h"
 
 #include "stipple/update/UpdateImage.h"
@@ -485,7 +486,13 @@ Response ApiServer::handleDevice(const Request& request) {
             .member("network", context_.platform->network() != nullptr)
             .member("reboot", context_.platform->rebooter() != nullptr)
             .member("battery", context_.platform->power() != nullptr)
-            .member("microphone", context_.platform->microphone() != nullptr);
+            .member("microphone", context_.platform->microphone() != nullptr)
+            // Not "is MQTT available" - that is the mqtt pointer - but "can
+            // the transport do TLS if asked". A page that offers the switch
+            // without knowing turns a missing feature into a broker that
+            // mysteriously stopped answering.
+            .member("mqttTls", context_.platform->mqtt() != nullptr &&
+                                   context_.platform->mqtt()->supportsTls());
     }
     writer.endObject();
 
