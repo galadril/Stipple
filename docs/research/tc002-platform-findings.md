@@ -1197,11 +1197,18 @@ documented way back.
    platform falls back to the vendor launcher after three failed start-ups, and
    that state must be reported rather than left looking like a failed install.
 
-## The Bluetooth radio is already up (2026-09-29)
+## The Bluetooth radio, and what it can actually carry (2026-09-29)
 
-First-hand, and it had been sitting in the probe report since the first one
-was taken. Nobody looked, because this document said "not ours" and that was
-enough to stop anyone asking.
+First-hand. The starting point had been sitting in the probe report since the
+first one was taken, and nobody looked — because this document said "not
+ours" and that was enough to stop anyone asking.
+
+**The heading used to read "The Bluetooth radio is already up", and that was
+wrong.** It was written from the September capture, where `hciattach` was
+running, and the obvious reading — that it runs at boot — was never checked
+against `init.rc`. It does not; see "Measured, the same day" below. The
+observation was real and the generalisation from one capture was not, which
+is the same mistake the microphone section records at greater length.
 
 ```
 [init.svc.hciattach]: [running]
@@ -1214,14 +1221,14 @@ enough to stop anyone asking.
 
 Four things follow.
 
-**`hci0` exists as kernel worker threads**, so the Bluetooth core and the HCI
-UART line discipline are compiled into the 4.9.84 kernel. They cannot be
+**`hci0` existed as kernel worker threads**, so the Bluetooth core and the
+HCI UART line discipline are compiled into the 4.9.84 kernel. They cannot be
 modules: `/lib/modules/4.9.84/` holds the two Wi-Fi `.ko` files and nothing
 else.
 
-**It is its own init service**, not something `zkgui` starts. `setprop
-ctl.stop zkswe` leaves it running, so STIPPLE inherits a live controller
-rather than having to bring one up.
+**It is its own init service**, not something `zkgui` links. `setprop
+ctl.stop zkswe` leaves it running — but it is `disabled`, so it has to be
+started first, and the vendor application is what starts it.
 
 **`aic_btusb.ko` was a red herring.** `libzkgui.so` carries the string, but
 the transport here is the UART on `/dev/ttyS3` and it is already attached.
@@ -1231,15 +1238,94 @@ this is not.
 **There is a USB host controller.** `ehci_monitor` is an EHCI kernel thread,
 which makes a wired HID gamepad a cheaper question than a wireless one.
 
-What is still unknown decides the cost of using any of it, and all of it is
-readable: whether `CONFIG_BT_HIDP` is in the kernel (`/proc/tty/ldiscs`,
-`/sys/class/bluetooth`), whether `/dev/uhid` exists, and whether the USB HID
-bus is populated. `tooling/probe/probe.py` now asks all three.
+### Measured, the same day
 
-With HIDP, a paired gamepad becomes another `/dev/input/eventN` and
-`Tc002Input` already takes its node paths as parameters. Without it, a BLE
-HID host would have to be written from nothing, which is a multi-thousand-line
-subsystem and wants an ADR before a line of it.
+The probe was extended and run. Every question above now has an answer, and
+two of them are the opposite of what the paragraph above expected.
+
+**The radio is not attached at boot after all.** `/etc/init.rc` declares it
+exactly the way it declares the supplicant:
+
+```
+service hciattach /res/bin/hciattach -n ttyS3 aic
+    class core
+    user root
+    disabled
+    oneshot
+```
+
+`disabled` means it never starts on its own. On this boot
+`init.svc.hciattach` is absent entirely and `/sys/class/bluetooth/` is empty;
+on 2026-09-19 it was `running` with two `[hci0]` kernel threads. So the
+vendor application starts it on demand — almost certainly for
+`/res/bin/gattserverbin`, a GATT *server*, which is how the phone app would
+hand the clock its Wi-Fi credentials over BLE.
+
+That is good news rather than bad: it is the same mechanism
+`Tc002Hotspot::ensureRadio()` already drives for Wi-Fi. `setprop ctl.start
+hciattach` is the whole of it, and nothing else on the device is competing
+for the radio.
+
+**BlueZ userland is on the device**, in `/res/bin`, which is why none of it
+appeared in the `/bin` listing:
+
+```
+gattserverbin  hciattach  hciconfig  hcitool
+```
+
+**The kernel has half a Bluetooth stack.** Read out of `/proc/kallsyms`,
+which is exact:
+
+| Symbol group | Count | |
+|---|--:|---|
+| `l2cap_` | 134 | present |
+| `smp_` | 53 | present |
+| `hci_uart` | 24 | present |
+| `bt_sock_register` | 1 | present |
+| **`hidp_`** | **0** | **absent** |
+| **`rfcomm_`** | **0** | **absent** |
+| **`uhid_`** | **0** | **absent** |
+
+`/proc/tty/ldiscs` lists `n_hci 15` and `/sys/module/bluetooth/version` reads
+`2.22`, so the core is genuinely there and built in. The only protocol inits
+in the whole kernel are `l2cap_init` and `smp_init`.
+
+**This rules out both easy paths at once.** No HIDP means no classic
+Bluetooth HID offload. No `uhid` — confirmed twice, absent from `/proc/misc`
+and from `/dev` — means a userspace GATT client cannot hand the kernel an
+input device either. **A Bluetooth gamepad cannot become a
+`/dev/input/eventN` on this hardware.**
+
+It does not rule out a gamepad. Stipple owns its input layer: `IInputDevice`
+yields `InputEvent`s, and nothing requires those to have come from evdev. An
+adapter could start `hciattach`, open an `AF_BLUETOOTH` L2CAP socket, speak
+ATT to a HID-over-GATT device and feed events straight in. L2CAP and SMP
+being kernel-side means the connection layer and the pairing crypto are not
+ours to write — which is most of the hard part. What is left is GATT
+discovery and HID report-descriptor parsing, on the order of 1500–2500 lines.
+Worth an ADR, not worth starting before the cheaper thing below.
+
+### USB HID, on the other hand, needs no code at all
+
+```
+/sys/bus/usb/drivers   hub  usb  usbfs  usbhid  ums-*
+/sys/bus/hid/drivers   hid-generic
+/sys/bus/usb/devices   usb1 -> .../soc:Sstar-ehci-1/usb1
+otg_role               usb_host
+```
+
+`usbhid` and `hid-generic` are both bound, `hidinput_connect` and
+`hid_add_device` are in the symbol table, and the EHCI root hub is live. A
+USB gamepad plugged into the port enumerates and appears as another
+`/dev/input/eventN`, and `Tc002Input` already takes its node paths as
+parameters rather than hard-coding them.
+
+The catch is physical, not technical: that port is also the charge port, so a
+wired pad means running on battery for as long as the game lasts.
+
+**So the ordering is settled by measurement.** Wired USB first, because it is
+nearly free. Bluetooth after, if anyone still wants it, and as a full BLE HID
+client rather than the kernel hand-off that does not exist here.
 
 ### And `/bin` was never the whole story
 
