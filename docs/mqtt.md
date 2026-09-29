@@ -118,13 +118,20 @@ orphaned in somebody's dashboard would be worse than never publishing them.
 
 ## What is not built
 
-- **MQTT over TLS.** See above: the device refuses `mqtt.tls` rather than
-  downgrading. The TLS itself now exists on the device for `https`; wiring the
-  MQTT transport to it has not been done.
-- **Tests for the discovery payloads.** The transport and the command path are
-  covered; what Home Assistant actually receives is not. The shapes above are
-  what the code emits, not what a test pins, so treat this table as the more
-  likely of the two to drift.
+- **MQTT over TLS.** The device refuses `mqtt.tls` rather than downgrading,
+  and now says so: `capabilities.mqttTls` is false on `/api/v1/device` and the
+  web page disables the switch and explains it, rather than leaving a refusal
+  that looks exactly like an unreachable broker.
+
+  What it would take is worth writing down, because it is not simply "call the
+  TLS we already have". That TLS is driven by BearSSL's `br_sslio`, which
+  blocks until it has what it needs — fine for the fetch worker, which has a
+  thread to block. This transport is polled from the render loop and must
+  never wait, so it needs BearSSL's engine API instead. And the transport
+  takes a numeric address today, because a statically linked binary cannot
+  use `getaddrinfo`; certificates are issued for names, so TLS also needs the
+  resolver the HTTP client carries. Two pieces, neither of them large on its
+  own, neither of them a wall.
 - **QoS 2.** Deliberately not offered. It costs a four-way handshake and
   per-message state on a device with an unmeasured RAM budget, to solve a problem
   this product does not have: a duplicated "show a notification" is a much

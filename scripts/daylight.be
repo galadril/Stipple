@@ -7,20 +7,6 @@
 import string
 import json
 
-# Sunrise and sunset from Open-Meteo, drawn as the thing they actually
-# describe: an arc, with the sun somewhere along it.
-#
-# A pair of times is two numbers you have to do arithmetic on. An arc with a
-# dot on it answers "how much daylight is left" without reading anything,
-# which is the only question most people have.
-#
-# Set LAT and LON to yours. No account, no key - which is most of why this
-# API and not a nicer one.
-#
-# The arc is a parabola rather than a circle. On a panel nine pixels tall the
-# difference is invisible, and a parabola is one multiply where a circle is a
-# square root.
-
 class App
   var URL
   var rise, set      # minutes past midnight, -1 until fetched
@@ -41,9 +27,6 @@ class App
     return 8000
   end
 
-  # "2026-09-27T07:23" -> 443. Fixed offsets rather than a search: the field
-  # is ISO 8601 and the hour is always at 11, so scanning for the T would be
-  # looking for something whose position is already known.
   def _minutes(stamp)
     if stamp == nil || size(stamp) < 16
       return -1
@@ -142,9 +125,6 @@ class App
       pixel(sx, sy, rgb(255, 255, 220))
     end
 
-    # The next event, and only that one. Both times side by side would be
-    # sixty pixels of text on a panel fifty-two wide, and the one you want is
-    # always the next.
     var event = up ? self.set : self.rise
     var label = string.format("%02d:%02d", event / 60, event % 60)
     var colour = up ? rgb(255, 140, 40) : rgb(120, 170, 255)
@@ -163,10 +143,6 @@ class App
       k += 1
     end
 
-    # The triangle ends at 6 and the time is five characters at six pixels
-    # each, so 8 to 37. There is no room for a day length beside it - that was
-    # the first version and "19:34" and "12h" overlapped by five pixels. The
-    # arc already is the day length, drawn.
     text(8, 9, label, colour)
   end
 end

@@ -6,20 +6,6 @@
 
 import string
 
-# The point of a pomodoro timer on a shelf rather than in a browser tab is
-# that you are not looking at it. So the chime matters more than the display,
-# and the display exists for the glance you give it when the chime goes.
-#
-# Everything is a deadline on the device clock, never a counter ticked once
-# per frame. The carousel will take this app away mid-session and bring it
-# back, and a frame-counting version would come back showing however many
-# frames it happened to get - which is the same bug the kitchen timer avoids,
-# and worth avoiding twice because this one runs for half an hour at a time.
-#
-# Click to start, click again to pause, hold the sequence by leaving it be.
-# Four work blocks earn a long break, which is the part of the technique that
-# actually does something.
-
 class App
   var WORK, SHORT, LONG
   var phase          # 0 idle, 1 work, 2 short break, 3 long break
@@ -98,9 +84,7 @@ class App
     var left = self.paused ? self.left : self.ends - now
 
     if left <= 0
-      # The chime, then straight into the next phase. A timer that waits for
-      # acknowledgement is one that quietly stops while you are in the other
-      # room.
+
       if audio_known() && self.spoke != 1
         self.spoke = 1
         tone(self.phase == 1 ? 1760 : 1320, 180)

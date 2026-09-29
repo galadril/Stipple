@@ -10,20 +10,6 @@
 import string
 import json
 
-# Subscriber count from socialcounts.org, which needs no account and no key -
-# which is most of why this endpoint and not YouTube's own Data API, where a
-# key would have to be typed into a device and then stored in plaintext on it.
-#
-# The channel is a setting rather than a constant in the source. Before
-# `@config` existed, "use your own channel" meant opening the script, finding
-# a string literal and hoping; now the device's web page renders a labelled
-# box and this reads it out of the store it was already using. A firmware too
-# old to know about settings still runs this, because `store.get` falls back
-# on its own.
-#
-# The reply is about 150 bytes, which matters: a script parses on the frame
-# the data lands, and the panel has a budget per frame.
-
 class App
   var URL, chan
   var subs, prev
@@ -43,9 +29,6 @@ class App
     self._point()
   end
 
-  # Rebuilt when the setting changes rather than every frame: it is string
-  # concatenation, and http_follow wants the same URL each time or it would
-  # register a new feed on every call.
   def _point()
     self.chan = store.get("chan", "UCpGLALzRO0uaasWTsm9M99w")
     self.URL = "https://api.socialcounts.org/youtube-live-subscriber-count/" + self.chan
@@ -96,9 +79,6 @@ class App
     end
   end
 
-  # 1234567 -> "1.2M". A count that does not fit is worse than a rounded one:
-  # seven digits is forty-two pixels of a fifty-two pixel panel, leaving no
-  # room for anything to say what it counts.
   def _short(n)
     if n >= 1000000
       return string.format("%d.%dM", n / 1000000, (n % 1000000) / 100000)
@@ -146,24 +126,9 @@ class App
     var what = store.get("views", false) ? "views" : "subs"
     text(14, 9, what, rgb(70, 76, 90))
 
-    # The trend, as a sparkline across the right-hand columns. Only drawn
-    # once there are two readings that differ - a flat line built from one
-    # number is a line that says something it does not know.
     self._trend()
   end
 
-  # The play badge: twelve by nine, at (0,3).
-  #
-  # Four reds rather than one. A single flat rectangle is what this drew
-  # first and it read as a red box with a notch in it - at this size the only
-  # thing that makes a shape look like an object is the light falling on it,
-  # so there is a lit top edge, a body, a shadowed bottom and a darker rim
-  # where the corners are rounded off.
-  #
-  # Rounded by *dimming* the corner pixels rather than leaving them black.
-  # Leaving them black cuts a hard step out of the silhouette, which at
-  # twelve pixels wide reads as damage; a dark red there is the closest this
-  # panel gets to an anti-aliased corner.
   def _logo()
     var lit = rgb(255, 94, 84)      # top edge, catching the light
     var body = rgb(216, 38, 33)     # the face
@@ -195,14 +160,6 @@ class App
       y += 1
     end
 
-    # The triangle: five pixels tall, tapering over three columns to a point.
-    #
-    # Nothing beside the tip. A first attempt put two grey pixels at (7,6)
-    # and (7,8) to soften the point, and they did the opposite - they filled
-    # in the notches either side of it, so the whole mark read as a white
-    # rectangle with a bite out of it rather than as an arrow. At five
-    # pixels tall the taper *is* the shape, and anything in the gaps
-    # destroys it.
     line(5, 5, 5, 9, rgb(255, 255, 255))
     line(6, 6, 6, 8, rgb(255, 255, 255))
     pixel(7, 7, rgb(255, 255, 255))

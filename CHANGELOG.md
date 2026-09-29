@@ -8,6 +8,64 @@ Versions are `MAJOR.MINOR.PATCH`. While on `0.x` every release is a
 prerelease: the interfaces move, and nothing here installs onto a stock
 device without a capture of that device first.
 
+## 0.2.6
+
+### Added
+
+- **EVCC Energy**, a live energy balance for anyone running
+  [EVCC](https://evcc.io). Solar, house, car, battery and the grid as one
+  picture: what is producing on one bar, what is consuming on the other, the
+  two headline numbers above them and the house battery underneath. The
+  action button steps through each reading in detail. Ported from the 32x8
+  original, and the extra height is spent on showing everything at once
+  rather than making somebody press the button eight times to find out what
+  the house is doing.
+- **Internet Monitor**, which answers "is the line up, and what is my public
+  address" against two independent services so that one of them being down is
+  not reported as the internet being down. The address is split across two
+  lines rather than scrolled, because at 52 pixels wide it fits that way and
+  can be read at a glance instead of over four seconds. Both service URLs are
+  settings.
+
+### Changed
+
+- **The script library is leaner.** Every script carried a long explanatory
+  block above its code, some of them forty lines, written to justify decisions
+  while they were being made. That is not what a published script is for - the
+  source is what people read on the device's config page and edit in a
+  textarea, and a page of prose before the first line of code makes it worse.
+  Down from 6684 lines to 5919 across the library, and from 19% comments to
+  10%, with the metadata headers and every `@config` line untouched.
+- **Scripts are credited to Stipple**, so the library reads as one collection
+  rather than a pile with different names on it. The one script whose origin
+  is genuinely unknown keeps saying so, because replacing that with a name
+  would be a claim rather than a credit.
+- **Shop previews use plausible data per feed.** Every MQTT topic and every
+  HTTP URL used to get the same canned answer, which made an energy balance
+  meaningless - solar, house load and battery charge all identical, so every
+  segment of the bar came out the same width. A preview that cannot be wrong
+  is also one that cannot be right.
+
+### Fixed
+
+- **Home Assistant discovery is now tested.** It was implemented and working
+  but had no coverage, which mattered more than it sounds: discovery is the
+  one output nothing reads back, so a wrong topic or a device block that
+  differed between entities would have failed silently in somebody's house
+  rather than on the device. Eight tests pin the properties that make it
+  correct - one shared device block, identifiers that cannot collide between
+  two devices on one broker, withdrawal that removes entities rather than
+  orphaning them, and templates that yield nothing for a reading the device
+  does not have.
+- **Asking for MQTT over TLS now says why it cannot.** The device refuses the
+  connection rather than downgrading, which was always right - plaintext would
+  put the broker password on the wire of a network somebody believed was
+  protected. But a refusal looks exactly like an unreachable broker from the
+  web page, so turning the switch on simply made MQTT stop working with no
+  explanation, and the reconnect policy retried it forever. The capability is
+  now reported as `capabilities.mqttTls`, the switch is disabled and explains
+  itself, and the refusal no longer feeds the retry loop.
+
 ## 0.2.5
 
 ### Added

@@ -275,6 +275,7 @@ public:
         return true;
     }
     void poll(std::uint64_t) override {}
+    bool supportsTls() const override { return false; }
 
     std::vector<std::string> watched;
 };
@@ -880,6 +881,12 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
                    R"("api":{"subscriberCount":12400,"viewCount":982143,)"
                    R"("videoCount":109}}})";
         }
+        if (url.find("ipify") != std::string::npos ||
+            url.find("checkip") != std::string::npos) {
+            // What these services actually return: the address and nothing
+            // else. No JSON, no trailing newline worth relying on.
+            return "203.0.113.42";
+        }
         if (url.find("contributions") != std::string::npos) {
             std::string body = R"({"total":{"lastYear":928},"contributions":[)";
             for (int i = 0; i < 365; ++i) {
@@ -907,6 +914,8 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
     // card.
     http.answerMatching("socialcounts", 200, answerFor("socialcounts"));
     http.answerMatching("contributions", 200, answerFor("contributions"));
+    http.answerMatching("ipify", 200, answerFor("ipify"));
+    http.answerMatching("checkip", 200, answerFor("checkip"));
 
     // Anything unrecognised still answers, so a new script that fetches gets
     // a card rather than three seconds of the word "fetching".
@@ -984,6 +993,13 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
             // Answer whatever the script asked for on its last frame. A slow
             // walk rather than a constant, so a graph has something to draw
             // and a threshold has something to cross.
+            //
+            // Plausible per topic where the topic says what it means. One
+            // number for everything was the first version, and it made the
+            // energy balance meaningless: solar, house load and battery
+            // charge were all the same value, so every segment of the bar
+            // came out the same width and the picture said nothing. A
+            // preview that cannot be wrong is also one that cannot be right.
             for (const std::string& filter : broker.watched) {
                 if (filter.find('+') != std::string::npos ||
                     filter.find('#') != std::string::npos) {
@@ -991,7 +1007,26 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
                 }
                 stipple::platform::MqttMessage reading;
                 reading.topic = filter;
-                reading.payload = std::to_string(300 + (frame * 47) % 3400);
+
+                // A sunny afternoon with the car plugged in: solar covers the
+                // house and most of the car, the battery tops it up, and a
+                // little goes back to the grid.
+                const int walk = static_cast<int>((frame * 47) % 900);
+                if (filter.find("pvPower") != std::string::npos) {
+                    reading.payload = std::to_string(4200 + walk);
+                } else if (filter.find("homePower") != std::string::npos) {
+                    reading.payload = std::to_string(600 + walk / 3);
+                } else if (filter.find("gridPower") != std::string::npos) {
+                    reading.payload = std::to_string(-400 + walk / 2);
+                } else if (filter.find("batterySoc") != std::string::npos) {
+                    reading.payload = std::to_string(48 + (frame / 12) % 40);
+                } else if (filter.find("batteryPower") != std::string::npos) {
+                    reading.payload = std::to_string(-900 + walk / 2);
+                } else if (filter.find("chargePower") != std::string::npos) {
+                    reading.payload = std::to_string(3300 + walk / 4);
+                } else {
+                    reading.payload = std::to_string(300 + (frame * 47) % 3400);
+                }
                 gateway.deliver(reading);
             }
 

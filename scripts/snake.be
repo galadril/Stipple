@@ -6,25 +6,6 @@
 
 import math
 
-# Snake on a 26 x 8 grid of two-pixel cells.
-#
-# It plays itself, which is the whole point: a game needing the button is a
-# blank screen on a shelf, and a snake that dies in four seconds is a blank
-# screen with extra steps.
-#
-# **The flood fill is what makes it watchable.** A snake that simply walks
-# towards the food traps itself inside its own tail within about thirty
-# apples - reliably, and always in the same dull way. Before each move this
-# counts how many cells would still be reachable from each candidate, and
-# refuses to walk into a pocket smaller than the snake. That one rule is the
-# difference between a demo and something you leave running.
-#
-# The fill is bounded by construction: it visits each of 208 cells at most
-# once per candidate, and there are never more than three candidates. The
-# `seen` array is allocated once and stamped with a generation number rather
-# than refilled, because clearing 208 entries three times a move is the kind
-# of cost that only shows up as a dropped frame.
-
 class App
   var W, H                 # grid, in cells
   var body                 # cell indices, tail first, head last
@@ -74,9 +55,6 @@ class App
     self._drop()
   end
 
-  # Somewhere the snake is not. Tries at random, then walks the grid - a
-  # purely random search would take unbounded time once the snake is long,
-  # which on a full board is never.
   def _drop()
     var tries = 0
     while tries < 40
@@ -98,9 +76,6 @@ class App
     self.food = -1   # board full; nothing left to eat
   end
 
-  # Where a direction lands, or -1 off the edge. Walls are solid rather than
-  # wrapping: wrapping makes the flood fill meaningless, because everywhere
-  # is reachable from everywhere.
   def _step(cell, d)
     var x = cell % self.W
     var y = cell / self.W
@@ -119,18 +94,6 @@ class App
     return y * self.W + x
   end
 
-  # Reachable cells from here, counted no further than `need`.
-  #
-  # The cap is the whole trick. The question is never "how much room is
-  # there" but "is there room for me", and stopping at the answer turns a
-  # 208-cell walk into a 20-cell one on an open board. Counting the whole
-  # board three times a move was the first version and it overran the
-  # per-frame instruction budget on frame nine.
-  #
-  # The neighbour walk is written out rather than calling _step, for the same
-  # reason Game of Life writes out its eight neighbours: a method call per
-  # neighbour is four per cell, and at a few hundred cells that is the
-  # difference between fitting in a frame and losing it.
   def _roomAtLeast(from, need)
     self.stamp += 1
     var mark = self.stamp
@@ -198,9 +161,7 @@ class App
 
   def _think()
     var head = self.body[size(self.body) - 1]
-    # Room enough to fit, plus a little. Asking for exactly the body length
-    # leaves a snake that fills its pocket precisely and dies on the next
-    # apple.
+
     var need = size(self.body) + 3
 
     var safeDir = -1
@@ -215,19 +176,14 @@ class App
       if (d + 2) % 4 != self.dir
         var next = self._step(head, d)
         if next >= 0 && !self.occupied[next]
-          # The tail moves out of the way as the head moves in, so the cell
-          # it is vacating counts as free. Without this the snake refuses to
-          # follow its own tail, which is the one manoeuvre that keeps it
-          # alive on a crowded board.
+
           var tail = self.body[0]
           self.occupied[tail] = false
           var room = self._roomAtLeast(next, need)
           self.occupied[tail] = true
 
           if room >= need
-            # Safe. Among safe moves the nearest to the food wins - this is
-            # the only place the snake is actually playing rather than
-            # surviving.
+
             var dist = self.food >= 0 ? self._distance(next, self.food) : 0
             if dist < safeDist
               safeDir = d

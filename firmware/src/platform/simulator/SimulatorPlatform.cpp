@@ -168,6 +168,16 @@ bool SimulatorMqtt::connect(const MqttConnectOptions& options, IMqttListener& li
         return false;
     }
 
+    // Refused here too, and for a reason that is about the product rather
+    // than about sockets: this broker is a table in memory, so honouring the
+    // flag would cost nothing and mean nothing. A simulator that connects
+    // happily with TLS on, against a device that refuses, would send somebody
+    // to their hardware with a configuration that had "worked".
+    if (options.tls && !supportsTls()) {
+        setState(MqttState::Disabled);
+        return false;
+    }
+
     listener_ = &listener;
     options_ = options;
 
