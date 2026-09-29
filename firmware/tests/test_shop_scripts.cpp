@@ -881,6 +881,12 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
                    R"("api":{"subscriberCount":12400,"viewCount":982143,)"
                    R"("videoCount":109}}})";
         }
+        if (url.find("ipify") != std::string::npos ||
+            url.find("checkip") != std::string::npos) {
+            // What these services actually return: the address and nothing
+            // else. No JSON, no trailing newline worth relying on.
+            return "203.0.113.42";
+        }
         if (url.find("contributions") != std::string::npos) {
             std::string body = R"({"total":{"lastYear":928},"contributions":[)";
             for (int i = 0; i < 365; ++i) {
@@ -908,6 +914,8 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
     // card.
     http.answerMatching("socialcounts", 200, answerFor("socialcounts"));
     http.answerMatching("contributions", 200, answerFor("contributions"));
+    http.answerMatching("ipify", 200, answerFor("ipify"));
+    http.answerMatching("checkip", 200, answerFor("checkip"));
 
     // Anything unrecognised still answers, so a new script that fetches gets
     // a card rather than three seconds of the word "fetching".
