@@ -365,12 +365,60 @@ def on_button(name)
 end
 ```
 
-If your script has an `on_button`, it receives the action press instead of the
-carousel pausing. If it has none, the press does what it always does — a script
-that swallowed the only button would be an app you could not pause.
+If your script has an `on_button`, it receives the action press — `name` is
+`"select"` — instead of the carousel pausing. If it has none, the press does
+what it always does: a script that swallowed the only button would be an app
+you could not pause.
 
-The knob is never offered. It is how somebody moves between apps, and a script
-that took it would be a script you could not leave.
+That is one control, which is enough for Flappy and not enough for Tetris.
+
+### Taking the controls
+
+```berry
+# @input exclusive
+```
+
+Declare that in the header and your script gets everything except the way out:
+
+| Control | `name` |
+|---|---|
+| − button | `minus` |
+| + button | `plus` |
+| knob press | `select` |
+| knob, counter-clockwise | `left` |
+| knob, clockwise | `right` |
+
+**The middle button is never yours, and neither is a held knob.** The middle
+button always goes back, and holding the knob always reaches settings, in
+every app and every mode. That is what makes it safe to hand over the rest —
+there is no script you can write that a person cannot walk away from. Pressing
+middle leaves your app and returns to the clock.
+
+Holding − or + still changes brightness, for the same reason: somebody
+squinting at a panel they cannot read should not have to quit a game first.
+
+One detent is one `left` or `right`, however fast the knob is turned. The
+acceleration that makes brightness pleasant would make a paddle unplayable.
+
+Two things worth knowing:
+
+- **It is opt-in because it has to be.** Without the directive, nothing
+  changes — every script written before this keeps the single press it was
+  written against.
+- **Declare it and forget `on_button` and nothing breaks.** The presses fall
+  through to their ordinary jobs rather than vanishing into an app with five
+  dead controls.
+
+A press from a phone, a broker or a thumb are indistinguishable to your
+script, because they all arrive through the same mapper. `POST /api/v1/input`
+and the MQTT `cmd/input` topic take `minus`, `plus`, `left` and `right` under
+those same names, and the knob press as `press` — the one place the two
+vocabularies differ, because the API names switches and your script is told
+what the press *meant*.
+
+The device serves a ready-made controller at `/gamepad.html`. Open it on a
+phone on the same network and you have a working gamepad, with the arrow keys
+and space bar wired up too if there is a keyboard to hand.
 
 ### Modules
 

@@ -177,8 +177,20 @@ STIPPLE_TEST(ShopScripts, EveryPublishedScriptCompilesAndDraws) {
             // proved nothing about the code underneath. A whole class of
             // handler bug could not fail here - and one did reach a device,
             // where pressing the button killed the script outright.
+            //
+            // A script declaring `# @input exclusive` (ADR 0024) receives four
+            // more names, so it gets all five in rotation. Pressing only
+            // "select" at a game would cover the serve and never the paddle -
+            // the same shape of hole as the "action" bug above, and it would
+            // reach a device the same way.
             if (frame % 11 == 0) {
-                store.button("shop", "select");
+                static const char* kExclusive[] = {"select", "left", "right",
+                                                   "minus", "plus"};
+                const bool takesAll = store.inputMode("shop") ==
+                                      stipple::script::InputMode::Exclusive;
+                const char* name =
+                    takesAll ? kExclusive[(frame / 11) % 5] : "select";
+                store.button("shop", name);
             }
         }
 

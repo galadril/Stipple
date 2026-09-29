@@ -82,6 +82,11 @@ body {
 .pill.online { color: var(--ok); border-color: var(--ok); }
 .pill.offline { color: var(--danger); border-color: var(--danger); }
 
+/* The controller link wears the same pill, so the topbar stays one row of
+   one thing. It is the only clickable one, hence the only one that reacts. */
+a.pill { text-decoration: none; }
+a.pill:hover { color: var(--text); border-color: var(--accent); }
+
 .tabs {
     display: flex;
     gap: 2px;

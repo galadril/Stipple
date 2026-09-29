@@ -67,6 +67,7 @@ public:
     bool draw(std::string_view id, Canvas& canvas, std::uint64_t elapsedMillis) override;
 
     bool button(std::string_view id, std::string_view name) override;
+    InputMode inputMode(std::string_view id) const override;
     void setEnvironment(const ScriptEnvironment& environment) noexcept override;
     void setAudio(platform::IAudioOutput* audio) noexcept override;
     void setMqtt(IScriptMqtt* mqtt) noexcept override;
@@ -104,6 +105,11 @@ private:
         /// each request would be work done over and over for an answer that
         /// only changes when the source does.
         std::vector<Setting> settings;
+
+        /// Parsed alongside them, and for a sharper version of the same
+        /// reason: this one is consulted on every button press, which is not
+        /// a place to be re-scanning a 16 KB source file.
+        InputMode input = InputMode::ActionOnly;
     };
 
     std::vector<Entry> entries_;

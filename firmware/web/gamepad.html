@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!--
+  A controller for a clock, served by the clock.
+
+  Every button here is one POST to /api/v1/input, which has accepted all six
+  controls with separate down/up phases since the API existed - the panel's
+  own on-screen buttons already used it. Nothing about this page is a new
+  protocol; it is the existing one with thumb-sized targets.
+
+  Standalone rather than a tab in the main UI, and deliberately: this is held
+  sideways in two hands a foot from the device, while that is read at a desk.
+  Sharing a layout would compromise both.
+
+  Scripts receive these presses when they declare `# @input exclusive`
+  (ADR 0024). Against anything else the buttons do their ordinary jobs, which
+  makes this a usable remote for a device across the room either way.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stipple — Controller</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="icon" href="favicon.svg">
+<style>
+:root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --line: #272e38;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #00beff;
+    --danger: #f2545b;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+
+    /* A controller that selects its own labels when you play fast, or scrolls
+       the page under your thumb, is not a controller. */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+    flex: none;
+}
+
+header h1 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: .02em;
+}
+
+#status {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+#status.bad { color: var(--danger); }
+
+/* The way out, kept deliberately small and at the top. On the device the
+   middle button always goes back, and a thumb should be able to find it
+   without being able to hit it by accident mid-rally. */
+#back {
+    font: inherit;
+    font-size: 12px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+}
+#back:active { background: var(--line); color: var(--text); }
+
+main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    padding: 14px;
+    min-height: 0;
+}
+
+.cluster {
+    display: grid;
+    gap: 12px;
+    min-height: 0;
+}
+
+/* Knob detents on the left hand, the labelled buttons on the right - the same
+   sides they sit on across the front of the device, so muscle memory built
+   here transfers to the clock itself. */
+.cluster.detents { grid-template-rows: 1fr 1fr; }
+.cluster.keys    { grid-template-rows: 1fr 1fr 1fr; }
+
+button.pad {
+    -webkit-appearance: none;
+    appearance: none;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--panel);
+    color: var(--text);
+    font: 600 26px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 0;
+    transition: background 60ms linear, transform 60ms linear;
+}
+
+button.pad .name {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+/* Held, not tapped. A paddle needs to know the thumb is still down. */
+button.pad.held {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #00222e;
+    transform: scale(.98);
+}
+button.pad.held .name { color: #00222e; }
+
+button.pad.wide { grid-column: 1 / -1; }
+
+footer {
+    flex: none;
+    padding: 0 14px 12px;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+}
+</style>
+</head>
+<body>
+
+<header>
+    <h1>Controller</h1>
+    <button id="back" type="button">Back</button>
+    <span id="status">ready</span>
+</header>
+
+<main>
+    <div class="cluster detents">
+        <button class="pad" data-control="left">◀<span class="name">left</span></button>
+        <button class="pad" data-control="right">▶<span class="name">right</span></button>
+    </div>
+    <div class="cluster keys">
+        <button class="pad" data-control="plus">+<span class="name">plus</span></button>
+        <button class="pad" data-control="minus">−<span class="name">minus</span></button>
+        <button class="pad" data-control="press">●<span class="name">press</span></button>
+    </div>
+</main>
+
+<footer>Scripts receive these when they declare <code>@input exclusive</code>.</footer>
+
+<script>
+'use strict';
+
+// Presses are fired and forgotten. Awaiting each one would serialise the
+// controller behind the device's round trip, and a paddle that waits for an
+// acknowledgement is a paddle that lags - the press has already happened in
+// the player's hand either way. Failures surface in the status line instead.
+var status = document.getElementById('status');
+var failures = 0;
+
+function report(ok, detail) {
+    if (ok) {
+        failures = 0;
+        status.className = '';
+        status.textContent = 'ready';
+        return;
+    }
+    failures += 1;
+    status.className = 'bad';
+    status.textContent = detail + (failures > 1 ? ' (×' + failures + ')' : '');
+}
+
+function send(control, phase) {
+    var body = { control: control };
+    if (phase) { body.phase = phase; }
+
+    fetch('/api/v1/input', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        // So a press still leaves as the page is being backgrounded, which is
+        // exactly when the last one of a session is sent.
+        keepalive: true,
+    }).then(function (response) {
+        report(response.ok, 'HTTP ' + response.status);
+    }).catch(function () {
+        report(false, 'unreachable');
+    });
+}
+
+function buzz(ms) {
+    if (navigator.vibrate) { navigator.vibrate(ms); }
+}
+
+document.querySelectorAll('button.pad').forEach(function (pad) {
+    var control = pad.dataset.control;
+
+    // A detent is momentary - it has no duration, and the API takes it as a
+    // single event with no phase. A button has a press and a release, and
+    // sending them separately is what lets somebody hold one down.
+    var momentary = control === 'left' || control === 'right';
+
+    function press(event) {
+        event.preventDefault();
+        pad.classList.add('held');
+        buzz(8);
+        send(control, momentary ? null : 'down');
+    }
+
+    function release(event) {
+        event.preventDefault();
+        if (!pad.classList.contains('held')) { return; }
+        pad.classList.remove('held');
+        if (!momentary) { send(control, 'up'); }
+    }
+
+    // Pointer events cover touch, mouse and pen in one path. `pointercancel`
+    // and `pointerleave` matter as much as `pointerup`: a thumb that slides
+    // off a button, or a call that arrives mid-game, must not leave the
+    // device holding a key down for ever.
+    pad.addEventListener('pointerdown', press);
+    pad.addEventListener('pointerup', release);
+    pad.addEventListener('pointercancel', release);
+    pad.addEventListener('pointerleave', release);
+    pad.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+});
+
+// The middle button, and the only control a script can never take. A complete
+// press rather than a held one: there is nothing to hold it for.
+document.getElementById('back').addEventListener('click', function () {
+    buzz(15);
+    send('middle', null);
+});
+
+// A keyboard is a perfectly good gamepad when the phone is charging.
+var keys = {
+    ArrowLeft: 'left', ArrowRight: 'right',
+    ArrowUp: 'plus', ArrowDown: 'minus',
+    ' ': 'press', Enter: 'press', Escape: 'middle',
+};
+var down = {};
+
+window.addEventListener('keydown', function (event) {
+    var control = keys[event.key];
+    if (!control || down[event.key]) { return; }  // ignore autorepeat
+    down[event.key] = true;
+    event.preventDefault();
+    var momentary = control === 'left' || control === 'right';
+    send(control, momentary || control === 'middle' ? null : 'down');
+});
+
+window.addEventListener('keyup', function (event) {
+    var control = keys[event.key];
+    if (!control || !down[event.key]) { return; }
+    delete down[event.key];
+    event.preventDefault();
+    if (control !== 'left' && control !== 'right' && control !== 'middle') {
+        send(control, 'up');
+    }
+});
+
+// Anything still held when the page goes away is released, for the same
+// reason pointercancel is handled: a device left with a key down is a device
+// that looks broken.
+window.addEventListener('blur', function () {
+    document.querySelectorAll('button.pad.held').forEach(function (pad) {
+        pad.classList.remove('held');
+        var control = pad.dataset.control;
+        if (control !== 'left' && control !== 'right') { send(control, 'up'); }
+    });
+    Object.keys(down).forEach(function (key) { delete down[key]; });
+});
+</script>
+</body>
+</html>

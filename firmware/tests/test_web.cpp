@@ -127,6 +127,22 @@ STIPPLE_TEST(StaticFiles, ServesEachAssetWithItsOwnContentType) {
                     std::string("application/javascript; charset=utf-8"));
 }
 
+STIPPLE_TEST(StaticFiles, TheControllerPageIsServed) {
+    // A phone opens this directly, so it has to be reachable by name rather
+    // than only from a link in the single-page app.
+    const Response response = serve(get("/gamepad.html"));
+
+    STIPPLE_CHECK_EQ(response.status, 200);
+    STIPPLE_CHECK_EQ(response.contentType, std::string("text/html; charset=utf-8"));
+
+    // Every control it posts must be one /api/v1/input actually accepts.
+    // "select" is the name a *script* is given for the knob press; the API
+    // calls that switch "press", and sending the wrong one is a 422 that
+    // nobody would see until they had a phone and a game in front of them.
+    STIPPLE_CHECK(response.body.find("data-control=\"press\"") != std::string::npos);
+    STIPPLE_CHECK(response.body.find("data-control=\"select\"") == std::string::npos);
+}
+
 STIPPLE_TEST(StaticFiles, UnknownPathsAreNotOurs) {
     // Returning false rather than a 404 lets the caller produce one consistent
     // answer instead of two competing ones.
