@@ -1273,8 +1273,15 @@ appeared in the `/bin` listing:
 gattserverbin  hciattach  hciconfig  hcitool
 ```
 
-**The kernel has half a Bluetooth stack.** Read out of `/proc/kallsyms`,
-which is exact:
+**The kernel has the protocols an LE-only radio needs, and none of the rest.**
+
+*This paragraph used to begin "the kernel has half a Bluetooth stack", which
+read the table below as a list of things missing. It is not: the radio turned
+out to have no Bluetooth Classic at all, which makes two of the three absences
+appropriate rather than unfortunate. See "The radio is LE-only" below, which
+was measured afterwards and is what the table actually reflects.*
+
+Read out of `/proc/kallsyms`, which is exact:
 
 | Symbol group | Count | |
 |---|--:|---|
@@ -1296,6 +1303,10 @@ and from `/dev` — means a userspace GATT client cannot hand the kernel an
 input device either. **A Bluetooth gamepad cannot become a
 `/dev/input/eventN` on this hardware.**
 
+Of those two, only `uhid` is a real loss. `hidp` and `rfcomm` are
+classic-only protocols and there is no classic radio here to use them with,
+so a kernel carrying them would be carrying dead code.
+
 It does not rule out a gamepad. Stipple owns its input layer: `IInputDevice`
 yields `InputEvent`s, and nothing requires those to have come from evdev. An
 adapter could start `hciattach`, open an `AF_BLUETOOTH` L2CAP socket, speak
@@ -1303,7 +1314,62 @@ ATT to a HID-over-GATT device and feed events straight in. L2CAP and SMP
 being kernel-side means the connection layer and the pairing crypto are not
 ours to write — which is most of the hard part. What is left is GATT
 discovery and HID report-descriptor parsing, on the order of 1500–2500 lines.
-Worth an ADR, not worth starting before the cheaper thing below.
+That is now the decided route — see
+[ADR 0025](../../private/adr/0025-a-bluetooth-gamepad-means-writing-a-ble-hid-client.md).
+
+### The radio is LE-only (2026-09-30)
+
+First-hand, and it is the finding that decides what a gamepad can be.
+
+`hciattach` is a `disabled` init service like `wpa_supplicant`, so bringing
+the radio up is one property and costs nothing:
+
+```
+$ setprop ctl.start hciattach
+$ getprop init.svc.hciattach          running
+$ ls /sys/class/bluetooth/            hci0
+$ /res/bin/hciconfig hci0 up          rc=0
+hci0:  Type: Primary  Bus: UART    ACL MTU: 251:14  SCO MTU: 0:0
+       UP RUNNING
+       Features: 0x00 0x00 0x00 0x00 0x60 0x00 0x00 0x00
+Can't read local name on hci0: Input/output error (5)
+```
+
+The feature bitmap was not taken from `hciconfig`'s summary. It was asked for
+over HCI, along with the LE command set:
+
+```
+Read Local Supported Features     -> 00 00 00 00 60 00 00 00
+LE Read Local Supported Features  -> DF F9 01 08 00 00 00 00
+LE Read Buffer Size               -> ACL length 251, count 14
+```
+
+Byte 4 of the LMP features is `0x60` — bit 5 **BR/EDR Not Supported**, bit 6
+**LE Supported**. Every classic feature byte is zero: no 3-slot or 5-slot
+packets, no encryption, no SCO, no EDR. The LE commands, meanwhile, answer
+with a full feature word and real buffers, and 251 is the LE data-length
+maximum rather than a classic ACL size.
+
+**So this is a single-mode Bluetooth Low Energy controller with no Bluetooth
+Classic.** `Read Local Name` failing with an I/O error fits the same picture:
+the vendor firmware implements what an LE part needs and not much else.
+
+Three consequences, and the first is the one to tell people:
+
+- **A DualSense, a DS4 or a Switch Pro controller can never pair with this
+  device.** They are classic HID pads. Combined with the USB result above,
+  the pad most people already own cannot be attached by any route. **A
+  controller for this clock has to be a BLE one.**
+- The `hidp` and `rfcomm` absences above are correct for this hardware rather
+  than unfortunate.
+- **BLE is a provisioning channel as well as an input one.**
+  `/res/bin/gattserverbin` is a GATT *server*, which is how the vendor's phone
+  app reaches the clock — so the radio is already known to work in the
+  direction first-run Wi-Fi setup needs, and that gap is older than this one.
+
+The radio was stopped again afterwards (`hciconfig hci0 down`, `setprop
+ctl.stop hciattach`) and the device left as it was found. Nothing here
+persists.
 
 ### USB HID needs no code at all, and that is not the same as working
 
