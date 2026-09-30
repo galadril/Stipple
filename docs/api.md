@@ -99,6 +99,7 @@ get back in.
 | `GET /logs` | The ring buffer |
 | `GET /display/frame` | The frame currently on the panel |
 | `POST /input` | Inject a button press |
+| `GET POST /sound` | What it can play, and play one |
 | `GET POST /apps` | List, add |
 | `GET PUT PATCH DELETE /apps/{id}` | One app |
 | `POST /apps/{id}/activate` | Show it now |
@@ -113,6 +114,37 @@ get back in.
 | `GET POST DELETE /system/firmware` | Update, and roll back |
 | `POST /system/reset` | Configuration back to defaults |
 | `POST /system/reboot` | Restart |
+
+### Sounds are asked for, not assumed
+
+`GET /api/v1/sound` lists what this device can play, with how long each one
+lasts:
+
+```json
+{"sounds": [{"name": "chime", "durationMillis": 280}], "silentName": "none"}
+```
+
+Ask rather than hard-code. The firmware is the only thing that knows its own
+catalogue, and the web UI's own dropdown was for a while offering three of the
+five sounds that existed, which is what writing a list down twice does.
+
+`POST` takes one of three shapes:
+
+```json
+{"sound": "chime"}
+{"frequencyHz": 880, "durationMillis": 200}
+{"stop": true}
+```
+
+A name the device does not have is `422`, not a substituted beep - if you
+asked for something specific and got a `204`, that is what played. An inline
+tone is bounded to 50-8000 Hz and five seconds, which is what a script gets
+too; the network has no business reaching further into the speaker than the
+device's own code does.
+
+On a device with no speaker both verbs answer `404`. That is absence, not a
+malformed request - `capabilities.audio` in `GET /device` says the same thing
+before you ask.
 
 ### Updating is two steps, not one
 

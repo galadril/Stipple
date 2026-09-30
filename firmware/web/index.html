@@ -343,15 +343,19 @@
     <h2>Sound</h2>
     <div class="field">
         <label for="notify-sound">Notification sound</label>
+        <!-- Filled from GET /api/v1/sound, not hard-coded. This list used to
+             name three of the five sounds the firmware had, which is the
+             failure mode of writing a catalogue down twice. Silent stays in
+             the markup because it is a setting rather than a sound, so the
+             select is never empty even if the request fails. -->
         <select id="notify-sound" data-setting="notifications.sound">
             <option value="none">Silent</option>
-            <option value="beep">Beep</option>
-            <option value="chime">Chime</option>
-            <option value="alert">Alert</option>
         </select>
+        <button class="btn" id="notify-sound-test" type="button">Play it</button>
         <p class="help" id="notify-sound-help">
             Played when a notification appears, unless it asks for a different
-            one.
+            one. <strong>Play it</strong> makes the noise now, so you can pick
+            one without waiting for something to happen.
         </p>
     </div>
 

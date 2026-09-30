@@ -736,6 +736,88 @@ Over-allocating is the usual trick and it usually works; it is also precisely
 The sort of "usually works" this project has been avoiding. `ZKAudioPlayer::play`
 may sidestep it if a factory function can be reached instead of a constructor.
 
+### The factory exists, and file playback is reachable but not yet working (2026-09-30)
+
+First-hand, with `firmware/tools/player_probe`. **The last paragraph above
+guessed at a factory and there is one**, so the object-size objection is
+answered rather than worked around:
+
+```
+_ZN5media13PlayerFactory11getInstanceEv       PlayerFactory::getInstance()
+_ZN5media13PlayerFactory6createE10EMediaType  ::create(EMediaType)
+_ZN5media13ZKAudioPlayer4playEPKc             ZKAudioPlayer::play(const char*)
+```
+
+`libzkmedia.so` also exports `Mp3AudioParser` and `WavAudioParser` with
+`open`/`read`/`close`, and its `NEEDED` list includes `libmad.so.0` — so MP3
+decoding is in there, not something we would write.
+
+On the device, with the libraries the real process has preloaded:
+
+```
+PlayerFactory::getInstance() -> 0x406ff028
+  create(0) -> 0x4767c0
+  create(1..5) -> (nil)
+setVolume(0.5) -> 1
+play("/res/ui/audio/Tip.mp3") -> 0
+getDuration() -> 0
+```
+
+**`EMediaType 0` is audio**, which was one of the two unknowns. All six
+symbols resolve and the factory returns a real object.
+
+**Playback did not happen**, and the return values say nothing about why:
+`play()` answers 0 and `getDuration()` answers 0 for a real MP3, a real WAV
+and a path that does not exist. A call that cannot distinguish a missing file
+from a present one has not opened either.
+
+The leading hypothesis is contention, and it is **unproven**. `/dev/mi_ao` is
+held by pid 674 — `zkgui_ui`, which is the running STIPPLE — and the vendor
+player wants the same device. Settling it means releasing the panel
+(`setprop ctl.stop zkswe`) and running the probe against a device nothing else
+owns.
+
+**That test was not run, on purpose.** `zkdaemon` was *still running* as a
+live process rather than a fired-and-exited oneshot, and
+`/mnt/storage/update.img` was present — 3.2 MB of it. That is the exact
+combination that already reverted a working STIPPLE and took
+`/data/misc/wifi/wpa_supplicant.conf` with it, as recorded under "zkdaemon
+will delete Stipple if Stipple does not announce itself". Clearing the volume
+first is a decision for whoever owns the unit, not a step to take while
+chasing an audio bug.
+
+#### Loading libzkmedia needs the whole EasyUI process, not one library
+
+Worth more than the audio result, because it constrains anything that ever
+reaches for a vendor library from a tool rather than from the firmware.
+
+A bare `dlopen("libzkmedia.so")` fails on `_ZTI6Thread`. That is defined by
+`libeasyui.so` — which then fails on `_ZTVN10__cxxabiv120__si_class_type_infoE`
+(libstdc++), then `jpeg_resync_to_restart` (libjpeg), then `MI_SYS_Mmap`
+(libmi_sys), then `_ZN2hw8WatchDog11getInstanceEv` (libzkhardware). And
+`libzkhardware` needs `_ZTI6Thread` straight back from `libeasyui`.
+
+**`libeasyui.so` declares only `libgcc_s.so.1` and `libc.so.6`** in its own
+`NEEDED` list, while actually depending on at least eight more. It is not
+loadable standalone by design: it only ever runs inside `/bin/zkgui`, which
+links all twenty-five as `NEEDED`, so the loader resolves the set as one graph
+and the vendor never had to declare anything.
+
+Two consequences:
+
+- **Successive `dlopen` calls cannot break the cycle**, even with
+  `RTLD_GLOBAL` and repeated passes, because typeinfo is a data symbol and
+  data relocations resolve at load time. `LD_PRELOAD` with the full list does
+  work — the loader takes them as one graph, the way `zkgui` does.
+- **The real adapter is not affected.** STIPPLE runs inside that host and a
+  live unit's `/proc/<pid>/maps` already shows libeasyui, libstdc++, libjpeg,
+  libzkhardware and the `mi_*` stack mapped. A `dlopen` from `Tc002Audio`
+  starts where the probe spent five rebuilds trying to get to.
+
+So a future probe against a vendor library should either run with the
+`LD_PRELOAD` set above or be built as a library the host loads. Starting from
+an empty process is the expensive way to find out what `zkgui` links.
+
 ### Things that need design work
 
 - **The knob is an absolute axis, not detents.** `/proc/bus/input/devices` shows
@@ -1273,8 +1355,15 @@ appeared in the `/bin` listing:
 gattserverbin  hciattach  hciconfig  hcitool
 ```
 
-**The kernel has half a Bluetooth stack.** Read out of `/proc/kallsyms`,
-which is exact:
+**The kernel has the protocols an LE-only radio needs, and none of the rest.**
+
+*This paragraph used to begin "the kernel has half a Bluetooth stack", which
+read the table below as a list of things missing. It is not: the radio turned
+out to have no Bluetooth Classic at all, which makes two of the three absences
+appropriate rather than unfortunate. See "The radio is LE-only" below, which
+was measured afterwards and is what the table actually reflects.*
+
+Read out of `/proc/kallsyms`, which is exact:
 
 | Symbol group | Count | |
 |---|--:|---|
@@ -1296,6 +1385,10 @@ and from `/dev` — means a userspace GATT client cannot hand the kernel an
 input device either. **A Bluetooth gamepad cannot become a
 `/dev/input/eventN` on this hardware.**
 
+Of those two, only `uhid` is a real loss. `hidp` and `rfcomm` are
+classic-only protocols and there is no classic radio here to use them with,
+so a kernel carrying them would be carrying dead code.
+
 It does not rule out a gamepad. Stipple owns its input layer: `IInputDevice`
 yields `InputEvent`s, and nothing requires those to have come from evdev. An
 adapter could start `hciattach`, open an `AF_BLUETOOTH` L2CAP socket, speak
@@ -1303,7 +1396,62 @@ ATT to a HID-over-GATT device and feed events straight in. L2CAP and SMP
 being kernel-side means the connection layer and the pairing crypto are not
 ours to write — which is most of the hard part. What is left is GATT
 discovery and HID report-descriptor parsing, on the order of 1500–2500 lines.
-Worth an ADR, not worth starting before the cheaper thing below.
+That is now the decided route — see
+[ADR 0025](../../private/adr/0025-a-bluetooth-gamepad-means-writing-a-ble-hid-client.md).
+
+### The radio is LE-only (2026-09-30)
+
+First-hand, and it is the finding that decides what a gamepad can be.
+
+`hciattach` is a `disabled` init service like `wpa_supplicant`, so bringing
+the radio up is one property and costs nothing:
+
+```
+$ setprop ctl.start hciattach
+$ getprop init.svc.hciattach          running
+$ ls /sys/class/bluetooth/            hci0
+$ /res/bin/hciconfig hci0 up          rc=0
+hci0:  Type: Primary  Bus: UART    ACL MTU: 251:14  SCO MTU: 0:0
+       UP RUNNING
+       Features: 0x00 0x00 0x00 0x00 0x60 0x00 0x00 0x00
+Can't read local name on hci0: Input/output error (5)
+```
+
+The feature bitmap was not taken from `hciconfig`'s summary. It was asked for
+over HCI, along with the LE command set:
+
+```
+Read Local Supported Features     -> 00 00 00 00 60 00 00 00
+LE Read Local Supported Features  -> DF F9 01 08 00 00 00 00
+LE Read Buffer Size               -> ACL length 251, count 14
+```
+
+Byte 4 of the LMP features is `0x60` — bit 5 **BR/EDR Not Supported**, bit 6
+**LE Supported**. Every classic feature byte is zero: no 3-slot or 5-slot
+packets, no encryption, no SCO, no EDR. The LE commands, meanwhile, answer
+with a full feature word and real buffers, and 251 is the LE data-length
+maximum rather than a classic ACL size.
+
+**So this is a single-mode Bluetooth Low Energy controller with no Bluetooth
+Classic.** `Read Local Name` failing with an I/O error fits the same picture:
+the vendor firmware implements what an LE part needs and not much else.
+
+Three consequences, and the first is the one to tell people:
+
+- **A DualSense, a DS4 or a Switch Pro controller can never pair with this
+  device.** They are classic HID pads. Combined with the USB result above,
+  the pad most people already own cannot be attached by any route. **A
+  controller for this clock has to be a BLE one.**
+- The `hidp` and `rfcomm` absences above are correct for this hardware rather
+  than unfortunate.
+- **BLE is a provisioning channel as well as an input one.**
+  `/res/bin/gattserverbin` is a GATT *server*, which is how the vendor's phone
+  app reaches the clock — so the radio is already known to work in the
+  direction first-run Wi-Fi setup needs, and that gap is older than this one.
+
+The radio was stopped again afterwards (`hciconfig hci0 down`, `setprop
+ctl.stop hciattach`) and the device left as it was found. Nothing here
+persists.
 
 ### USB HID needs no code at all, and that is not the same as working
 

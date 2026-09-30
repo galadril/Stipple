@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "stipple/api/JsonWriter.h"
+#include "stipple/audio/Sound.h"
 #include "stipple/app/AppRegistry.h"
 #include "stipple/core/Base64.h"
 #include "stipple/render/FrameScheduler.h"
@@ -32,6 +33,17 @@
 namespace stipple {
 namespace api {
 namespace {
+
+/// Bounds on an inline tone from the network.
+///
+/// The same ceilings a script gets, deliberately: there is no reason the API
+/// should reach further into the speaker than the device's own code does. The
+/// floor is there because a 1 Hz "tone" is not audible, it is just the
+/// speaker being held for a second.
+constexpr std::int64_t kMinToneHz = 50;
+constexpr std::int64_t kMaxToneHz = 8000;
+constexpr std::int64_t kMaxToneMillis = 5000;
+constexpr std::int64_t kDefaultToneMillis = 150;
 
 /// A parsed request body, owning its token storage.
 ///
@@ -276,6 +288,7 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
         case Resource::SystemFirmware: return handleFirmware(request);
         case Resource::DisplayFrame: return handleDisplayFrame(request);
         case Resource::Input: return handleInput(request, nowMillis);
+        case Resource::Sound: return handleSound(request);
         case Resource::Unknown: break;
     }
     return notFound("no such endpoint");
@@ -403,6 +416,98 @@ Response ApiServer::handleInput(const Request& request, std::uint64_t nowMillis)
     up.timestampMillis = nowMillis + holdMillis;
     context_.input->inject(up);
 
+    return noContent();
+}
+
+Response ApiServer::handleSound(const Request& request) {
+    platform::IAudioOutput* speaker =
+        context_.platform != nullptr ? context_.platform->audio() : nullptr;
+
+    // Absence is reported rather than swallowed (ADR 0013). A route that
+    // accepted sounds on a device with no speaker would answer 204 for ever
+    // and the caller would have no way to find out why the room was quiet.
+    if (speaker == nullptr) {
+        return notFound("this device has no speaker");
+    }
+
+    if (request.method == Method::Get) {
+        // The catalogue, so a caller can offer it rather than hard-code it.
+        std::size_t count = 0;
+        const audio::Sound* sounds = audio::SoundLibrary::all(count);
+
+        JsonWriter writer;
+        writer.beginObject().key("sounds").beginArray();
+        for (std::size_t i = 0; i < count; ++i) {
+            writer.beginObject()
+                .member("name", sounds[i].name)
+                .member("durationMillis", sounds[i].durationMillis())
+                .endObject();
+        }
+        writer.endArray();
+        // Reported alongside the list because "silent" is a valid setting and
+        // not a sound, so a UI building a dropdown needs both facts.
+        writer.member("silentName", "none").endObject();
+        return ok(writer.take());
+    }
+
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+
+    Body body(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+    if (!body.valid()) {
+        return badRequest(std::string("invalid JSON: ") + body.errorText());
+    }
+
+    const json::Value root = body.root();
+    if (!root.isObject()) {
+        return badRequest("body must be a JSON object");
+    }
+
+    // Stopping is its own request rather than a magic name, because "stop" is
+    // not a sound and a caller asking for silence should not have to know
+    // that the catalogue happens not to contain it.
+    if (const json::Value stop = root["stop"]; stop.isBoolean() && stop.toBool(false)) {
+        speaker->stop();
+        return noContent();
+    }
+
+    if (const json::Value name = root["sound"]; name.isString()) {
+        const std::string wanted = name.toString();
+        if (!speaker->playSound(wanted)) {
+            // 422 rather than 404: the route exists and the request was
+            // well-formed, the name just is not one this device can make.
+            // GET this path to find out which are.
+            return unprocessable("'sound' is not a sound this device can play");
+        }
+        return noContent();
+    }
+
+    // An inline tone, for a caller that wants a noise the catalogue does not
+    // have. Bounded at both ends: the limits match what a script gets, because
+    // there is no reason the network should reach further into the speaker
+    // than the device's own code does.
+    const json::Value frequency = root["frequencyHz"];
+    if (!frequency.isNumber()) {
+        return badRequest("'sound', 'frequencyHz' or 'stop' is required");
+    }
+
+    const std::int64_t hz = frequency.toInt(0);
+    if (hz < kMinToneHz || hz > kMaxToneHz) {
+        return unprocessable("'frequencyHz' is out of range");
+    }
+
+    std::int64_t millis = kDefaultToneMillis;
+    if (const json::Value duration = root["durationMillis"]; duration.isNumber()) {
+        millis = duration.toInt(0);
+        if (millis <= 0 || millis > kMaxToneMillis) {
+            return unprocessable("'durationMillis' is out of range");
+        }
+    }
+
+    if (!speaker->playTone(static_cast<int>(hz), static_cast<int>(millis))) {
+        return unprocessable("the speaker refused the tone");
+    }
     return noContent();
 }
 

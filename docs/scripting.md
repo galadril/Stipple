@@ -129,11 +129,22 @@ end
 |---|---|
 | `audio_known()` | Whether this device has a speaker at all. |
 | `tone(hz, ms)` | Queues a note. Returns whether it started. |
-| `sound(name)` | Queues a built-in sound. `beep`, `chime`, `alert`, `tick`, `tock`. Returns whether the name is one. |
+| `sound(name)` | Queues a built-in sound. Returns whether the name is one. |
 | `volume()` | 0-255, the level somebody set. Read only. |
 
 Both `tone` and `sound` return immediately - they queue, they do not wait, and
 a script that bleeps does not cost a frame.
+
+The built-in sounds are `beep`, `chime`, `alert`, `tick`, `tock`, `success`,
+`failure`, `notify`, `alarm` and `startup`. They are short sequences of notes
+rather than single beeps, and the shapes mean something: rising for good,
+falling for bad, repeated for urgent. So `success` and `failure` are
+distinguishable without looking at the panel, which is the entire point of a
+device making a noise.
+
+`GET /api/v1/sound` is the authoritative list, because the firmware is the
+only thing that knows what it can play. An unknown name returns false rather
+than playing a beep instead - if `sound()` says false, nothing happened.
 
 Three limits, all deliberate. **Four sounds per call**, because the panel would
 keep rendering happily while the speaker worked through a minute of backlog,
@@ -462,13 +473,20 @@ broken script shows `SCRIPT ERROR` rather than going black — a black panel is
 indistinguishable from a script that drew nothing, from a crashed device, and
 from a dead row of LEDs.
 
-## Compatibility with AWTRIX NG
+## Credit and compatibility
 
-The builtin names match what AWTRIX NG documents, so a script written against
-it has a good chance of running here unchanged. That is a reimplementation from
-the documented interface. No AWTRIX source was read or used, and none will be:
-the project studies other products as a reference for behaviour and never as a
-source of code.
+**The scripting interface is AWTRIX NG's design.** The shape of a script, the
+builtin names, `store.get` / `store.set` and the `# @config` header come from
+[the AWTRIX NG scripting guide](https://blueforcer.github.io/awtrix-ng/guides/scripting/),
+and Blueforcer is owed the credit for them. None of it is Berry's — Berry is
+just the language underneath. Matching it was deliberate, because a script
+already written against it running here unchanged is worth more than an
+interface of our own.
+
+That is a reimplementation from the documented interface. No AWTRIX source was
+read or used, and none will be: the project studies other products as a
+reference for behaviour and never as a source of code. Stipple is not
+affiliated with or endorsed by AWTRIX or AWTRIX NG.
 
 Scripts written for a TC001 will need their layout redone regardless. That
 panel is 32 × 8 — a quarter of the area — and a layout squeezed into it usually
