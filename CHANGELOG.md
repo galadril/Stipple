@@ -39,6 +39,15 @@ device without a capture of that device first.
 
 ### Changed
 
+- **AWTRIX NG is credited for the scripting interface.** The shape of a script,
+  the builtin names, `store.get` / `store.set` and the `# @config` header are
+  its design, and the public docs said only "compatibility" where they should
+  have said credit — the decision to match that interface was recorded
+  internally but never written down where anyone could read it. Now stated in
+  `THIRD_PARTY_NOTICES.md` and `docs/scripting.md`, both linking the AWTRIX NG
+  scripting guide. The rule it was always under is unchanged: reimplemented
+  from published documentation, no AWTRIX source read or used.
+
 - **The sound catalogue moved into core.** It used to be an if-chain inside
   `Tc002Audio`, which meant the simulator carried a second and different list,
   and the simulator is what people write scripts against. `sound('trumpet')`

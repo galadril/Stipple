@@ -473,13 +473,20 @@ broken script shows `SCRIPT ERROR` rather than going black — a black panel is
 indistinguishable from a script that drew nothing, from a crashed device, and
 from a dead row of LEDs.
 
-## Compatibility with AWTRIX NG
+## Credit and compatibility
 
-The builtin names match what AWTRIX NG documents, so a script written against
-it has a good chance of running here unchanged. That is a reimplementation from
-the documented interface. No AWTRIX source was read or used, and none will be:
-the project studies other products as a reference for behaviour and never as a
-source of code.
+**The scripting interface is AWTRIX NG's design.** The shape of a script, the
+builtin names, `store.get` / `store.set` and the `# @config` header come from
+[the AWTRIX NG scripting guide](https://blueforcer.github.io/awtrix-ng/guides/scripting/),
+and Blueforcer is owed the credit for them. None of it is Berry's — Berry is
+just the language underneath. Matching it was deliberate, because a script
+already written against it running here unchanged is worth more than an
+interface of our own.
+
+That is a reimplementation from the documented interface. No AWTRIX source was
+read or used, and none will be: the project studies other products as a
+reference for behaviour and never as a source of code. Stipple is not
+affiliated with or endorsed by AWTRIX or AWTRIX NG.
 
 Scripts written for a TC001 will need their layout redone regardless. That
 panel is 32 × 8 — a quarter of the area — and a layout squeezed into it usually
