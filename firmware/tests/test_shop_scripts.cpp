@@ -19,6 +19,9 @@
 #include <cstdint>
 #include <string_view>
 
+#include "stipple/apps/BatteryApp.h"
+#include "stipple/apps/ClockApp.h"
+#include "stipple/apps/StopwatchApp.h"
 #include "stipple/graphics/Canvas.h"
 #include "stipple/imageio/Png.h"
 #include "stipple/platform/PlatformServices.h"
@@ -1099,10 +1102,72 @@ STIPPLE_TEST(ShopScripts, WriteFramesOnRequest) {
     }
 }
 
+// The built-in apps, for the landing page.
+//
+// Same format and same reason as WriteFramesOnRequest, but for the apps that
+// ship in the firmware rather than the scripts in the library. Set
+// STIPPLE_DEFAULT_FRAMES=<directory>.
+STIPPLE_TEST(ShopScripts, WriteDefaultAppFramesOnRequest) {
+    const char* directory = std::getenv("STIPPLE_DEFAULT_FRAMES");
+    if (directory == nullptr) {
+        return;
+    }
+
+    constexpr int kFrames = 90;
+    constexpr std::uint64_t kFrameMillis = 33;
+
+    const auto dump = [&](const char* name, int frames, auto&& draw) {
+        const std::string path = std::string(directory) + "/" + name + ".rgb";
+        std::FILE* out = std::fopen(path.c_str(), "wb");
+        if (out == nullptr) {
+            return;
+        }
+        Framebuffer framebuffer;
+        Canvas canvas(framebuffer);
+        for (int frame = 0; frame < frames; ++frame) {
+            draw(canvas, static_cast<std::uint64_t>(frame) * kFrameMillis);
+            for (int y = 0; y < Framebuffer::kHeight; ++y) {
+                for (int x = 0; x < Framebuffer::kWidth; ++x) {
+                    const stipple::Rgb pixel = framebuffer.at(x, y);
+                    const unsigned char triple[3] = {pixel.r, pixel.g, pixel.b};
+                    std::fwrite(triple, 1, 3, out);
+                }
+            }
+        }
+        std::fclose(out);
+        std::printf("    [frames] %s: %d frames\n", name, frames);
+    };
+
+    // 14:37:22 UTC, the same moment the library previews use. Two seconds so
+    // the colon is seen to blink.
+    dump("clock", kFrames, [](Canvas& canvas, std::uint64_t millis) {
+        stipple::platform::simulator::SimulatorClock clock;
+        clock.setWallClock(1762699042);
+        clock.advance(millis);
+        stipple::apps::renderClock(canvas, clock, stipple::apps::ClockStyle{});
+    });
+
+    stipple::apps::Stopwatch watch;
+    watch.press(0);
+    dump("stopwatch", kFrames, [&](Canvas& canvas, std::uint64_t millis) {
+        stipple::apps::renderStopwatch(canvas, watch, millis,
+                                       stipple::apps::StopwatchStyle{});
+    });
+
+    stipple::platform::BatteryStatus status;
+    status.known = true;
+    status.percent = 64;
+    status.chargingKnown = true;
+    status.charging = true;
+    dump("battery", 1, [&](Canvas& canvas, std::uint64_t) {
+        stipple::apps::renderBattery(canvas, status, stipple::apps::BatteryStyle{});
+    });
+}
+
 // Not a test so much as a way to look at them.
 //
 // "Does this look right on a 52x16 panel" cannot be asserted, only seen. Set
-// STIPPLE_SHOP_PREVIEW=<directory> and this writes one PNG per script per
+// STIPPLE_SHOP_PREVIEW=<directory>
 // sampled frame; without it, it does nothing and costs nothing.
 STIPPLE_TEST(ShopScripts, PreviewsOnRequest) {
     const char* directory = std::getenv("STIPPLE_SHOP_PREVIEW");

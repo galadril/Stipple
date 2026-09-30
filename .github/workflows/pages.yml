@@ -80,6 +80,9 @@ jobs:
           mkdir -p build/frames
           STIPPLE_SHOP_FRAMES="$PWD/build/frames"             ./build/host-release/firmware/tests/stipple_tests ShopScripts.WriteFramesOnRequest
           python3 tooling/site/build-previews.py build/frames
+          mkdir -p build/frames-defaults
+          STIPPLE_DEFAULT_FRAMES="$PWD/build/frames-defaults" ./build/host-release/firmware/tests/stipple_tests ShopScripts.WriteDefaultAppFramesOnRequest
+          python3 tooling/site/build-previews.py build/frames-defaults site/defaults
 
       - name: Assemble
         run: |
@@ -90,6 +93,9 @@ jobs:
           cp site/api/index.html dist/api/
           cp site/shop/index.html site/shop/shop.css dist/shop/
           cp site/shop/*.gif dist/shop/
+          cp site/banner.svg dist/
+          mkdir -p dist/defaults
+          cp site/defaults/*.gif dist/defaults/
           cp site/scripting/index.html dist/scripting/
           cp site/mqtt/index.html dist/mqtt/
 

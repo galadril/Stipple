@@ -417,22 +417,30 @@ arm-linux-gnueabihf-readelf -V /src/build/device-arm/firmware/stipple_device \
         # is built from them: a preview drawn any other way would be a picture
         # of something that does not exist.
         $frames = Join-Path $repoRoot 'build\frames'
-        New-Item -ItemType Directory -Force $frames | Out-Null
+        $defaults = Join-Path $repoRoot 'build\frames-defaults'
+        New-Item -ItemType Directory -Force $frames, $defaults | Out-Null
 
         Invoke-Build 'host-release'
         $env:STIPPLE_SHOP_FRAMES = $frames
+        $env:STIPPLE_DEFAULT_FRAMES = $defaults
         try {
             & (Join-Path $repoRoot 'build\host-release\firmware\tests\stipple_tests.exe') `
                 'ShopScripts.WriteFramesOnRequest'
             if ($LASTEXITCODE -ne 0) { throw 'the frame dump failed' }
+            & (Join-Path $repoRoot 'build\host-release\firmware\tests\stipple_tests.exe') `
+                'ShopScripts.WriteDefaultAppFramesOnRequest'
+            if ($LASTEXITCODE -ne 0) { throw 'the default app frame dump failed' }
         } finally {
             Remove-Item Env:\STIPPLE_SHOP_FRAMES -ErrorAction SilentlyContinue
+            Remove-Item Env:\STIPPLE_DEFAULT_FRAMES -ErrorAction SilentlyContinue
         }
 
         $python = Get-Command python.exe -ErrorAction SilentlyContinue
         if (-not $python) { throw 'python.exe not found on PATH.' }
         & $python.Source (Join-Path $repoRoot 'tooling\site\build-previews.py') $frames
         if ($LASTEXITCODE -ne 0) { throw 'could not build the previews' }
+        & $python.Source (Join-Path $repoRoot 'tooling\site\build-previews.py') $defaults (Join-Path $repoRoot 'site\defaults')
+        if ($LASTEXITCODE -ne 0) { throw 'could not build the default app previews' }
     }
 
     'release' {
