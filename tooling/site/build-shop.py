@@ -175,20 +175,7 @@ PAGE = """<!DOCTYPE html>
 
 <main id="main" class="shop">
 
-  <section class="shop__lede">
-    <h1>Script library</h1>
-    <p>
-      __COUNT__ scripts for the panel. Copy one into <strong>Scripts</strong>
-      in your device's web page and save &mdash; it joins the carousel
-      immediately. <a href="../scripting/">Writing your own</a> is a page of
-      its own.
-    </p>
-    <p class="shop__gate">
-      Every one is compiled and run before it is published: ninety frames on a
-      real 52&nbsp;&times;&nbsp;16 framebuffer, buttons pressed, then six
-      hundred more checked for leaks.
-    </p>
-  </section>
+  <h1 class="sr-only">Script library</h1>
 
   <!-- The filter is progressive: without JavaScript every card is visible and
        the controls are hidden, which is the honest failure for a page whose
@@ -472,8 +459,7 @@ def main():
     # line and forgets, at which point the page breaks somewhere unrelated to
     # the edit.
     page = (PAGE.replace("__CARDS__", cards)
-                .replace("__CHIPS__", filters(counts))
-                .replace("__COUNT__", str(len(entries))))
+                .replace("__CHIPS__", filters(counts)))
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     # Newlines pinned to LF. Without it Python translates to CRLF on Windows,

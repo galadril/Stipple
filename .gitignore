@@ -92,6 +92,7 @@ site/emulator/
 # committed: half a megabyte of binaries rewritten whenever a script changes
 # is repository weight for something reproducible in a minute.
 site/shop/*.gif
+site/defaults/*.gif
 
 # The shop page itself, for the same reason and a better one.
 #

@@ -5,21 +5,9 @@
    second page that invents its own is a second page that drifts. */
 
 .shop {
-  padding: clamp(2rem, 6vw, 4rem) var(--pad) 6rem;
+  padding: clamp(0.5rem, 2vw, 1rem) var(--pad) 6rem;
   margin: 0 auto;
   max-width: 78rem;
-}
-
-.shop__lede { margin-bottom: clamp(2rem, 5vw, 3.5rem); }
-.shop__lede h1 { font-size: clamp(2rem, 6vw, 3rem); letter-spacing: -0.02em; margin: 0 0 0.6em; }
-
-/* The claim the page rests on, so it is set apart from the prose around it
-   rather than buried in a paragraph somebody skims. */
-.shop__gate {
-  border-left: 2px solid var(--green);
-  padding-left: 1rem;
-  color: var(--dim);
-  max-width: var(--measure);
 }
 
 /* Cards size themselves to the content rather than to a fixed column count:
