@@ -1305,7 +1305,11 @@ ours to write — which is most of the hard part. What is left is GATT
 discovery and HID report-descriptor parsing, on the order of 1500–2500 lines.
 Worth an ADR, not worth starting before the cheaper thing below.
 
-### USB HID, on the other hand, needs no code at all
+### USB HID needs no code at all, and that is not the same as working
+
+**The heading used to end there, and it promised more than it had measured.**
+The software half is genuinely ready; the port is a separate question and the
+answer on this unit is no. See "A real gamepad, plugged in" below.
 
 ```
 /sys/bus/usb/drivers   hub  usb  usbfs  usbhid  ums-*
@@ -1315,17 +1319,79 @@ otg_role               usb_host
 ```
 
 `usbhid` and `hid-generic` are both bound, `hidinput_connect` and
-`hid_add_device` are in the symbol table, and the EHCI root hub is live. A
-USB gamepad plugged into the port enumerates and appears as another
-`/dev/input/eventN`, and `Tc002Input` already takes its node paths as
-parameters rather than hard-coding them.
+`hid_add_device` are in the symbol table, and the EHCI root hub is live. So
+*if* a pad enumerates it becomes another `/dev/input/eventN` with no code from
+us, and `Tc002Input` already takes its node paths as parameters rather than
+hard-coding them.
 
-The catch is physical, not technical: that port is also the charge port, so a
-wired pad means running on battery for as long as the game lasts.
+The catch was recorded as physical rather than technical — that port is also
+the charge port, so a wired pad means running on battery for as long as the
+game lasts. That is true and it is not the catch.
 
-**So the ordering is settled by measurement.** Wired USB first, because it is
-nearly free. Bluetooth after, if anyone still wants it, and as a full BLE HID
-client rather than the kernel hand-off that does not exist here.
+### A real gamepad, plugged in (2026-09-30)
+
+A PS5 DualSense, into the left USB-C port of a unit running STIPPLE. **It does
+not enumerate.** Nothing appears on the bus at all:
+
+```
+otg_role : usb_host          the role is right
+usb_det  : 0                 nothing detected
+usb bus  : 1-0:1.0  usb1     the root hub, and only the root hub
+hid dev  : (none)
+evdev    : event67 event68   still just the panel's own controls
+```
+
+The software above it is ready exactly as the section above says, so this is
+the port and not the stack. Three measurements say where to look.
+
+**There is one USB data port, not two.** `/sys/bus/platform/devices` carries a
+single `soc:Sstar-ehci-1`, a single `soc:Sstar-udc` and a single `soc:usbotg`,
+and the root hub reports `maxchild 1` at `speed 480`. Whatever the second
+connector on the case is for, the SoC has one USB and one downstream port
+behind it.
+
+**Nothing in the kernel switches VBUS.** `soc:usbotg/of_node` holds only
+`compatible`, `name`, `status` and `type` — no `vbus-supply`, no `vbus-gpio`,
+no `dr_mode`. A host port has to power the device on it, a DualSense will not
+boot without that power, and there is no property here for the kernel to
+drive. So the likeliest reading is that the port does not source 5 V, and the
+next thing to try is a powered hub or a C-to-A OTG adapter, which settles bus
+power and the Type-C role at the same time.
+
+**So the ordering that was "settled by measurement" was settled by the wrong
+measurement.** Wired USB is still the cheaper of the two and still needs no
+firmware code — but "needs no code" was read as "works", and one pad and one
+cable was all it took to separate them. Neither route is available today.
+
+#### Reading three sysfs files turns the port off
+
+Worth more than the finding above, because it is a trap anyone investigating
+this walks into on their first command.
+
+```
+/sys/bus/platform/devices/soc:usbotg/
+    otg_role     usb_det     usb_host     usb_device     usb_null
+```
+
+`otg_role` and `usb_det` are values. **`usb_host`, `usb_device` and `usb_null`
+are actions, and they fire when the file is *read*:**
+
+```
+$ cat .../usb_null
+null_chose finished!
+```
+
+Catting all five to see what they held — the obvious first move, and the one
+that was made — walks the port from host to device to null and leaves it in
+null role with no bus. Re-reading `usb_host` puts it back, confirmed against
+`otg_role`, and ADB over Wi-Fi is unaffected either way; on a unit reached
+over USB it would not be.
+
+`tooling/probe/probe.py` reads `otg_role` and nothing else, so the probe is
+safe — but it is safe by accident rather than by decision, and now says so.
+
+Bluetooth after, if anyone still wants it, and as a full BLE HID client rather
+than the kernel hand-off that does not exist here.
 
 ### And `/bin` was never the whole story
 

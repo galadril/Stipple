@@ -141,6 +141,28 @@ STIPPLE_TEST(StaticFiles, TheControllerPageIsServed) {
     // nobody would see until they had a phone and a game in front of them.
     STIPPLE_CHECK(response.body.find("data-control=\"press\"") != std::string::npos);
     STIPPLE_CHECK(response.body.find("data-control=\"select\"") == std::string::npos);
+
+    // The middle button has a place of its own on the page, because it has one
+    // on the case. It is also the control ADR 0024 guarantees a script can
+    // never take, so a controller that omitted it would be a controller you
+    // could not put down.
+    STIPPLE_CHECK(response.body.find("data-control=\"middle\"") != std::string::npos);
+
+    // Every data-control on the page must be a name /api/v1/input accepts. The
+    // page is laid out to mirror the hardware, and the temptation when doing
+    // that is to name a control after where it sits rather than after what the
+    // API calls it - which fails as a 422 nobody sees without a phone and a
+    // game to hand.
+    const std::string marker = "data-control=\"";
+    for (std::size_t at = response.body.find(marker); at != std::string::npos;
+         at = response.body.find(marker, at + 1)) {
+        const std::size_t from = at + marker.size();
+        const std::size_t to = response.body.find('"', from);
+        STIPPLE_CHECK(to != std::string::npos);
+        const std::string name = response.body.substr(from, to - from);
+        STIPPLE_CHECK(name == "minus" || name == "plus" || name == "middle" ||
+                      name == "press" || name == "left" || name == "right");
+    }
 }
 
 STIPPLE_TEST(StaticFiles, UnknownPathsAreNotOurs) {

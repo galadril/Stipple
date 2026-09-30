@@ -43,15 +43,44 @@ device without a capture of that device first.
 
 ### Changed
 
+- **The controller page is laid out like the case.** The knob is on the left
+  and the three buttons are on the right in the order − M +, which is where
+  they are on the hardware, and the knob is a dial you turn with a thumb
+  rather than a pair of arrow pads. Turning it emits one detent per 18° and
+  the mark tracks your finger, so a rally feels like the control it is
+  imitating.
+
+  **M moved out of the header and into its own place in the row.** It used to
+  be a small pill labelled "Back", kept away from the play area; it is the
+  one control a script can never take, so the page now teaches where it
+  actually is. A link to the settings page replaces it as the way out of the
+  browser.
+
+  Holding an arrow key now repeats, because holding an arrow is how you turn
+  a knob you have no thumb on. Buttons still ignore autorepeat — a second
+  `down` with no `up` between would restart a hold the firmware was already
+  measuring.
+
 - `tooling/probe/probe.py` gained a Bluetooth and USB host section, and now
   lists `/res/bin`. Run against a real clock, it settles what a second
   controller would cost.
 
-  **A USB gamepad needs no firmware code at all**: `usbhid` and
+  **A USB gamepad needs no firmware code at all** — `usbhid` and
   `hid-generic` are bound, the EHCI root hub is live, and the OTG port is in
-  host role, so a wired pad appears as another `/dev/input/eventN` — which
-  `Tc002Input` already takes as a parameter. The catch is that the port is
-  also the charge port.
+  host role, so a pad that enumerates becomes another `/dev/input/eventN`,
+  which `Tc002Input` already takes as a parameter. **It does not follow that
+  one works.** A DualSense plugged into a real unit does not enumerate at
+  all: the root hub stays empty, `usb_det` reads 0, and the device tree has
+  no VBUS property for the kernel to drive, so the port most likely does not
+  power what is on it. A powered hub or a C-to-A adapter is the next thing to
+  try. There is also only one USB data port on the SoC, whatever the case
+  suggests.
+
+  And a trap worth knowing before anyone repeats the measurement: three of
+  the files beside `otg_role` — `usb_host`, `usb_device`, `usb_null` — **act
+  when they are read**. Catting the directory to see what it holds leaves the
+  port in null role with no bus. The probe reads `otg_role` and `usb_det`
+  only, and now says why.
 
   **Bluetooth is half a stack.** L2CAP, SMP and the HCI UART line discipline
   are all in the kernel, and BlueZ tools ship in `/res/bin` — but `hidp`,

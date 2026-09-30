@@ -217,9 +217,23 @@ SECTIONS: list[Section] = [
                                "/vendor/etc/firmware 2>/dev/null || echo 'none'"),
             ("rfkill", "ls -la /sys/class/rfkill/ 2>/dev/null || echo 'none'"),
             ("Bluetooth properties", "getprop", "bluetooth bt. hci"),
+            # otg_role and usb_det are the only two files in this directory
+            # that are safe to read. `usb_host`, `usb_device` and `usb_null`
+            # sit beside them and *act when read* - catting usb_null answers
+            # "null_chose finished!" and leaves the port with no bus at all.
+            # Never widen this to a glob over the directory; on a unit reached
+            # over USB rather than Wi-Fi it would be a self-inflicted lockout.
             ("USB OTG role", "cat /sys/bus/platform/devices/soc:usbotg/otg_role "
                              "2>/dev/null || echo 'none'"),
+            ("USB detect", "cat /sys/bus/platform/devices/soc:usbotg/usb_det "
+                           "2>/dev/null || echo 'none'"),
             ("USB devices", "ls -la /sys/bus/usb/devices/ 2>/dev/null || echo 'no usb bus'"),
+            # One EHCI, one UDC, one OTG node on this board, so a second
+            # connector on the case is not a second USB. Worth printing,
+            # because "plug the pad into the other port" is the first thing
+            # anyone tries and this says whether there is one.
+            ("USB controllers", "ls /sys/bus/platform/devices/ 2>/dev/null",
+             "ehci udc usbotg"),
             ("HID bus", "ls -la /sys/bus/hid/devices/ 2>/dev/null || echo 'no hid bus'"),
             ("Input classes", "ls -la /sys/class/input/ 2>/dev/null || echo 'none'"),
         ],
