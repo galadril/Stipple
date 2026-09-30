@@ -98,7 +98,7 @@ bool Tc002Audio::open() {
     }
 
     channelEnabled_ = true;
-    tone_.setVolumePercent((static_cast<int>(volume_) * 100) / 255);
+    player_.setVolumePercent((static_cast<int>(volume_) * 100) / 255);
     return true;
 }
 
@@ -123,11 +123,20 @@ void Tc002Audio::close() noexcept {
     clearChnBuf_ = nullptr;
     disableChn_ = nullptr;
     disable_ = nullptr;
-    tone_.stop();
+    player_.stop();
 }
 
 bool Tc002Audio::sendFrame() {
-    tone_.fill(samples_, kPointsPerFrame);
+    const int got = player_.fill(samples_, kPointsPerFrame);
+
+    // Zero whatever the sound did not fill. A sound ends where it ends rather
+    // than on a frame boundary, and without this the tail of the last frame
+    // is whatever was in the buffer before - a fragment of the previous
+    // frame, replayed. One note ending was quiet enough to miss; a sequence
+    // has a boundary between every pair of notes.
+    for (int i = got; i < kPointsPerFrame; ++i) {
+        samples_[i] = 0;
+    }
 
     std::memset(frame_, 0, sizeof(frame_));
     // eBitwidth and eSoundmode are the first two words and both zero here,
@@ -152,7 +161,7 @@ void Tc002Audio::tick() {
     // enough to stay ahead of the driver's six-frame buffer without ever
     // becoming the reason a frame was late.
     constexpr int kMaxFramesPerTick = 30;
-    for (int i = 0; i < kMaxFramesPerTick && tone_.playing(); ++i) {
+    for (int i = 0; i < kMaxFramesPerTick && player_.playing(); ++i) {
         if (!sendFrame()) {
             break;
         }
@@ -163,8 +172,8 @@ bool Tc002Audio::playTone(int frequencyHz, int durationMillis) {
     if (!channelEnabled_) {
         return false;
     }
-    tone_.start(frequencyHz, durationMillis);
-    return tone_.playing();
+    player_.startTone(frequencyHz, durationMillis);
+    return player_.playing();
 }
 
 bool Tc002Audio::playSound(std::string_view name) {
@@ -172,38 +181,22 @@ bool Tc002Audio::playSound(std::string_view name) {
         return false;
     }
 
-    // A deliberately short list, and tones rather than samples.
-    //
-    // The device can decode MP3 - libmad.so is present and the vendor
-    // application plays files with it - but shipping stored audio is a separate
-    // piece of work with its own storage budget. Naming sounds we cannot make
-    // would be the same lie as a volume control with no speaker behind it, so
-    // an unknown name is refused rather than quietly turned into a beep.
-    if (name == "beep") {
-        tone_.start(880, 120);
-    } else if (name == "chime") {
-        tone_.start(1320, 180);
-    } else if (name == "alert") {
-        tone_.start(660, 400);
-    } else if (name == "tick") {
-        // Short and quiet, and deliberately not as loud as anything a button
-        // does. This plays once a second for as long as the clock is on
-        // screen, and the difference between charming and maddening is
-        // entirely in how far under the rest of the device it sits.
-        tone_.start(2200, 10, 180);
-    } else if (name == "tock") {
-        // A shade lower, so a second sounds like a second rather than like a
-        // repeated blip. Real clocks do this because the escapement is not
-        // symmetric; here it is on purpose.
-        tone_.start(1800, 10, 180);
-    } else {
+    // The catalogue is core code (audio/Sound.h), so this adapter no longer
+    // decides what anything sounds like - it only owns the speaker. An
+    // unknown name is refused rather than quietly turned into a beep: naming
+    // a sound we cannot make and getting a different one is the same
+    // confident lie as a volume control with no speaker behind it.
+    const audio::Sound* sound = audio::SoundLibrary::find(name);
+    if (sound == nullptr) {
         return false;
     }
-    return tone_.playing();
+
+    player_.start(*sound);
+    return player_.playing();
 }
 
 void Tc002Audio::stop() {
-    tone_.stop();
+    player_.stop();
     if (channelEnabled_ && clearChnBuf_ != nullptr) {
         // Otherwise "stop" means "stop after whatever is already buffered",
         // which on a six-frame buffer is a noticeable tail.
@@ -213,7 +206,7 @@ void Tc002Audio::stop() {
 
 void Tc002Audio::setVolume(std::uint8_t volume) {
     volume_ = volume;
-    tone_.setVolumePercent((static_cast<int>(volume) * 100) / 255);
+    player_.setVolumePercent((static_cast<int>(volume) * 100) / 255);
 }
 
 }  // namespace tc002

@@ -736,6 +736,88 @@ Over-allocating is the usual trick and it usually works; it is also precisely
 The sort of "usually works" this project has been avoiding. `ZKAudioPlayer::play`
 may sidestep it if a factory function can be reached instead of a constructor.
 
+### The factory exists, and file playback is reachable but not yet working (2026-09-30)
+
+First-hand, with `firmware/tools/player_probe`. **The last paragraph above
+guessed at a factory and there is one**, so the object-size objection is
+answered rather than worked around:
+
+```
+_ZN5media13PlayerFactory11getInstanceEv       PlayerFactory::getInstance()
+_ZN5media13PlayerFactory6createE10EMediaType  ::create(EMediaType)
+_ZN5media13ZKAudioPlayer4playEPKc             ZKAudioPlayer::play(const char*)
+```
+
+`libzkmedia.so` also exports `Mp3AudioParser` and `WavAudioParser` with
+`open`/`read`/`close`, and its `NEEDED` list includes `libmad.so.0` — so MP3
+decoding is in there, not something we would write.
+
+On the device, with the libraries the real process has preloaded:
+
+```
+PlayerFactory::getInstance() -> 0x406ff028
+  create(0) -> 0x4767c0
+  create(1..5) -> (nil)
+setVolume(0.5) -> 1
+play("/res/ui/audio/Tip.mp3") -> 0
+getDuration() -> 0
+```
+
+**`EMediaType 0` is audio**, which was one of the two unknowns. All six
+symbols resolve and the factory returns a real object.
+
+**Playback did not happen**, and the return values say nothing about why:
+`play()` answers 0 and `getDuration()` answers 0 for a real MP3, a real WAV
+and a path that does not exist. A call that cannot distinguish a missing file
+from a present one has not opened either.
+
+The leading hypothesis is contention, and it is **unproven**. `/dev/mi_ao` is
+held by pid 674 — `zkgui_ui`, which is the running STIPPLE — and the vendor
+player wants the same device. Settling it means releasing the panel
+(`setprop ctl.stop zkswe`) and running the probe against a device nothing else
+owns.
+
+**That test was not run, on purpose.** `zkdaemon` was *still running* as a
+live process rather than a fired-and-exited oneshot, and
+`/mnt/storage/update.img` was present — 3.2 MB of it. That is the exact
+combination that already reverted a working STIPPLE and took
+`/data/misc/wifi/wpa_supplicant.conf` with it, as recorded under "zkdaemon
+will delete Stipple if Stipple does not announce itself". Clearing the volume
+first is a decision for whoever owns the unit, not a step to take while
+chasing an audio bug.
+
+#### Loading libzkmedia needs the whole EasyUI process, not one library
+
+Worth more than the audio result, because it constrains anything that ever
+reaches for a vendor library from a tool rather than from the firmware.
+
+A bare `dlopen("libzkmedia.so")` fails on `_ZTI6Thread`. That is defined by
+`libeasyui.so` — which then fails on `_ZTVN10__cxxabiv120__si_class_type_infoE`
+(libstdc++), then `jpeg_resync_to_restart` (libjpeg), then `MI_SYS_Mmap`
+(libmi_sys), then `_ZN2hw8WatchDog11getInstanceEv` (libzkhardware). And
+`libzkhardware` needs `_ZTI6Thread` straight back from `libeasyui`.
+
+**`libeasyui.so` declares only `libgcc_s.so.1` and `libc.so.6`** in its own
+`NEEDED` list, while actually depending on at least eight more. It is not
+loadable standalone by design: it only ever runs inside `/bin/zkgui`, which
+links all twenty-five as `NEEDED`, so the loader resolves the set as one graph
+and the vendor never had to declare anything.
+
+Two consequences:
+
+- **Successive `dlopen` calls cannot break the cycle**, even with
+  `RTLD_GLOBAL` and repeated passes, because typeinfo is a data symbol and
+  data relocations resolve at load time. `LD_PRELOAD` with the full list does
+  work — the loader takes them as one graph, the way `zkgui` does.
+- **The real adapter is not affected.** STIPPLE runs inside that host and a
+  live unit's `/proc/<pid>/maps` already shows libeasyui, libstdc++, libjpeg,
+  libzkhardware and the `mi_*` stack mapped. A `dlopen` from `Tc002Audio`
+  starts where the probe spent five rebuilds trying to get to.
+
+So a future probe against a vendor library should either run with the
+`LD_PRELOAD` set above or be built as a library the host loads. Starting from
+an empty process is the expensive way to find out what `zkgui` links.
+
 ### Things that need design work
 
 - **The knob is an absolute axis, not detents.** `/proc/bus/input/devices` shows

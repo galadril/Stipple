@@ -38,6 +38,7 @@ payload is the HTTP request body, and the reply carries the HTTP status.
 | `cmd/apps/{id}` | `PATCH /api/v1/apps/{id}`, or `DELETE` if the payload is empty |
 | `cmd/apps/{id}/activate` | `POST /api/v1/apps/{id}/activate` |
 | `cmd/input` | `POST /api/v1/input` |
+| `cmd/sound` | `POST /api/v1/sound` |
 | `cmd/reboot` | `POST /api/v1/system/reboot` |
 
 An empty payload on `cmd/apps/{id}` deletes, because publishing an empty retained
@@ -47,6 +48,7 @@ message is how MQTT conventionally says "this is gone".
 mosquitto_pub -t 'stipple/kitchen-clock/cmd/notify' -m '{"text":"Dinner"}'
 mosquitto_pub -t 'stipple/kitchen-clock/cmd/settings' -m '{"display":{"power":false}}'
 mosquitto_pub -t 'stipple/kitchen-clock/cmd/input' -m '{"control":"plus"}'
+mosquitto_pub -t 'stipple/kitchen-clock/cmd/sound' -m '{"sound":"alert"}'
 ```
 
 **Anything HTTP refuses, MQTT refuses identically** — the routing happens before

@@ -148,6 +148,13 @@ enum class Resource : std::uint8_t {
     DisplayFrame,
     /// A button press injected from somewhere that is not the hardware.
     Input,
+    /// The speaker. GET lists what this device can play, POST plays one.
+    ///
+    /// A GET as well as a POST because the catalogue is the device's answer
+    /// rather than the caller's assumption: a web UI that hard-codes a sound
+    /// list drifts the moment the list changes, and a caller guessing at
+    /// names gets a 422 it could have avoided by asking.
+    Sound,
 };
 
 struct RouteMatch {

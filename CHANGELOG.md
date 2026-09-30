@@ -8,6 +8,77 @@ Versions are `MAJOR.MINOR.PATCH`. While on `0.x` every release is a
 prerelease: the interfaces move, and nothing here installs onto a stock
 device without a capture of that device first.
 
+## Unreleased
+
+### Added
+
+- **Ten sounds instead of five, and they mean something.** `success`,
+  `failure`, `notify`, `alarm` and `startup` join the original five, and all
+  of them are now short sequences of notes rather than single beeps. The
+  shapes carry the meaning: rising for good, falling for bad, repeated for
+  urgent. `success` and `failure` are distinguishable without looking at the
+  panel, which is the entire point of a device making a noise.
+
+  `chime` and `alert` were single notes and are now the two- and three-note
+  shapes their names always implied — `alert` in particular managed to be less
+  alarming than `chime`, because one long note reads as a drone. `beep`,
+  `tick` and `tock` are unchanged note for note.
+
+- **`GET POST /api/v1/sound`, and `cmd/sound` over MQTT.** Until now nothing
+  but a notification could make the device make a noise. `POST` plays a named
+  sound, an inline tone, or stops whatever is playing; `GET` lists what this
+  device can play, because the firmware is the only thing that knows.
+
+  An unknown name is `422`, never a substituted beep. If you asked for
+  something specific and got a `204`, that is what played. A device with no
+  speaker answers `404` on both verbs — absence, not a malformed request.
+
+- **A "Play it" button beside the notification sound.** Choosing a sound from
+  a dropdown and then waiting for a notification to discover what you chose is
+  not a choice, it is a guess.
+
+### Changed
+
+- **The sound catalogue moved into core.** It used to be an if-chain inside
+  `Tc002Audio`, which meant the simulator carried a second and different list,
+  and the simulator is what people write scripts against. `sound('trumpet')`
+  worked on a desk and did nothing on a clock, returning true in both places.
+  Both adapters now resolve through one table in `audio/Sound.h`, so they
+  cannot disagree, and a sound's timing can be tested without a speaker in the
+  room.
+
+  What a chime sounds like was never a fact about SigmaStar hardware.
+
+- **`.containerignore`**, because the cross-toolchain build context was 1.4 GB
+  of build output and Visual Studio index for a Containerfile that copies
+  nothing in. Worse than slow: `.vs/` holds files the IDE keeps open, and
+  podman failed outright trying to read one, so the cross build could not run
+  while the editor was.
+
+- The web UI's sound dropdown is filled from the device instead of from
+  markup. It had been listing three of the five sounds the firmware had, which
+  is what writing a catalogue down twice does.
+
+- **`firmware/tools/player_probe`**, which asks whether the TC002 can play an
+  audio *file* through the vendor's own player. It settles that
+  `libzkmedia.so` exposes a `PlayerFactory` — so the "C++ class of unknown
+  size" objection that had parked this is answered — and that `EMediaType 0`
+  is audio.
+
+  It does not yet get a sound out. `play()` returns the same thing for a real
+  MP3, a real WAV and a path that does not exist, which means it never opened
+  any of them; the likely cause is that STIPPLE itself holds `/dev/mi_ao`.
+  Proving that needs the panel released, and that test was deliberately not
+  run — see the findings doc.
+
+### Fixed
+
+- **A sound ending mid-frame replayed a fragment of the previous frame.**
+  `Tc002Audio` handed the driver a full frame whether or not the sound had
+  filled it, leaving stale samples in the tail. One note ending was quiet
+  enough to miss; a sequence has a boundary between every pair of notes, so
+  this had to be fixed before the sounds above could exist.
+
 ## 0.2.8
 
 ### Added

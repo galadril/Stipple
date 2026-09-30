@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "stipple/platform/simulator/SimulatorPlatform.h"
 
+#include "stipple/audio/Sound.h"
+
 namespace stipple {
 namespace platform {
 namespace simulator {
@@ -134,7 +136,15 @@ bool SimulatorAudio::playTone(int frequencyHz, int durationMillis) {
 }
 
 bool SimulatorAudio::playSound(std::string_view name) {
-    if (name.empty()) {
+    // Checked against the same catalogue the device uses, which is the whole
+    // reason that catalogue moved into core.
+    //
+    // This used to accept any non-empty string and answer true, so the
+    // simulator agreed to sounds the hardware refuses - and the simulator is
+    // what people develop scripts against. A script calling sound('trumpet')
+    // worked on a desk and did nothing on a clock, with the return value
+    // saying it had worked in both places.
+    if (audio::SoundLibrary::find(name) == nullptr) {
         return false;
     }
     Request request;

@@ -190,6 +190,41 @@
         });
     }
 
+    // The sound catalogue, asked for rather than assumed.
+    //
+    // The dropdown used to be three <option> rows in the markup while the
+    // firmware had five sounds, and nothing anywhere would have noticed. The
+    // device is the only thing that knows what it can play, so it is the
+    // thing that gets asked - and a failure here leaves "Silent" in place
+    // rather than an empty select.
+    function loadSounds() {
+        return send('GET', '/api/v1/sound').then(function (catalogue) {
+            var select = $('notify-sound');
+            if (!select || !catalogue || !catalogue.sounds) { return; }
+
+            (catalogue.sounds || []).forEach(function (sound) {
+                var option = document.createElement('option');
+                option.value = sound.name;
+                // Capitalised for a person to read; the value stays the name
+                // the API takes.
+                option.textContent = sound.name.charAt(0).toUpperCase() +
+                                     sound.name.slice(1);
+                select.appendChild(option);
+            });
+
+            // The two requests race, and whichever loses has to fix up. If
+            // settings arrived first it applied a value whose <option> did
+            // not exist yet, and the select silently fell back to Silent -
+            // which reads as "somebody turned the sound off".
+            if (settings) {
+                writeControl(select, pathGet(settings, 'notifications.sound'));
+            }
+        }).catch(function () {
+            // A device with no speaker answers 404 here, and that is already
+            // said in one place by the capability check. Nothing to add.
+        });
+    }
+
     function loadSettings() {
         return send('GET', '/api/v1/settings').then(function (loaded) {
             settings = loaded;
@@ -3073,9 +3108,31 @@
             var input = $(id);
             if (input) { input.addEventListener('change', refreshMeridiem); }
         });
+
+        // Hearing it is the only way to choose one. Picking a notification
+        // sound from a dropdown and then waiting for a notification to find
+        // out what you picked is not a choice, it is a guess.
+        var soundTest = $('notify-sound-test');
+        if (soundTest) {
+            soundTest.addEventListener('click', function () {
+                var chosen = $('notify-sound').value;
+                if (chosen === 'none') {
+                    // Silence is a real answer, so say so rather than posting
+                    // a name the API would refuse.
+                    $('notify-sound-help').textContent =
+                        'Silent: nothing is played when a notification arrives.';
+                    return;
+                }
+                send('POST', '/api/v1/sound', { sound: chosen }).catch(function () {
+                    $('notify-sound-help').textContent =
+                        'Could not play it - the device did not answer.';
+                });
+            });
+        }
+
         showPanel('panel-display');
 
-        Promise.all([loadSettings(), loadDevice()])
+        Promise.all([loadSettings(), loadDevice(), loadSounds()])
             .then(function () {
                 // A device nobody has set up opens on the step that matters
                 // rather than on a live view of a clock showing the wrong

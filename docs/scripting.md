@@ -129,11 +129,22 @@ end
 |---|---|
 | `audio_known()` | Whether this device has a speaker at all. |
 | `tone(hz, ms)` | Queues a note. Returns whether it started. |
-| `sound(name)` | Queues a built-in sound. `beep`, `chime`, `alert`, `tick`, `tock`. Returns whether the name is one. |
+| `sound(name)` | Queues a built-in sound. Returns whether the name is one. |
 | `volume()` | 0-255, the level somebody set. Read only. |
 
 Both `tone` and `sound` return immediately - they queue, they do not wait, and
 a script that bleeps does not cost a frame.
+
+The built-in sounds are `beep`, `chime`, `alert`, `tick`, `tock`, `success`,
+`failure`, `notify`, `alarm` and `startup`. They are short sequences of notes
+rather than single beeps, and the shapes mean something: rising for good,
+falling for bad, repeated for urgent. So `success` and `failure` are
+distinguishable without looking at the panel, which is the entire point of a
+device making a noise.
+
+`GET /api/v1/sound` is the authoritative list, because the firmware is the
+only thing that knows what it can play. An unknown name returns false rather
+than playing a beep instead - if `sound()` says false, nothing happened.
 
 Three limits, all deliberate. **Four sounds per call**, because the panel would
 keep rendering happily while the speaker worked through a minute of backlog,
