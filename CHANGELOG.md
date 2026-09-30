@@ -12,6 +12,65 @@ device without a capture of that device first.
 
 ### Added
 
+- **Eleven more scripts, and most of them are playable.** Block Drop, Neon
+  Breakout, Star Defender, Moon Lander, Night Crossing, Sky Runner and Canyon
+  Flyer are games with scoring and a game-over you can restart; Light Painter,
+  Ripple Pond, Spiro Comet and Sunset Drive are things to look at.
+
+  These are what `# @input exclusive` was for. 0.2.7 added the directive and
+  one game that used it; this is the library catching up, now that a script
+  can have a left and a right.
+
+### Changed
+
+- **The controller page is laid out like the case.** The knob is on the left
+  and the three buttons are on the right in the order − M +, which is where
+  they are on the hardware, and the knob is a dial you turn with a thumb
+  rather than a pair of arrow pads. Turning it emits one detent per 18° and
+  the mark tracks your finger, so a rally feels like the control it is
+  imitating.
+
+  **M moved out of the header and into its own place in the row.** It used to
+  be a small pill labelled "Back", kept away from the play area; it is the one
+  control a script can never take, so the page now teaches where it actually
+  is. A link to the settings page replaces it as the way out of the browser.
+
+  Holding an arrow key now repeats, because holding an arrow is how you turn a
+  knob you have no thumb on. Buttons still ignore autorepeat — a second `down`
+  with no `up` between would restart a hold the firmware was already
+  measuring.
+
+### Fixed
+
+- **0.2.7 said a USB gamepad works. It does not, on this hardware.** That
+  release reported that `usbhid` and `hid-generic` are bound and the EHCI root
+  hub is live, and concluded a wired pad "needs no firmware code at all". The
+  first half is true and the conclusion did not follow: a DualSense plugged
+  into a real unit does not enumerate on either connector. The root hub stays
+  empty, `usb_det` never leaves 0, and forcing a host-role re-init with the
+  pad attached changes nothing.
+
+  Two reasons, both measured. The device tree carries no VBUS property for the
+  kernel to drive, so the port most likely does not power what is on it. And
+  `soc:Sstar-ehci-1` is the only USB host on the SoC — no OHCI, no UHCI, no
+  XHCI — so full-speed enumeration depends on this EHCI's PHY in a way nothing
+  confirms. A powered hub is the next thing to try.
+
+  There is also only one USB data port behind the two connectors on the case.
+
+- **Three sysfs files that act when they are read**, recorded because reading
+  them is the obvious first move. `usb_host`, `usb_device` and `usb_null` sit
+  beside `otg_role` under `soc:usbotg`, and catting the directory to see what
+  it holds walks the port into null role and leaves it with no bus. It is
+  recoverable — re-reading `usb_host` restores it — but on a unit reached over
+  USB rather than Wi-Fi it would not be. `tooling/probe/probe.py` reads
+  `otg_role` and `usb_det` only, and now says why, so nobody widens it to a
+  glob.
+
+## 0.2.7
+
+### Added
+
 - **Scripts can take the controls.** A script declaring `# @input exclusive`
   in its header receives the − and + buttons, the knob press and both knob
   detents, instead of the single action press it used to get. Games were the
@@ -43,44 +102,15 @@ device without a capture of that device first.
 
 ### Changed
 
-- **The controller page is laid out like the case.** The knob is on the left
-  and the three buttons are on the right in the order − M +, which is where
-  they are on the hardware, and the knob is a dial you turn with a thumb
-  rather than a pair of arrow pads. Turning it emits one detent per 18° and
-  the mark tracks your finger, so a rally feels like the control it is
-  imitating.
-
-  **M moved out of the header and into its own place in the row.** It used to
-  be a small pill labelled "Back", kept away from the play area; it is the
-  one control a script can never take, so the page now teaches where it
-  actually is. A link to the settings page replaces it as the way out of the
-  browser.
-
-  Holding an arrow key now repeats, because holding an arrow is how you turn
-  a knob you have no thumb on. Buttons still ignore autorepeat — a second
-  `down` with no `up` between would restart a hold the firmware was already
-  measuring.
-
 - `tooling/probe/probe.py` gained a Bluetooth and USB host section, and now
   lists `/res/bin`. Run against a real clock, it settles what a second
   controller would cost.
 
-  **A USB gamepad needs no firmware code at all** — `usbhid` and
+  **A USB gamepad needs no firmware code at all**: `usbhid` and
   `hid-generic` are bound, the EHCI root hub is live, and the OTG port is in
-  host role, so a pad that enumerates becomes another `/dev/input/eventN`,
-  which `Tc002Input` already takes as a parameter. **It does not follow that
-  one works.** A DualSense plugged into a real unit does not enumerate at
-  all: the root hub stays empty, `usb_det` reads 0, and the device tree has
-  no VBUS property for the kernel to drive, so the port most likely does not
-  power what is on it. A powered hub or a C-to-A adapter is the next thing to
-  try. There is also only one USB data port on the SoC, whatever the case
-  suggests.
-
-  And a trap worth knowing before anyone repeats the measurement: three of
-  the files beside `otg_role` — `usb_host`, `usb_device`, `usb_null` — **act
-  when they are read**. Catting the directory to see what it holds leaves the
-  port in null role with no bus. The probe reads `otg_role` and `usb_det`
-  only, and now says why.
+  host role, so a wired pad appears as another `/dev/input/eventN` — which
+  `Tc002Input` already takes as a parameter. The catch is that the port is
+  also the charge port.
 
   **Bluetooth is half a stack.** L2CAP, SMP and the HCI UART line discipline
   are all in the kernel, and BlueZ tools ship in `/res/bin` — but `hidp`,
