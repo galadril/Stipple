@@ -2266,3 +2266,47 @@ Also worth keeping: `/bin/hostapd -B` is the right way to test a
 configuration here. It daemonises, so its exit code reports whether driver
 initialisation succeeded, and the whole experiment fits in one shell script
 that restores the vendor application afterwards — no flashing, nothing lost.
+
+## Static initialisers in the application library never run (2026-10-01)
+
+Measured after `/api/v1/sound` on hardware answered ten sounds with **empty
+names and zero durations** while the identical code on a host answered ten
+correct ones.
+
+The application is a shared library whose entry point is
+`__attribute__((constructor)) stippleTakesOver()`, and that function does not
+return - it takes the process. A GCC constructor attribute is an `.init_array`
+entry, and so is the `_GLOBAL__sub_I_<tu>.cpp` routine the compiler emits for
+any translation unit holding data it cannot initialise at compile time.
+`.init_array` is executed front to back in **link order**, and
+`tools/device/main.cpp.o` is linked ahead of `libstipple_core.a`.
+
+So the takeover runs first and nothing after it in the array ever runs. Any
+core data that needed code to become valid stays exactly as the linker left
+it, which for `.bss` is zeros, for the whole life of the process.
+
+Confirmed by inspection of the objects: `const Sound kSounds[]` was
+`00000258 b` - 600 bytes of local `.bss` - with `_GLOBAL__sub_I_Sound.cpp`
+registered to fill it. The array's *length* was right on the device because
+`sizeof(kSounds) / sizeof(kSounds[0])` is resolved at compile time; only the
+contents were missing. That combination - correct count, blank contents - is
+the signature to recognise.
+
+**Why a host build cannot see this.** In an executable the whole of
+`.init_array` runs before `main()`, so every initialiser completes and the
+data is correct. The test suite passed throughout.
+
+Two things follow, and both are done:
+
+- The offending data is `constexpr` now, so it is constant-initialised into
+  `.rodata` and there is no initialiser to order. `constexpr` also makes the
+  compiler reject anything that stops being a constant expression, rather
+  than letting it go quiet on hardware only.
+- CI checks every object in the device build for `_GLOBAL__sub_I` and fails
+  if one appears. The whole build is at zero, so the rule is absolute rather
+  than a budget.
+
+The general constraint, worth stating plainly: **core may not rely on dynamic
+initialisation.** Data a device reads belongs in `.rodata` via `constexpr`, or
+inside a function as a local static so it is initialised on first use. Both
+remove the dependency on link order; neither can be broken silently.

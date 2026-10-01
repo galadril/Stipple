@@ -38,6 +38,26 @@ device without a capture of that device first.
 > stored Wi-Fi. A USB reflash on its own does *not*; that distinction was
 > measured on hardware this release and the old documentation had it wrong.
 >
+
+### Fixed
+
+- **Every built-in sound was nameless and silent on a device, and only on a
+  device.** The sound picker offered ten blank entries and nothing but
+  "Silence" could be chosen, because `/api/v1/sound` reported ten sounds with
+  empty names and zero durations.
+
+  The catalogue was one `constexpr` short of being built at compile time, so
+  the compiler left 600 zero-filled bytes and a routine to fill them in at
+  load time. That routine never ran: Stipple's entry point is a library
+  constructor that takes the process and does not return, and it is ordered
+  ahead of core's initialisers. The table stayed zeroed for the life of the
+  process. On a host every initialiser runs before `main()`, which is why
+  over a thousand tests had nothing to say about it.
+
+  The table is constant-initialised now, and CI fails if any object in the
+  device build gains a load-time initialiser — the whole build is at zero, so
+  nothing like this can return unnoticed. Measured on hardware: ten sounds
+  with real names and durations, and all of them play.
 > See [docs/upgrading.md](docs/upgrading.md).
 
 

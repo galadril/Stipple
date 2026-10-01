@@ -33,7 +33,28 @@ constexpr int kTickGain = 180;
 /// door" is a device you have to look at to understand, which defeats the
 /// point of it making a noise at all. So the set is built around *meaning*:
 /// rising for good, falling for bad, repeated for urgent.
-const Sound kSounds[] = {
+// **`constexpr`, and that is load-bearing rather than tidy.**
+//
+// Without it this array was dynamically initialised: the compiler put 600
+// zero-filled bytes in `.bss` and registered `_GLOBAL__sub_I_Sound.cpp` in
+// `.init_array` to fill them in at load time. On a host that is invisible,
+// because every initialiser in the image runs before `main()`.
+//
+// On the device it is not invisible, because Stipple's entry point is
+// `__attribute__((constructor)) stippleTakesOver()` and it never returns.
+// That constructor sits in `.init_array` too, and `.init_array` runs in link
+// order - so `main.cpp.o`, linked ahead of `libstipple_core.a`, took the
+// process before this file's initialiser had a turn. The catalogue stayed
+// zeroed for the life of the process: `/api/v1/sound` answered ten sounds
+// with empty names and zero durations, and the web UI's dropdown rendered
+// exactly that. Correct count, because the count is `sizeof` and resolved at
+// compile time; no contents, because the contents needed code to run.
+//
+// `constexpr` removes the question instead of answering it. The data is
+// constant-initialised into `.rodata`, there is no initialiser to order, and
+// if anything here ever stops being a constant expression this stops
+// compiling rather than silently going quiet on hardware only.
+constexpr Sound kSounds[] = {
     // --- the original five -------------------------------------------------
     Sound{"beep", {note(880, 120)}, 1, },
 
