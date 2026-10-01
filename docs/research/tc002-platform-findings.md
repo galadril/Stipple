@@ -2120,3 +2120,149 @@ image there as a safety net is therefore a way of arming an automatic revert,
 which is exactly what it did. The guidance in `docs/recovery.md` - remove the
 stick, keep the volume empty - is now backed by the mechanism rather than by
 one bad night.
+
+## hostapd cannot put this radio into AP mode, and the vendor HAL is the way (2026-10-01) — WRONG, see below
+
+**First-hand, on the development device, after six flash cycles.**
+
+Stipple's access point is `hostapd` + `dnsmasq` on `wlan0`. It worked during
+Tier-2 development, running from `/tmp` while the vendor application had
+already brought Wi-Fi up. On a **flashed** device, where Stipple is the only
+application, it does not work at all:
+
+```
+hostapd: nl80211: Could not configure driver mode | mode:none sup:none
+```
+
+Read as: hostapd was refused the switch from managed to AP mode; no tool
+exists on the device to set that mode itself; and nothing was holding the
+interface when it tried.
+
+What each part was established by, rather than assumed:
+
+- **The driver loads and `wlan0` exists.** `ensureRadio()` reports
+  `wifi: driver loaded`, confirmed on the panel.
+- **Nothing holds the interface.** `wpa_supplicant` is killed by pid from
+  `/proc` — not asked via `setprop ctl.stop`, which is asynchronous — and the
+  count of processes killed was *zero*. It was not running.
+- **No mode-setting tool is present.** Neither `iw` (`/usr/sbin/iw`,
+  `/sbin/iw`) nor `iwconfig` (`/sbin/iwconfig`) exists. This busybox has
+  `ifconfig`, which does addresses and flags and cannot express an 802.11
+  mode.
+- **Taking the interface down first does not help.** `ifconfig wlan0 down`
+  before hostapd, so the kernel is not being asked to change the mode of an
+  up, station-owned interface. Same error.
+- **And yet AP mode works on this radio.** The stock application runs an
+  access point at **192.168.100.1**, and its own configuration at
+  `/data/misc/wifi/hostapd.conf` names `interface=wlan0` — the same
+  interface. So the capability is there and the request is wrong.
+
+### What this means
+
+`libzknet.so` is the vendor's network HAL, and it is how stock brings the
+access point up. Its strings include `start to insmod %s`,
+`aic8800_bsp#aic8800_fdrv` and **`aic_load_fw#aic8800_fdrv`** — two distinct
+module combinations, which suggests the radio is initialised differently for
+different jobs rather than driven entirely through nl80211 afterwards.
+
+**This is the same lesson as the panel, and it should have been expected.**
+The LEDs are reached through `ledc_set_led` in `libzkhw.so` rather than by
+writing `/dev/spidev0.0` directly, because the vendor HAL is the supported
+path on this hardware. Wi-Fi AP mode is the same shape: the kernel interface
+is present but incomplete, and the vendor library holds the part that makes
+it work.
+
+### Open, and what to do about it
+
+The symbols `libzknet.so` exports for AP mode are **not yet known**. That is
+the next piece of research, and it is reconnaissance of a library already on
+the device rather than anything redistributed.
+
+Until it is done, **a flashed Stipple has no access point**, which means a
+device with no stored network cannot be configured at all: no hotspot, no
+ADB, and no USB gadget. The workaround is to give it credentials before
+Stipple runs — set Wi-Fi up under the stock application, which does work,
+and then flash. Whether that survives depends on whether a USB reflash wipes
+`/data`, which is itself unconfirmed: `docs/recovery.md` says it does, and
+the reflash has already been observed not to match its documentation once.
+
+### Why it took six cycles
+
+Every channel this device has for telling you what is wrong was unavailable
+in exactly the situation that produces the fault. No Wi-Fi, so no web UI and
+no ADB. No USB gadget, because the application that switches `otg_role` is
+the one in trouble. `vold` does not mount a USB stick for a non-vendor
+application, so writing diagnostics to one produced nothing. The device had
+written the reason to `/data/stipple/hotspot.log` the entire time and nothing
+could read it.
+
+Three of the exits from `Tc002Hotspot::start()` also returned without saying
+anything, and `note()` has a single slot, so a sequence of notes left only
+the last one. The failure finally became visible when it was given its own
+channel and pushed to the panel as a notification — the only output a device
+in this state has.
+
+## The radio will not host an *open* access point. It requires WPA2. (2026-10-01)
+
+**Measured directly, and it corrects the section above.** That earlier entry
+concluded the nl80211 route was closed and only the vendor HAL could raise an
+access point. That was wrong.
+
+Run on the device, against the stock application, with `/bin/hostapd -B` so
+its exit code reports driver initialisation. Twice, with the order reversed,
+so sequence could not be the explanation:
+
+```
+open config  (no wpa lines)   nl80211: Could not configure driver mode   rc=1
+same + wpa=2 rsn_pairwise=CCMP wpa_passphrase=...   wlan0: AP-ENABLED     rc=0
+```
+
+Same interface, same `driver=nl80211`, same `/bin/hostapd`, same SSID,
+same channel. **The only difference is WPA2 versus open, and open is refused
+at driver-mode configuration.**
+
+So `nl80211: Could not configure driver mode` on this chip does not mean what
+it says. It is emitted when the driver declines the AP configuration as a
+whole, and an open BSS is one of the things it declines.
+
+### What this invalidates
+
+- **`libzknet.so` is not needed.** Its `soft_ap_enable` disassembles to
+  `ensure_entropy_file_exists()`, `net_utils_start_service("hostapd")`,
+  `ifc_init()`, `net_utils_start_service("dnsmasq")` — the same two daemons
+  Stipple already runs. There is no hidden driver call. The only thing the
+  vendor does differently is ship a WPA2 configuration.
+- **It is not the interface.** The vendor's own `hostapd.conf` says
+  `interface=wlan0`, exactly as ours does.
+- **It is not the station holding the radio.** `wpa_supplicant` was killed by
+  pid from `/proc`; zero processes were found.
+- **It is not a missing mode tool.** Neither `iw` nor `iwconfig` exists on
+  this device, and neither is needed.
+- **It is not the module set.** `lsmod` on stock shows `aic8800_fdrv` and
+  `aic8800_bsp`, the same pair and with no extra parameters.
+
+### What it costs
+
+Blueprint and ADR had the setup hotspot **open**, on the reasoning that a
+fixed password shared by every device is worse than none because it looks
+like security. That option no longer exists: the driver will not do it.
+
+A per-device random passphrase, shown on the panel while hosting, is the
+replacement. It is better than a fixed one and better than open — the panel
+is a channel only somebody holding the clock can read.
+
+### How this was found, and the lesson
+
+Six flash cycles were spent guessing at this through a 52×16 panel, because
+a flashed STIPPLE with no access point has no other output. Each guess cost
+twenty minutes and returned one bit.
+
+The answer took ten minutes once the question was asked on a device that
+*worked* — stock, on the network, with ADB — instead of the one that did not.
+Two `hostapd -B` runs and a config diff. **When a device cannot be
+instrumented, instrument the working one next to it.**
+
+Also worth keeping: `/bin/hostapd -B` is the right way to test a
+configuration here. It daemonises, so its exit code reports whether driver
+initialisation succeeded, and the whole experiment fits in one shell script
+that restores the vendor application afterwards — no flashing, nothing lost.

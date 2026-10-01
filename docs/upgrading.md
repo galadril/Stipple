@@ -78,8 +78,12 @@ letting an upload look sufficient.
 Same procedure as a first install — `docs/install.md` — with one thing worth
 knowing before you start:
 
-**A USB reflash wipes `/data`.** Your scripts, settings, stored Wi-Fi and
-uploaded application go with it. Export anything you want to keep first:
+**A USB reflash keeps `/data`.** Scripts, settings, stored Wi-Fi and an
+uploaded `libstipple.so` all survive it — this page said otherwise before it
+was measured on hardware. It is the **reset button** that wipes `/data`, so
+only reset first if you actually want a clean device.
+
+Worth exporting anyway before any firmware operation, because cheap:
 
 ```bash
 curl -s http://your-clock/api/v1/scripts  > scripts-backup.json
@@ -89,10 +93,28 @@ curl -s http://your-clock/api/v1/settings > settings-backup.json
 And the thing that catches people:
 
 **Whatever sits at `/mnt/storage/update.img` is what the recovery button
-installs.** After flashing Stipple, that file is the *Stipple* image — so
-holding reset reinstalls Stipple rather than returning you to stock. See
-`docs/recovery.md`, which explains how to arm it with your own stock capture
-instead.
+installs** — and a USB install does not appear to change it, provided you
+remove the stick when the Ulanzi logo appears. Measured: after installing
+Stipple that way, holding reset still produced **stock**.
+
+That makes "remove the stick at the logo" more than housekeeping. It decides
+what your recovery button does for the life of the device:
+
+- **Remove it at the logo** — the staged image is untouched. On a device that
+  has only ever had the factory image staged, reset keeps meaning "back to
+  stock".
+- **Leave it in** — the image can end up staged, and from then on reset
+  reinstalls *that* instead. A device here had a Stipple image staged with a
+  timestamp matching an earlier install where the stick stayed in.
+
+Check rather than assume — the size tells you which it is:
+
+```bash
+curl -s http://your-clock/api/v1/system/recovery
+```
+
+It answers in words: `"means": "returns this device to the stock Ulanzi
+clock"`. `docs/recovery.md` covers changing it.
 
 ## Downgrading
 

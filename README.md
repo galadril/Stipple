@@ -81,7 +81,9 @@ never means two things.
 its own Wi-Fi driver — the stock application does both. Stipple replaces that
 application, so it loads the driver, starts the supplicant, holds a DHCP
 lease, and sets the clock over SNTP. It scans and joins networks, and hosts a
-`Stipple-setup` access point on `192.168.4.1` when it cannot reach yours.
+`Stipple-setup` access point on `192.168.4.1` when it cannot reach yours —
+password `stipple1234`, the same on every device and shown on the panel,
+because this radio will not host an open network.
 
 **One API surface.** `/api/v1/*`, served by the device and reachable over HTTP
 or MQTT — the same router answers both, so they cannot drift. The

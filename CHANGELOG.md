@@ -10,7 +10,86 @@ device without a capture of that device first.
 
 ## Unreleased
 
+> ### Upgrading from an earlier version
+>
+> **Upload it — a USB reflash is not needed.** Everything that matters here
+> lives in `libstipple.so`, so **Settings → Firmware** delivers it: the
+> setup-hotspot fix, the Wi-Fi config that a factory reset used to destroy,
+> the address reporting, the join diagnostics and the recovery API.
+>
+> **One thing in this release cannot arrive that way.** The boot-failure
+> ladder is in the startup shim, which lives in the read-only `res`
+> partition, and only a reflash replaces it. It is a safety net rather than a
+> feature — it rolls back an update or falls through to the stock clock after
+> repeated unfinished boots — so an uploaded device works exactly as well
+> day to day and simply has no net under it.
+>
+> Ask your device which it has:
+>
+> ```
+> curl -s http://your-clock/api/v1/system/firmware
+> ```
+>
+> `loaderFeatures` is `-1` on every device flashed before this existed, and
+> `1` once the shim carries the ladder. `-1` is not a fault and nothing
+> degrades because of it.
+>
+> **If you do reflash, a reset first wipes `/data`** — scripts, settings and
+> stored Wi-Fi. A USB reflash on its own does *not*; that distinction was
+> measured on hardware this release and the old documentation had it wrong.
+>
+> See [docs/upgrading.md](docs/upgrading.md).
+
+
 ### Added
+
+- **The setup hotspot works on a fresh device, which is the whole point of
+  it.** A Stipple with no stored network could not raise one at all, so a
+  factory-fresh clock had no way to be configured: no access point, no web UI,
+  no ADB, and no USB gadget either — the port is a host until the application
+  switches it, and the application was the thing in trouble.
+
+  Two causes, both needing hardware to find:
+
+  **The radio will not host an open network.** The setup access point was
+  open by design — a password shared by every device only looks like security.
+  This chip refuses it: with no `wpa` lines hostapd fails at `nl80211: Could
+  not configure driver mode`, and the identical configuration with WPA2
+  reports `AP-ENABLED`. Tested both orders round. Ulanzi hit the same wall —
+  their own `U-Clock` setup network is WPA2 with a fixed key, hidden inside
+  their phone app.
+
+  So the network is now WPA2 with the password **`stipple1234`**, the same on
+  every device, shown on the setup screen and written in the docs. Published
+  rather than secret, because what it protects is a few minutes in which
+  somebody types their own Wi-Fi details into their own clock. A random
+  per-device key was tried first and was worse: it has to be read off a
+  52-pixel panel while you are also hunting for the network on a phone, and
+  missing it locked you out of your own device.
+
+  **And the interface was up when hostapd ran.** `ifconfig wlan0 0.0.0.0`
+  brings an interface up — assigning an address implies up — so a step added
+  to clear a stale address was undoing the `down` on the very next line.
+  hostapd cannot change the mode of a live interface. Now: clear, then down,
+  then hostapd, then the address.
+
+- **Stipple no longer reports an address it did not obtain.** The vendor's
+  network stack runs inside Stipple's process — the startup shim lists
+  `libzkgui.so` as a dependency so that a Stipple which will not load still
+  leaves a working clock, and that brings the vendor application along. Its
+  soft-AP manager configures `wlan0` with `192.168.100.1` and brings the
+  interface up.
+
+  That address was being shown on the panel and reported as `connected`, so a
+  device with no network looked like a device with one. It also made the DHCP
+  client adopt it and declare itself bound, which is why the automatic setup
+  hotspot never fired while holding the knob still worked.
+
+  Three fixes: the vendor soft AP is asked to stand down (`soft_ap_disable`,
+  already in the process, no `dlopen` needed); only `wlan0` is ever reported;
+  and an address is only adopted when the interface is `IFF_RUNNING`, because
+  an address on an unassociated interface cannot be a lease.
+
 
 - **The recovery button can be pointed at stock.** Holding reset during
   power-up installs whatever image is waiting on the device's own storage, and
@@ -37,6 +116,15 @@ device without a capture of that device first.
   lost inside it, because a recovery button that silently does nothing is the
   worst failure available here: it would appear to work right up until
   somebody needed it.
+
+  Found by testing it on a device rather than by reading the code: the volume
+  is mounted **read-only** — `vfat (ro,...,errors=remount-ro)`, the vendor's
+  choice, because the same partition is exposed to a computer as USB mass
+  storage and vfat has no journal for two writers. Every write returned
+  `EROFS`. It is now remounted writable for exactly as long as the renames
+  take and put back afterwards, by a guard that cannot be skipped on a failure
+  path — leaving a vfat volume writable on a device that can lose power at any
+  moment is how a recovery image becomes unreadable.
 
   **Going back to stock is a button; coming back to Stipple is the USB stick**
   from `docs/install.md`. That asymmetry is permanent rather than unfinished —

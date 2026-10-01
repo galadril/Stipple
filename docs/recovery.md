@@ -34,8 +34,9 @@ Usually the hotspot: one radio cannot be an access point and a station at the
 same time, so while Stipple hosts `Stipple-setup` it is not on your Wi-Fi at
 all. That is normal and it reverts on its own.
 
-1. Look for a Wi-Fi network called **`Stipple-setup`**. If it is there, join it
-   and open <http://192.168.4.1/>.
+1. Look for a Wi-Fi network called **`Stipple-setup`**. If it is there, join
+   it with the password **`stipple1234`** and open <http://192.168.4.1/>. The
+   panel shows both while it is hosting.
 2. If it is not, wait two minutes — the hotspot reverts by itself and the
    device re-joins your network.
 3. If it is still gone, power cycle.
@@ -52,8 +53,8 @@ when they get back in.
 ### You want to put it on a different Wi-Fi network
 
 **Hold the knob in for five seconds.** The panel counts down under `SETUP`,
-and at zero the device starts its hotspot: join `Stipple-setup` and open
-<http://192.168.4.1/>.
+and at zero the device starts its hotspot: join `Stipple-setup` with the
+password `stipple1234` and open <http://192.168.4.1/>.
 
 This works whether or not the device is already online, which is the point -
 moving house or changing routers is not a fault, and it should not require
@@ -139,9 +140,26 @@ That is driven by a pending-upgrade flag in `/data`; a device with an unused
 
 ### What it does
 
-A full `res` reflash **and** a `/data` wipe. Stock application, stock
-configuration, and anything in `/data` — including Stipple and its settings —
-is gone. That is a restore, not a repair.
+A full `res` reflash. The application in `res` is replaced by whatever the
+image carries.
+
+**It does not wipe `/data`** — and this page said the opposite for a long
+time. Measured on hardware: a Stipple installed over a device that had Wi-Fi
+configured came up already on the network, because
+`/data/misc/wifi/wpa_supplicant.conf` was still there. Scripts, settings,
+stored networks and an uploaded `libstipple.so` all survive a USB reflash.
+
+**The reset button is the one that wipes `/data`.** That is the difference
+between the two routes, and it is worth having straight:
+
+| | `res` reflashed | `/data` wiped |
+|---|:--:|:--:|
+| USB stick | yes | **no** |
+| Reset button held at power-up | yes | **yes** |
+
+So a USB reflash is an upgrade that keeps your configuration, and holding
+reset is a factory restore. If you want a genuinely clean device, reset
+first and then flash.
 
 ### Honest note on what was tested
 
