@@ -39,11 +39,18 @@ public:
     /// filesystem is atomic, so the shim never sees a partial library.
     static constexpr const char* kIncomingPath = "/data/stipple/libstipple.so.incoming";
 
+    /// Where the shim records what it can do. Absent means a shim from before
+    /// it said, which is a perfectly ordinary state on a device flashed once
+    /// and updated over the air ever since.
+    static constexpr const char* kLoaderFeaturesPath = "/data/stipple/shim";
+
     std::string applicationPath() const override { return kApplicationPath; }
 
     std::size_t installedBytes() const override;
 
     bool hasPrevious() const override;
+
+    int loaderFeatures() const override;
 
     bool install(std::string_view image, std::string& problem) override;
 

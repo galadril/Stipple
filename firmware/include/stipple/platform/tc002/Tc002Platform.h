@@ -10,6 +10,7 @@
 #include "stipple/platform/tc002/Tc002Dhcp.h"
 #include "stipple/platform/tc002/Tc002Sntp.h"
 #include "stipple/platform/tc002/Tc002Hotspot.h"
+#include "stipple/platform/tc002/Tc002Recovery.h"
 #include "stipple/platform/tc002/Tc002Upgrade.h"
 #include "stipple/platform/tc002/Tc002Display.h"
 #include "stipple/platform/tc002/Tc002HttpServer.h"
@@ -101,6 +102,8 @@ public:
     /// True once the supplicant's control socket answers. False means it is
     /// not running, which is a real state on a device that has been put into
     /// hotspot mode - not an error, and not "no networks in range".
+    bool hasStoredNetwork() const override;
+
     bool canScan() const override;
 
     bool beginScan() override;
@@ -135,6 +138,22 @@ public:
     /// which status() reports as such rather than as zero seconds left.
     void observe(const Tc002Dhcp* dhcp) noexcept { dhcp_ = dhcp; }
 
+    /// How the last join ended, once. Empty when there is nothing new.
+    ///
+    /// Drained by the loop into the ring log, like the hotspot's and the DHCP
+    /// client's, because the alternative turned out to be no record at all.
+    ///
+    /// `fail()` sets in-memory state that the API reports while the stage
+    /// stays `Failed` - and *nobody is connected to read it*. A join ends by
+    /// taking the radio away from the access point the person asking was
+    /// reaching the device over, so the natural next move is a power cycle,
+    /// which clears the ring log too. Four consecutive live failures on real
+    /// hardware produced no evidence of any kind; the cause was finally
+    /// caught by polling the API from a second machine during the attempt.
+    ///
+    /// A failure that leaves no trace costs more than the failure.
+    std::string takeEvent();
+
 private:
     /// What a join is doing. Kept out of the header's public face because
     /// callers ask through joinProgress(), which reports it in words.
@@ -157,6 +176,7 @@ private:
     void fail(const std::string& why);
     void forgetAddedNetwork();
     bool configureNetwork();
+    void note(const std::string& text);
 
     const Tc002Dhcp* dhcp_ = nullptr;
     Tc002Hotspot* hotspot_ = nullptr;
@@ -170,6 +190,7 @@ private:
     std::string joinSsid_;
     std::string joinPassword_;
     std::string joinDetail_;
+    std::string event_;
     std::uint64_t stageDeadlineMillis_ = 0;
     int addedNetworkId_ = -1;
     bool askedForAddress_ = false;
@@ -251,6 +272,7 @@ public:
     /// Always present on hardware: the storage volume the loader reads is
     /// always there, whether or not anything has been staged on it.
     IUpgradeManager* upgrade() override { return &upgrade_; }
+    IRecoveryImages* recoveryImages() override { return &recovery_; }
 
     /// Non-null only once the MCU link is open. A device whose serial port
     /// could not be configured reports no battery rather than zero percent.
@@ -306,6 +328,10 @@ public:
     /// something that is definitely still running.
     Tc002Hotspot& hotspot() noexcept { return hotspot_; }
 
+    /// The concrete recovery images, for the startup path's repair() call.
+    /// Core sees only the interface; repair() is a device-lifecycle concern.
+    Tc002Recovery& recovery() noexcept { return recovery_; }
+
     /// Concrete, because joining is polled from the loop and
     /// INetworkManager has no poll() - the interface describes what core is
     /// allowed to ask for, not how the adapter keeps its promises.
@@ -331,6 +357,7 @@ private:
     Tc002Sntp sntp_;
     Tc002Hotspot hotspot_;
     Tc002Upgrade upgrade_;
+    Tc002Recovery recovery_;
 };
 
 }  // namespace tc002

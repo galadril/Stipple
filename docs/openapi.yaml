@@ -874,7 +874,6 @@ paths:
                       True when an install or rollback has happened since this
                       process started, so what is on disk is not what is
                       running.
-
                       The file alone cannot answer this: an installed override
                       looks the same whether it is waiting for a restart or
                       already loaded, and `installedBytes` reports the same
@@ -884,6 +883,25 @@ paths:
 
                       A restart clears it, because the flag lives only in
                       memory.
+                  loaderFeatures:
+                    type: integer
+                    description: |
+                      What the loader that started this application can do.
+                      **An upload cannot change it** — the loader lives in
+                      read-only storage and only a reflash replaces it, so a
+                      device flashed long ago runs the newest application on
+                      the oldest loader and the version number says nothing
+                      about it.
+
+                      `-1` means a loader from before this was reported, and
+                      is the honest value for such a device rather than an
+                      error. Deliberately distinct from `0`, which would claim
+                      a loader supporting nothing. `1` means boot-attempt
+                      counting and the 5/8 fallback ladder.
+
+                      Read it before telling somebody an upload is sufficient.
+                      See [docs/upgrading.md](upgrading.md).
+                    examples: [1, -1]
         "501": { $ref: "#/components/responses/NotSupported" }
     post:
       tags: [system]
@@ -972,6 +990,103 @@ paths:
       responses:
         "202": { description: Rebooting. }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "501": { $ref: "#/components/responses/NotSupported" }
+
+  /system/recovery:
+    get:
+      tags: [system]
+      summary: What the recovery button would install
+      description: |
+        **This is not flashing and it does not install anything.** The
+        device's own loader installs whatever image is waiting on its storage
+        when somebody holds the recovery button during power-up. This reports
+        which of the two images already on the device is the one waiting, and
+        `POST` changes which — the way moving a letter between two pigeonholes
+        is not writing a letter.
+
+        It exists because the recovery button is the only way back when
+        nothing else works, and it used to reinstall Stipple. Somebody holding
+        it to return to stock got a progress bar, a green tick and Stipple
+        again. See [docs/recovery.md](recovery.md).
+
+        `means` is the same answer in words, because nobody reaches for a
+        recovery button thinking in filenames.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  armed:
+                    type: string
+                    enum: [stock, stipple, nothing, unrecognised]
+                    description: |
+                      `nothing` means no image is waiting, so the button does
+                      nothing — a real state and worth knowing, because a
+                      button somebody is relying on doing nothing is the worst
+                      case here. `unrecognised` means an image is waiting that
+                      this device did not put there, most likely from a USB
+                      stick; it is reported rather than guessed at.
+                  means:
+                    type: string
+                    examples: ["returns this device to the stock Ulanzi clock"]
+                  available:
+                    type: object
+                    description: Which images are on the device and could be armed.
+                    properties:
+                      stock: { type: boolean }
+                      stipple: { type: boolean }
+                  freeBytes:
+                    type: integer
+                    description: |
+                      Free space where the images live. Small on purpose: the
+                      volume is about 8.4 MB and the two images take roughly
+                      5.9 MB of it, which is why switching renames rather than
+                      copying and why a third image does not fit.
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "501": { $ref: "#/components/responses/NotSupported" }
+    post:
+      tags: [system]
+      summary: Choose what the recovery button installs
+      description: |
+        Arms one of the two images already on the device. Idempotent: arming
+        what is already armed succeeds and touches nothing.
+
+        **Nothing is installed by this call.** The change takes effect the
+        next time the loader runs — when somebody holds the recovery button,
+        or when the vendor's watchdog performs an unattended recovery because
+        the application never declared itself running.
+
+        Refused with `422` when that image is not on the device, and when the
+        armed image is one this device did not put there: swapping would move
+        it aside and claim the spare is what you asked for, which may not be
+        true.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [arm]
+              properties:
+                arm:
+                  type: string
+                  enum: [stock, stipple]
+      responses:
+        "200":
+          description: Armed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  armed: { type: string, enum: [stock, stipple] }
+                  means: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
         "501": { $ref: "#/components/responses/NotSupported" }
 
 components:

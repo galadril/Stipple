@@ -143,7 +143,24 @@ nothing at all.
 
 Remove it because whatever sits at `/mnt/storage/update.img` is what the
 device installs on its *next* recovery — and one kind of recovery happens
-unattended. See the warning below.
+unattended.
+
+**Removing it at the logo leaves the staged image alone**, which is what you
+want: on a device that has only ever had the factory image staged, holding
+reset keeps meaning "back to stock". Measured — after installing Stipple this
+way, holding reset still produced stock.
+
+Leave the stick in and the image can end up staged instead, and from then on
+reset reinstalls *that*. One device here had a Stipple image staged with a
+timestamp matching an earlier install where the stick had stayed in, which is
+how an hour went into wondering why the recovery button reinstalled the thing
+it was being used to escape.
+
+You can always ask which it is:
+
+```bash
+curl -s http://your-clock/api/v1/system/recovery
+```
 
 ## What the first boot looks like
 
@@ -158,9 +175,30 @@ no RTC battery, so it boots at 1970 and asks the network. That takes a few
 seconds after the address arrives. `__:__` means "I do not know yet", not a
 fault.
 
-**If it cannot reach your Wi-Fi**, it hosts an open network called
-`Stipple-setup` — after 60 seconds if it has never connected, or 5 minutes if
-it lost a network that was working. Join it and open <http://192.168.4.1/>.
+**If it cannot reach your Wi-Fi**, it hosts a network called `Stipple-setup`
+— after 60 seconds if it has never connected, or 5 minutes if it lost a
+network that was working.
+
+```
+network   Stipple-setup
+password  stipple1234
+then open http://192.168.4.1/
+```
+
+The panel tells you the same thing while it is hosting, so you do not have to
+remember it.
+
+**The password is the same on every device, and that is deliberate.** This
+network was meant to be open — a password shared by everyone only looks like
+security — but the Wi-Fi driver on this hardware refuses to host an open
+network at all. With no `wpa` lines hostapd fails at "could not configure
+driver mode"; the identical configuration with WPA2 works. Ulanzi hit the same
+wall: the stock `U-Clock` setup network is also WPA2 with a fixed key, theirs
+simply hidden inside their phone app.
+
+So the password is published rather than secret. What it protects is an access
+point that exists for a few minutes so you can type your own Wi-Fi details
+into your own clock.
 
 You can also ask for that at any time: **hold the knob for five seconds.** The
 panel counts down under `SETUP`. It clears nothing and changes nothing.
@@ -188,6 +226,18 @@ mysterious flash failure both times.
 **Do not hold reset to break a boot loop.** It wipes `/data`. If your only
 copy of Stipple is the override there, it goes with it — though since the flash
 in step 4 puts a copy in `/res`, this is now survivable rather than fatal.
+
+**A USB reflash, by contrast, keeps `/data`.** Scripts, settings, stored
+networks and an uploaded `libstipple.so` all survive it — measured on
+hardware, and the opposite of what these documents used to say. So reflashing
+is an upgrade that keeps your configuration, and holding reset is the factory
+restore. See [docs/recovery.md](recovery.md).
+
+**Do not leave the device with no application running.** Stop the vendor app
+and Stipple both, and something reboots the device after about a minute —
+there is a watchdog, and it took two diagnostic runs with us before we
+noticed `/tmp` had been wiped underneath them. Anything you want to read after
+a failure belongs in `/data` or on `/mnt/storage`, not `/tmp`.
 
 ## Getting back to stock
 

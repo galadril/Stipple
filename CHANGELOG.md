@@ -10,7 +10,126 @@ device without a capture of that device first.
 
 ## 0.2.9
 
+> ### Upgrading from an earlier version
+>
+> **Upload it — a USB reflash is not needed.** Everything that matters here
+> lives in `libstipple.so`, so **Settings → Firmware** delivers it: the
+> setup-hotspot fix, the Wi-Fi config that a factory reset used to destroy,
+> the address reporting, the join diagnostics and the recovery API.
+>
+> **One thing in this release cannot arrive that way.** The boot-failure
+> ladder is in the startup shim, which lives in the read-only `res`
+> partition, and only a reflash replaces it. It is a safety net rather than a
+> feature — it rolls back an update or falls through to the stock clock after
+> repeated unfinished boots — so an uploaded device works exactly as well
+> day to day and simply has no net under it.
+>
+> Ask your device which it has:
+>
+> ```
+> curl -s http://your-clock/api/v1/system/firmware
+> ```
+>
+> `loaderFeatures` is `-1` on every device flashed before this existed, and
+> `1` once the shim carries the ladder. `-1` is not a fault and nothing
+> degrades because of it.
+>
+> **If you do reflash, a reset first wipes `/data`** — scripts, settings and
+> stored Wi-Fi. A USB reflash on its own does *not*; that distinction was
+> measured on hardware this release and the old documentation had it wrong.
+>
+> See [docs/upgrading.md](docs/upgrading.md).
+
+
 ### Added
+
+- **The setup hotspot works on a fresh device, which is the whole point of
+  it.** A Stipple with no stored network could not raise one at all, so a
+  factory-fresh clock had no way to be configured: no access point, no web UI,
+  no ADB, and no USB gadget either — the port is a host until the application
+  switches it, and the application was the thing in trouble.
+
+  Two causes, both needing hardware to find:
+
+  **The radio will not host an open network.** The setup access point was
+  open by design — a password shared by every device only looks like security.
+  This chip refuses it: with no `wpa` lines hostapd fails at `nl80211: Could
+  not configure driver mode`, and the identical configuration with WPA2
+  reports `AP-ENABLED`. Tested both orders round. Ulanzi hit the same wall —
+  their own `U-Clock` setup network is WPA2 with a fixed key, hidden inside
+  their phone app.
+
+  So the network is now WPA2 with the password **`stipple1234`**, the same on
+  every device, shown on the setup screen and written in the docs. Published
+  rather than secret, because what it protects is a few minutes in which
+  somebody types their own Wi-Fi details into their own clock. A random
+  per-device key was tried first and was worse: it has to be read off a
+  52-pixel panel while you are also hunting for the network on a phone, and
+  missing it locked you out of your own device.
+
+  **And the interface was up when hostapd ran.** `ifconfig wlan0 0.0.0.0`
+  brings an interface up — assigning an address implies up — so a step added
+  to clear a stale address was undoing the `down` on the very next line.
+  hostapd cannot change the mode of a live interface. Now: clear, then down,
+  then hostapd, then the address.
+
+- **Stipple no longer reports an address it did not obtain.** The vendor's
+  network stack runs inside Stipple's process — the startup shim lists
+  `libzkgui.so` as a dependency so that a Stipple which will not load still
+  leaves a working clock, and that brings the vendor application along. Its
+  soft-AP manager configures `wlan0` with `192.168.100.1` and brings the
+  interface up.
+
+  That address was being shown on the panel and reported as `connected`, so a
+  device with no network looked like a device with one. It also made the DHCP
+  client adopt it and declare itself bound, which is why the automatic setup
+  hotspot never fired while holding the knob still worked.
+
+  Three fixes: the vendor soft AP is asked to stand down (`soft_ap_disable`,
+  already in the process, no `dlopen` needed); only `wlan0` is ever reported;
+  and an address is only adopted when the interface is `IFF_RUNNING`, because
+  an address on an unassociated interface cannot be a lease.
+
+
+- **The recovery button can be pointed at stock.** Holding reset during
+  power-up installs whatever image is waiting on the device's own storage, and
+  after installing Stipple that image *is* Stipple — so the one control
+  everybody reaches for when nothing else works reinstalled the thing they
+  were trying to leave. Held to return to stock, it gave a progress bar, a
+  green tick and Stipple again. Nothing had failed; the button did exactly
+  what it is built to do.
+
+  `GET /api/v1/system/recovery` now says what it would do, in words rather
+  than filenames — `"returns this device to the stock Ulanzi clock"` — and
+  `POST {"arm":"stock"}` changes which of the two images already on the device
+  is the one waiting.
+
+  **Nothing is installed by that call and it is not flashing.** It moves a
+  letter between two pigeonholes; the loader is still the only thing that
+  writes firmware, and only when somebody holds the button. Switching is a
+  rename rather than a copy because the volume is 8.4 MB and the two images
+  take 5.9 MB of it — a third copy does not fit, and 3 MB is not rewritten
+  onto flash that wears out.
+
+  With two slots and no room for a third, a swap passes through one rename's
+  worth of time with nothing armed. The startup path repairs that if power is
+  lost inside it, because a recovery button that silently does nothing is the
+  worst failure available here: it would appear to work right up until
+  somebody needed it.
+
+  Found by testing it on a device rather than by reading the code: the volume
+  is mounted **read-only** — `vfat (ro,...,errors=remount-ro)`, the vendor's
+  choice, because the same partition is exposed to a computer as USB mass
+  storage and vfat has no journal for two writers. Every write returned
+  `EROFS`. It is now remounted writable for exactly as long as the renames
+  take and put back afterwards, by a guard that cannot be skipped on a failure
+  path — leaving a vfat volume writable on a device that can lose power at any
+  moment is how a recovery image becomes unreadable.
+
+  **Going back to stock is a button; coming back to Stipple is the USB stick**
+  from `docs/install.md`. That asymmetry is permanent rather than unfinished —
+  once the stock image is installed there is no Stipple left to serve a page.
+  What is a button is changing your mind before you hold reset.
 
 - **Ten sounds instead of five, and they mean something.** `success`,
   `failure`, `notify`, `alarm` and `startup` join the original five, and all
@@ -36,6 +155,35 @@ device without a capture of that device first.
 - **A "Play it" button beside the notification sound.** Choosing a sound from
   a dropdown and then waiting for a notification to discover what you chose is
   not a choice, it is a guess.
+
+- **A Stipple that keeps failing to start now gets out of the way.** The
+  startup shim already fell through to the stock clock when no Stipple library
+  would load — so a device was never unreachable because of a *bad file*. What
+  it could not survive was a Stipple that loaded successfully and then failed:
+  a crash a few frames in, a hang on storage, a script that throws at startup.
+  `dlopen` had returned a handle, so the shim was finished deciding, and every
+  later boot repeated the identical failure. Nothing on this device obtains an
+  address except the application, so that loop is a clock reachable by
+  nothing — no web UI, no ADB, not even a USB gadget.
+
+  It now counts boots that never finished, and spends the cheap remedies
+  first:
+
+  ```
+  3 unfinished boots  ->  safe mode: default settings, no stored apps
+  5 unfinished boots  ->  ignore the override: roll back the update
+  8 unfinished boots  ->  the stock clock
+  ```
+
+  The first rung already existed. The two new ones sit deliberately *above*
+  it: starting both ladders at three would have spent an over-the-air update
+  to fix a fault that defaulting the settings had already fixed, with nothing
+  to say which had worked.
+
+  The count is written before anything is loaded and cleared by Stipple on the
+  same signal that clears its own boot marker — frames are rendering. Not a
+  timer of its own, because two components disagreeing about what "started
+  successfully" means is how a working update gets rolled back.
 
 ### Changed
 
@@ -81,6 +229,63 @@ device without a capture of that device first.
   run — see the findings doc.
 
 ### Fixed
+
+- **The notification sound dropdown drew an empty box offering nothing but
+  "Silent".** Two faults, one symptom. The list is fetched from
+  `GET /api/v1/sound` alongside the settings and device requests, and the
+  device serves four connections while closing every response — so the third
+  of three simultaneous requests can be refused outright, and the catalogue
+  is the third. That failure was then swallowed on the grounds that a device
+  with no speaker answers 404 and says so elsewhere, which made every other
+  reason the request can fail look identical to "nothing to add".
+
+  With only `Silent` in the list, writing the saved setting into the select
+  finished the job: a `<select>` handed a value no `<option>` carries does not
+  fall back to the first row, it goes to `selectedIndex` −1 and draws blank.
+  The device said `chime`, the control said nothing at all.
+
+  The request is now retried once, a value with no matching row gets a row of
+  its own rather than a blank box — the device's answer shown as the device's
+  answer (ADR 0013) — and a catalogue that still will not load says so in
+  place of the help text instead of looking like a device somebody muted.
+
+- **A factory reset left the device permanently unable to use Wi-Fi.** The
+  recovery button wipes `/data` by design, which takes
+  `/data/misc/wifi/wpa_supplicant.conf` with it — and `wpa_supplicant` is
+  started with `-c` pointing at exactly that file, so it exited immediately.
+  `ctl.start` still succeeded, nothing ever bound `/dev/socket/wlan0`, and
+  every join sat out its timeout reporting *"the Wi-Fi service did not come
+  back"*. A radio timeout, for a missing 43-byte text file.
+
+  Found on hardware, after a reset: the device could neither scan nor join
+  anything, and scanning failed for the same single reason, because `canScan()`
+  means "can the control socket be opened". Stipple now writes the default
+  when it finds none, before either path that starts the supplicant. It only
+  ever creates — an existing file holds your networks and is never touched.
+
+  This is the same lesson as `ensureStation()` one layer down: replacing the
+  vendor application means inheriting the jobs it did, and it both started the
+  supplicant *and* came with a `/data` that already held its config.
+
+- **A failed join left no trace anywhere.** `fail()` set in-memory state that
+  the API reports only while the attempt is still the most recent one — and
+  nobody is connected to read it, because a join ends by taking the radio away
+  from the access point the person asking was reaching the device over. The
+  natural next move is a power cycle, which clears the ring log too.
+
+  Four consecutive live failures produced no evidence of any kind; the cause
+  was eventually caught by polling the API from a second machine *during* an
+  attempt. Join outcomes now go to the ring log, success and failure alike,
+  with the SSID and without the password. A failure that leaves no trace costs
+  more than the failure.
+
+- **"Cannot scan right now." was the whole message, on first run.** One radio
+  cannot host an access point and scan at the same time, so a fresh device
+  showing its setup page can never populate the list — which is exactly when
+  somebody is standing there trying to join a network. The page named a
+  problem and not the way through, and the branch that *does* explain the
+  radio conflict only fires when there is a remembered list to show. It now
+  says why and points at **Other**, where you type the name by hand.
 
 - **A sound ending mid-frame replayed a fragment of the previous frame.**
   `Tc002Audio` handed the driver a full frame whether or not the sound had

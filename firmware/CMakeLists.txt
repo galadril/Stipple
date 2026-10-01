@@ -284,6 +284,7 @@ if(STIPPLE_DEVICE_BUILD)
         src/platform/tc002/Tc002MqttClient.cpp
         src/platform/tc002/Tc002Platform.cpp
         src/platform/tc002/Tc002Upgrade.cpp
+        src/platform/tc002/Tc002Recovery.cpp
         src/platform/tc002/WpaControl.cpp
     )
 

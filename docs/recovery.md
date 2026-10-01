@@ -34,8 +34,9 @@ Usually the hotspot: one radio cannot be an access point and a station at the
 same time, so while Stipple hosts `Stipple-setup` it is not on your Wi-Fi at
 all. That is normal and it reverts on its own.
 
-1. Look for a Wi-Fi network called **`Stipple-setup`**. If it is there, join it
-   and open <http://192.168.4.1/>.
+1. Look for a Wi-Fi network called **`Stipple-setup`**. If it is there, join
+   it with the password **`stipple1234`** and open <http://192.168.4.1/>. The
+   panel shows both while it is hosting.
 2. If it is not, wait two minutes — the hotspot reverts by itself and the
    device re-joins your network.
 3. If it is still gone, power cycle.
@@ -52,8 +53,8 @@ when they get back in.
 ### You want to put it on a different Wi-Fi network
 
 **Hold the knob in for five seconds.** The panel counts down under `SETUP`,
-and at zero the device starts its hotspot: join `Stipple-setup` and open
-<http://192.168.4.1/>.
+and at zero the device starts its hotspot: join `Stipple-setup` with the
+password `stipple1234` and open <http://192.168.4.1/>.
 
 This works whether or not the device is already online, which is the point -
 moving house or changing routers is not a fault, and it should not require
@@ -139,9 +140,26 @@ That is driven by a pending-upgrade flag in `/data`; a device with an unused
 
 ### What it does
 
-A full `res` reflash **and** a `/data` wipe. Stock application, stock
-configuration, and anything in `/data` — including Stipple and its settings —
-is gone. That is a restore, not a repair.
+A full `res` reflash. The application in `res` is replaced by whatever the
+image carries.
+
+**It does not wipe `/data`** — and this page said the opposite for a long
+time. Measured on hardware: a Stipple installed over a device that had Wi-Fi
+configured came up already on the network, because
+`/data/misc/wifi/wpa_supplicant.conf` was still there. Scripts, settings,
+stored networks and an uploaded `libstipple.so` all survive a USB reflash.
+
+**The reset button is the one that wipes `/data`.** That is the difference
+between the two routes, and it is worth having straight:
+
+| | `res` reflashed | `/data` wiped |
+|---|:--:|:--:|
+| USB stick | yes | **no** |
+| Reset button held at power-up | yes | **yes** |
+
+So a USB reflash is an upgrade that keeps your configuration, and holding
+reset is a factory restore. If you want a genuinely clean device, reset
+first and then flash.
 
 ### Honest note on what was tested
 
@@ -223,6 +241,63 @@ need it rather than after.
 Holding the reset button during power-up makes the device wipe `/data` and
 reflash the `res` partition from `/mnt/storage/update.img` — the file on its
 own USB volume.
+
+**It installs whatever is staged there, which after installing Stipple is
+Stipple.** This is the single most surprising thing in this document, so it is
+stated before the subtleties: if you hold reset expecting the stock clock
+back, you will watch a progress bar fill, turn green, and boot Stipple again.
+Nothing failed. The button is not a factory restore — it is "install the
+staged image", and the staged image is the one you installed from.
+
+To make it return you to stock, point it at your own capture. Ask the device
+what it is currently armed with:
+
+```bash
+curl -s http://your-clock/api/v1/system/recovery
+```
+
+```json
+{"armed":"stipple","means":"reinstalls Stipple",
+ "available":{"stock":true,"stipple":true},"freeBytes":2707968}
+```
+
+and change it:
+
+```bash
+curl -X POST http://your-clock/api/v1/system/recovery \
+  -H 'Content-Type: application/json' -d '{"arm":"stock"}'
+```
+
+Nothing is installed by that call. It changes which of the two images already
+on the device is the one waiting, so the **next** time the loader runs — when
+you hold the button — it installs that one instead. Switching is a rename, not
+a copy: the volume is 8.4 MB and the two images take about 5.9 MB of it, so a
+third copy would not fit and 3 MB is not rewritten onto flash that wears out.
+
+**This is one-way.** Going back to stock is a button; coming back to Stipple is
+the USB stick from [docs/install.md](install.md). Once the stock image is
+installed there is no Stipple left to serve a page, so no button on our side
+can exist. What *is* a button is changing your mind before you hold reset —
+arm Stipple again and nothing has happened.
+
+If the API is not reachable, the same thing over adb:
+
+```powershell
+adb shell "ls -la /mnt/storage/"          # which image is armed; size tells you
+```
+
+**The same press wipes `/data`, and that takes your Wi-Fi configuration with
+it.** `/data/misc/wifi/wpa_supplicant.conf` is what `wpa_supplicant` is
+started with, and without it the daemon exits immediately — so the device
+cannot scan or join anything and says *"the Wi-Fi service did not come back"*,
+which sounds like a broken radio and is a missing text file. Stipple now
+rewrites a default when it finds none, but a build from before that fix needs
+it by hand:
+
+```powershell
+adb shell "printf 'ctrl_interface=/dev/socket\nupdate_config=1\n' > /data/misc/wifi/wpa_supplicant.conf"
+adb shell "chown 1010:1010 /data/misc/wifi/wpa_supplicant.conf; chmod 660 /data/misc/wifi/wpa_supplicant.conf"
+```
 
 **That image is not necessarily the firmware your device is running.**
 

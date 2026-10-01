@@ -73,6 +73,14 @@ public:
     /// ring log rather than written to a file nobody will get to.
     std::string takeEvent();
 
+    /// Why the last attempt to host failed, once. Empty when nothing has.
+    ///
+    /// Separate from takeEvent() because the panel needs the failure and not
+    /// the most recent note of any kind - and the panel is the only channel
+    /// that works on a device with no network, which is precisely the device
+    /// an access point failure produces.
+    std::string takeFailure();
+
     /// Whether both daemons are still alive.
     ///
     /// An access point serving no addresses is worse than no access point:
@@ -114,6 +122,13 @@ public:
 
     bool running() const noexcept { return running_; }
 
+    /// The passphrase this session is hosting with. Empty when not hosting.
+    ///
+    /// The network cannot be open - the driver refuses an open BSS - so one
+    /// is generated per session and shown on the panel, which is the only
+    /// channel that requires holding the clock.
+    const std::string& passphrase() const noexcept { return passphrase_; }
+
     /// The name being broadcast. Empty when not running.
     const std::string& ssid() const noexcept { return ssid_; }
 
@@ -130,7 +145,42 @@ private:
     /// configuration step whose result the next step depends on, and a
     /// hotspot half-configured because ifconfig had not finished is a bug that
     /// only shows up on a slow boot.
+    void noteFailure(const std::string& text);
+
+    /// Write a failure, and hostapd's whole log, to /mnt/storage.
+    ///
+    /// That volume survives a res reflash and a /data wipe, and the stock
+    /// application can reach a network - so it is the only way to get a
+    /// diagnosis off a device whose access point will not start.
+    void keepFailureForStock(const std::string& text);
     int run(const char* const argv[]) const;
+
+    /// Wait until wpa_supplicant has actually released wlan0.
+    ///
+    /// `setprop ctl.stop` only *asks*, so the supplicant is still holding the
+    /// interface for some milliseconds afterwards and hostapd would race it.
+    /// Returns false if it never let go, having said so - the caller carries
+    /// on regardless, because a hotspot that might work beats a certain
+    /// refusal on the path somebody takes when they have no other way in.
+    /// Kill wpa_supplicant by pid from /proc and confirm it is gone.
+    ///
+    /// Direct, because ctl.stop is asynchronous and reading the service
+    /// state back needs a getprop whose path was only ever a guess.
+    /// Returns how many were killed, or -1 if /proc could not be read.
+    int killSupplicant();
+
+    bool waitForSupplicantToStop();
+
+    /// Whether a just-spawned child is still running a moment later.
+    ///
+    /// `spawn` reports that the fork worked, which a daemon refusing its
+    /// interface also does - it exits immediately and looks the same. Asking
+    /// turns a hotspot that silently never appears into one that says why.
+    bool stillAlive(int pid) const;
+
+    /// hostapd's own last log line, for a panel that must carry the reason
+    /// and not just the step. Empty when it said nothing.
+    std::string lastHostapdLine() const;
 
     /// Start a daemon, keep its pid so it can be stopped again, and keep
     /// what it says. `logPath` is truncated on each run.
@@ -143,6 +193,8 @@ private:
 
     Tc002Dhcp* dhcp_ = nullptr;
     std::string event_;
+    std::string failure_;
+    std::string passphrase_;
 
     std::uint64_t revertMillis_ = kRevertMillis;
 

@@ -249,6 +249,15 @@ bool Tc002Storage::remove(std::string_view key) {
 
 namespace {
 
+/// The only interface whose address is STIPPLE's to report.
+///
+/// Named rather than inferred, because this device has more than one and the
+/// others are not ours. Something from the rootfs brings one up at
+/// 192.168.100.1 on every boot - it survives a /data wipe and a res reflash -
+/// and reporting that as the device's address made a clock with no network
+/// look like a clock on one.
+constexpr const char* kWifiInterface = "wlan0";
+
 /// Read a small file whole. Returns empty on any failure, which every caller
 /// here treats as "this platform cannot say" rather than as an error.
 std::string readSmallFile(const char* path) {
@@ -351,12 +360,49 @@ NetworkStatus Tc002Network::status() const {
             continue;
         }
 
+        // **The Wi-Fi interface, and no other.**
+        //
+        // This took whatever getifaddrs returned first, which on a device
+        // that was only ever expected to have one network was the same thing.
+        // It is not: something on this platform brings an interface up at
+        // 192.168.100.1 - not ours, since the access point is 192.168.4.1 and
+        // a lease here is 192.168.1.x - and it survives both a /data wipe and
+        // a res reflash, so it comes from the rootfs rather than from
+        // anything STIPPLE installed.
+        //
+        // The device therefore showed an IP address on its panel and called
+        // itself connected while having no network at all. Somebody reads
+        // that and reasonably concludes the clock is reachable; it is the
+        // confident lie ADR 0013 exists to prevent, and it cost an evening of
+        // looking for the fault somewhere else.
+        if (entry->ifa_name == nullptr || std::strcmp(entry->ifa_name, kWifiInterface) != 0) {
+            continue;
+        }
+
         const auto* in = reinterpret_cast<const struct sockaddr_in*>(entry->ifa_addr);
         const std::uint32_t host = ntohl(in->sin_addr.s_addr);
 
         char text[16];
         std::snprintf(text, sizeof(text), "%u.%u.%u.%u", (host >> 24) & 0xFFu,
                       (host >> 16) & 0xFFu, (host >> 8) & 0xFFu, host & 0xFFu);
+
+        // **Only an address we obtained or assigned ourselves.**
+        //
+        // wlan0 can be carrying the vendor soft AP's 192.168.100.1: the
+        // vendor network stack lives in this process, courtesy of the shim's
+        // DT_NEEDED on libzkgui.so, and it configures the interface when it
+        // initialises. Reporting that made a device with no network show an
+        // IP address on its panel and call itself connected - the confident
+        // lie ADR 0013 exists to prevent, and it sent somebody looking for a
+        // fault in the radio for an evening.
+        //
+        // A lease we hold, or an access point we are running, is ours to
+        // report. Anything else on the interface is not.
+        const bool leaseIsOurs = dhcp_ != nullptr && dhcp_->bound();
+        const bool hostingOurAp = hotspot_ != nullptr && hotspot_->running();
+        if (!leaseIsOurs && !hostingOurAp) {
+            continue;
+        }
 
         result.ipv4 = text;
         result.connected = true;
@@ -376,6 +422,24 @@ bool Tc002Network::connected() const {
     // device runs its own access point, and comes back when it does not - so
     // a socket that was absent a minute ago may be there now.
     return control_.open();
+}
+
+bool Tc002Network::hasStoredNetwork() const {
+    // Asked of the supplicant's own configuration rather than of the
+    // supplicant, because this is wanted early - before the control socket
+    // is necessarily up - and because a file read cannot block the frame
+    // loop the way a round trip can.
+    FILE* conf = std::fopen("/data/misc/wifi/wpa_supplicant.conf", "r");
+    if (conf == nullptr) {
+        return false;
+    }
+    char line[256];
+    bool found = false;
+    while (!found && std::fgets(line, sizeof(line), conf) != nullptr) {
+        found = std::strncmp(line, "network=", 8) == 0;
+    }
+    std::fclose(conf);
+    return found;
 }
 
 bool Tc002Network::canScan() const { return connected(); }
@@ -467,11 +531,24 @@ INetworkManager::JoinProgress Tc002Network::joinProgress() const {
     return progress;
 }
 
+void Tc002Network::note(const std::string& text) { event_ = text; }
+
+std::string Tc002Network::takeEvent() {
+    std::string taken;
+    taken.swap(event_);
+    return taken;
+}
+
 void Tc002Network::fail(const std::string& why) {
     forgetAddedNetwork();
     stage_ = Stage::Failed;
     joinDetail_ = why;
     joinPassword_.clear();
+
+    // The SSID goes in because a device that has been pointed at two networks
+    // in one session gives two different answers, and "which one" is the first
+    // thing anybody asks. The password never does.
+    note("join: " + joinSsid_ + ": " + why);
 }
 
 void Tc002Network::forgetAddedNetwork() {
@@ -655,6 +732,10 @@ void Tc002Network::poll(std::uint64_t nowMillis) {
                 stage_ = Stage::Done;
                 joinDetail_ = "connected";
                 joinPassword_.clear();
+                // Logged as well as the failures. A log that records only
+                // what went wrong cannot tell "it never tried" from "it
+                // worked and something later undid it".
+                note("join: " + joinSsid_ + ": connected");
                 return;
             }
             if (nowMillis >= stageDeadlineMillis_) {

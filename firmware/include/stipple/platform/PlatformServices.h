@@ -126,6 +126,16 @@ public:
     /// simulator and on anything wired.
     virtual bool canJoin() const { return false; }
 
+    /// Whether a network is stored for the station to reconnect to.
+    ///
+    /// A different question from "has this device been configured", and the
+    /// one that decides how long to wait before taking the radio away for a
+    /// setup hotspot. A device with a saved network is still trying and
+    /// deserves patience; one with nothing saved has nothing to wait for.
+    ///
+    /// False by default, which is the safe answer: it only shortens the wait.
+    virtual bool hasStoredNetwork() const { return false; }
+
     /// Where a join has got to.
     struct JoinProgress {
         enum class Stage {
@@ -195,6 +205,24 @@ public:
     /// Whether the previous application was kept and could be put back.
     virtual bool hasPrevious() const = 0;
 
+    /// What the thing that loaded this application can do, or -1 if unknown.
+    ///
+    /// **An upload cannot replace the loader.** The shim lives in read-only
+    /// storage and only a reflash changes it, so a device flashed long ago
+    /// runs the newest application over the oldest shim and no version number
+    /// says so. A feature the shim provides — the boot-failure ladder, for
+    /// instance — is simply absent there, and an application that assumed
+    /// otherwise would promise a safety net nobody has strung up.
+    ///
+    /// So it is asked rather than assumed, and the answer is reported to the
+    /// user: a release whose safety properties need a newer loader has to say
+    /// "reflash" instead of letting an upload look sufficient.
+    ///
+    /// `-1` means the question does not apply or could not be answered — the
+    /// simulator, or a shim old enough to predate saying. Not an error, and
+    /// deliberately distinct from `0`.
+    virtual int loaderFeatures() const { return -1; }
+
     /// Install `image` as the application, atomically.
     ///
     /// The caller has already checked that it is plausibly a library for this
@@ -227,6 +255,65 @@ public:
     /// destroying the object that holds it, which is the only correct way to
     /// clear it.
     virtual bool restartPending() const = 0;
+};
+
+/// Which firmware the device's own recovery button would install.
+///
+/// **This is not flashing, and the distinction is the reason it can exist.**
+/// The vendor's loader installs whatever sits at a known path on the device's
+/// own storage, and the recovery button is how somebody asks it to. Nothing
+/// here writes firmware; it changes *which file is waiting*, the way moving a
+/// letter between two pigeonholes is not writing a letter. ADR 0008's gate on
+/// flashing logic is untouched — see ADR 0026.
+///
+/// It matters because the button is the only way back when nothing else
+/// works, and until now it installed Stipple — so the one control everybody
+/// reaches for did the opposite of what its name implies. The author of this
+/// project lost an evening to exactly that.
+///
+/// **Only two images fit.** On the TC002 the volume is 8576 KB and the two
+/// images are about 3145 and 2724 KB, so a third copy does not fit and
+/// switching is a rename rather than a copy. That is also why `arm()` may
+/// briefly leave nothing armed: with two slots and no room for a third there
+/// is no way to swap without passing through that state. Implementations must
+/// keep the window to a single rename and must be able to repair it.
+class IRecoveryImages {
+public:
+    virtual ~IRecoveryImages() = default;
+
+    enum class Image {
+        /// No image is waiting, so the recovery button does nothing. A real
+        /// state, not an error — and worth reporting, because a button
+        /// somebody is relying on silently doing nothing is the worst of the
+        /// possibilities here.
+        Nothing,
+        /// The user's own captured stock firmware.
+        Stock,
+        /// Stipple.
+        Stipple,
+        /// Something is waiting, but we did not put it there and will not
+        /// guess what it is — an image left by a USB stick, most likely.
+        /// Reported as unknown rather than assumed (ADR 0013).
+        Unrecognised,
+    };
+
+    /// What the recovery button would install right now.
+    virtual Image armed() const = 0;
+
+    /// Whether `which` is present on the device and could be armed.
+    /// Meaningful only for `Stock` and `Stipple`.
+    virtual bool available(Image which) const = 0;
+
+    /// Make the recovery button install `which`.
+    ///
+    /// Idempotent: arming what is already armed succeeds without touching
+    /// anything. Returns false with `problem` set, and a failure must leave
+    /// *something* armed — a half-finished swap that disarms the button is
+    /// worse than not having tried.
+    virtual bool arm(Image which, std::string& problem) = 0;
+
+    /// Free space where the images live, so a refusal can say why.
+    virtual std::size_t freeBytes() const = 0;
 };
 
 struct BatteryStatus {
@@ -349,6 +436,11 @@ public:
     /// platform but the device. Reported as absence rather than a call that
     /// silently does nothing (ADR 0013).
     virtual IUpgradeManager* upgrade() { return nullptr; }
+
+    /// Null on a platform with no vendor recovery path of its own, which is
+    /// every platform but the TC002. Absence means the question does not
+    /// apply, not that the answer is "nothing armed".
+    virtual IRecoveryImages* recoveryImages() { return nullptr; }
     virtual IRebooter* rebooter() { return nullptr; }
 
     /// HTTP transport. Null everywhere today: the device adapter arrives in

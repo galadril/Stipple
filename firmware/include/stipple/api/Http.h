@@ -131,6 +131,11 @@ enum class Resource : std::uint8_t {
     ScriptItem,
     Settings,
     SystemReboot,
+    /// Which firmware the device's own recovery button would install, and
+    /// switching it. Not flashing: it changes which of two images already on
+    /// the device is the one waiting, so the vendor loader installs the other
+    /// one next time somebody holds reset. See ADR 0026.
+    SystemRecovery,
     /// Put configuration back to defaults. Separate from a DELETE on settings
     /// because "reset" and "delete" are different promises: this leaves a
     /// working configuration behind rather than an absent one.

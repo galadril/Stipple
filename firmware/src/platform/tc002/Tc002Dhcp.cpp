@@ -93,6 +93,26 @@ bool Tc002Dhcp::readHardwareAddress(std::uint8_t* mac) const {
     return ok;
 }
 
+bool Tc002Dhcp::interfaceIsRunning() const {
+    const int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        return false;
+    }
+    struct ifreq request;
+    std::memset(&request, 0, sizeof(request));
+    std::snprintf(request.ifr_name, IFNAMSIZ, "%s", interface_.c_str());
+
+    bool running = false;
+    if (::ioctl(fd, SIOCGIFFLAGS, &request) >= 0) {
+        // IFF_RUNNING, not IFF_UP. On wireless they are different questions:
+        // UP means configured, RUNNING means the link is actually carrying -
+        // which for a station means associated.
+        running = (request.ifr_flags & IFF_RUNNING) != 0;
+    }
+    ::close(fd);
+    return running;
+}
+
 std::uint32_t Tc002Dhcp::readInterfaceAddress() const {
     const int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) {
@@ -204,10 +224,28 @@ bool Tc002Dhcp::begin(const char* interfaceName, const std::string& hostname,
     hostname_ = hostname;
     client_.setHostname(hostname);
 
-    // Ask for whatever is already configured. On this device that is the
-    // address the vendor application obtained, and getting it back is what
-    // makes taking over the lease invisible to everything else.
-    const std::uint32_t existing = readInterfaceAddress();
+    // Ask for whatever is already configured - **but only if this interface
+    // is actually associated.**
+    //
+    // Inheriting was written for Tier-2 development, where STIPPLE runs from
+    // /tmp after the vendor application has already obtained a lease, and
+    // asking to keep it makes the handover invisible. On a flashed device
+    // there is no vendor lease to inherit, and what is on wlan0 may be the
+    // vendor soft AP's own 192.168.100.1 - its network stack lives in this
+    // process, courtesy of the shim's DT_NEEDED on libzkgui.so.
+    //
+    // Adopting that address made the client report itself *bound*, so the
+    // loop concluded the device had a network and the automatic setup hotspot
+    // never fired. Holding the knob still worked, because that path does not
+    // consult the lease - which is precisely the shape of the bug report:
+    // "not automatically, but it did start".
+    //
+    // IFF_RUNNING is the discriminator, read off the failing device: it
+    // showed `wlan0 UP BROADCAST MULTICAST` with no RUNNING and no traffic.
+    // UP means configured; RUNNING means the link is carrying, which for a
+    // station means associated. An address on an interface that is not
+    // associated cannot be a lease.
+    const std::uint32_t existing = interfaceIsRunning() ? readInterfaceAddress() : 0u;
     client_.setPreferredAddress(existing);
 
     // The MAC is as good a per-device seed as exists here, mixed with the

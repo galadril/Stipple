@@ -209,6 +209,10 @@ RouteMatch matchRoute(std::string_view path) {
             match.resource = Resource::SystemReset;
             return match;
         }
+        if (head == "system" && parts[3] == "recovery") {
+            match.resource = Resource::SystemRecovery;
+            return match;
+        }
         if (head == "network" && parts[3] == "scan") {
             match.resource = Resource::NetworkScan;
             return match;

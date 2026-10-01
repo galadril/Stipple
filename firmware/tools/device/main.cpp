@@ -229,6 +229,26 @@ int stippleMain(int argc, char** argv) {
     } else {
         std::printf("  battery     : unavailable (MCU link not open)\n");
     }
+
+    // Put an interrupted image swap back together before anything relies on
+    // the recovery button being armed.
+    //
+    // Switching which image that button installs is three renames, and with
+    // two slots on an 8 MB volume there is no room for a third copy - so the
+    // swap passes through one rename's worth of time with nothing armed. Lose
+    // power inside that window and the button silently does nothing, which is
+    // the worst failure available here: it is the control somebody reaches
+    // for when everything else has already failed, and it would appear to
+    // work right up until they needed it.
+    //
+    // Cheap enough to do unconditionally: it is a stat of one path that is
+    // absent on every ordinary boot.
+    if (platform.recovery().repair()) {
+        const std::string note = "recovery: an interrupted image swap was put back together";
+        host.logger().info(platform.clock().monotonicMillis(), note);
+        std::printf("  recovery    : repaired an interrupted swap\n");
+    }
+
     // Before asking for a lease, make sure there is an association to ask
     // over. Nothing else on this device starts the supplicant once the vendor
     // application is out of the picture.
@@ -288,20 +308,27 @@ int stippleMain(int argc, char** argv) {
     // implementation dropped it by gating on first run.
     constexpr std::uint64_t kLostNetworkMillis = 300000;
 
-    // And a third, for the case the other two missed.
+    // And a third, for a device that has a network stored and has not
+    // reached it yet this boot.
     //
-    // A configured device that has *never* associated since it booted is not
-    // riding out a blip - its stored network is gone, or its password is
-    // wrong, or it has been carried somewhere else. Waiting five minutes for
-    // that produces a clock that sits there doing nothing while its owner
-    // concludes it is broken, which is what happened on hardware: the
-    // automatic hotspot was technically working and nobody ever saw it,
-    // because reaching for the knob took less than five minutes.
+    // This replaces an earlier sixty-second rule keyed off first-run state,
+    // which asked the wrong question: first-run is about STIPPLE's
+    // configuration, not about whether the station has anywhere to go. A
+    // device that had joined a network therefore got sixty seconds, and that
+    // is not enough on this radio - measured at 70 and 110 seconds from
+    // "driver loaded" to a lease on two consecutive boots. STIPPLE was taking
+    // the radio away for a hotspot mid-association and handing it back when
+    // the station succeeded, which reads as "it lost my wifi and went into
+    // setup mode" and makes the web UI load only now and then.
     //
-    // Long enough for a cold boot to associate and get a lease - ten to
-    // twenty seconds is typical here, so this is several times over - and
-    // short enough to still feel like the device noticed.
-    constexpr std::uint64_t kNeverJoinedMillis = 60000;
+    // Three minutes is comfortably past the measured worst case and still
+    // short enough that somebody whose router has genuinely gone gets a
+    // hotspot rather than a clock that sits there.
+    //
+    // A device with nothing stored still gets kNeverConfiguredMillis: waiting
+    // changes nothing for it, and that is the out-of-the-box case which has
+    // to be quick.
+    constexpr std::uint64_t kStoredNetworkMillis = 180000;
 
     /// A failed start is retried rather than given up on.
     constexpr std::uint64_t kHotspotRetryMillis = 30000;
@@ -428,9 +455,26 @@ int stippleMain(int argc, char** argv) {
             everBound = true;
         }
 
+        // **A stored network earns patience; nothing stored does not.**
+        //
+        // This keyed off firstRun(), which is about STIPPLE's configuration
+        // and not about stored networks - so a device that had joined a
+        // network got 60 seconds. Measured on hardware, this radio takes
+        // 70-110 seconds from boot to a lease, so STIPPLE was taking the
+        // radio away for a hotspot while the station was still associating,
+        // then handing it back when the station succeeded. Its own journal:
+        //
+        //     [6]   wifi: driver loaded
+        //     [55]  hotspot: starting Stipple-setup
+        //     [113] hotspot: stopped, station restored
+        //
+        // Which reads to anybody watching as "it lost my wifi and went into
+        // setup mode", and makes the web UI load only intermittently -
+        // because while it is hosting, it is not on the LAN at all.
+        const bool somethingToWaitFor = platform.network()->hasStoredNetwork();
         const std::uint64_t patience =
-            host.firstRun() ? kNeverConfiguredMillis
-                            : (everBound ? kLostNetworkMillis : kNeverJoinedMillis);
+            !somethingToWaitFor ? kNeverConfiguredMillis
+                                : (everBound ? kLostNetworkMillis : kStoredNetworkMillis);
         const bool unreachable =
             !platform.dhcp().bound() && now >= started + patience;
 
@@ -487,8 +531,19 @@ int stippleMain(int argc, char** argv) {
                 hotspotShowing = true;
                 // Said on the panel before anything else, because the panel
                 // is the only channel left once the radio changes job.
+                // **The key goes here, not in a notification.**
+                //
+                // setNotice owns the panel while the radio is an access
+                // point, so a notification pushed alongside it never gets
+                // shown - which is how somebody ended up looking at "join
+                // Stipple-setup" with no way to learn the passphrase.
+                //
+                // It is a published default rather than a secret, so putting
+                // it on the screen costs nothing and saves the one thing
+                // that actually blocks setup.
                 host.setNotice("STIPPLE",
-                               std::string("join Stipple-setup then open ") +
+                               std::string("join Stipple-setup  key ") +
+                                   platform.hotspot().passphrase() + "  then open " +
                                    stipple::platform::tc002::Tc002Hotspot::kAddress);
             }
         }
@@ -516,6 +571,36 @@ int stippleMain(int argc, char** argv) {
             host.logger().info(now, hotspotEvent);
             std::printf("  %s\n", hotspotEvent.c_str());
             std::fflush(stdout);
+
+            // **And onto the panel, if it was a failure.**
+            //
+            // The ring log is the right place for this and it is unreachable
+            // in the one case that matters: an access point that will not
+            // start is how a device ends up with no network, and without a
+            // network nothing can read the log. No web UI, no ADB, and no USB
+            // gadget either - the port is a host until the application
+            // switches it, and the application is the thing in trouble. A USB
+            // stick is not an answer: vold does not mount one for us.
+            //
+            // So these 832 pixels are the only channel that always works.
+            //
+            // Read from takeFailure() rather than sniffed out of the event
+            // text. The first version matched on prefixes and put "wifi:
+            // driver loaded" on the panel in alarm colours - a success
+            // message dressed as a fault, which is its own small lie.
+            const std::string hotspotFailure = platform.hotspot().takeFailure();
+            if (!hotspotFailure.empty()) {
+                stipple::notify::Notification shout;
+                shout.id = "hotspot-failure";
+                shout.text = hotspotFailure;
+                shout.priority = stipple::notify::Priority::Important;
+                // Long enough to read a scrolling line twice over. Not
+                // `hold`: a clock that can never show the time again is a
+                // worse outcome than a message somebody missed.
+                shout.durationSeconds = 30;
+                shout.color = stipple::colors::kOrange;
+                host.notifications().push(std::move(shout), now);
+            }
         }
         // The clock, which nothing else on this device sets.
         //
@@ -536,6 +621,17 @@ int stippleMain(int argc, char** argv) {
         if (!leaseEvent.empty()) {
             host.logger().info(now, leaseEvent);
             std::printf("  %s\n", leaseEvent.c_str());
+            std::fflush(stdout);
+        }
+
+        // How a join ended. Worth the same treatment as the lease, and for a
+        // sharper reason: the person who asked for it was almost certainly
+        // reached over the access point this just shut down, so the ring log
+        // is the only place the answer can still be waiting for them.
+        const std::string joinEvent = platform.wifi().takeEvent();
+        if (!joinEvent.empty()) {
+            host.logger().info(now, joinEvent);
+            std::printf("  %s\n", joinEvent.c_str());
             std::fflush(stdout);
         }
 
@@ -567,6 +663,24 @@ int stippleMain(int argc, char** argv) {
             std::printf("boot recorded healthy after %u frames\n",
                         host.frameStats().rendered);
             std::fflush(stdout);
+
+            // The startup shim's own count, cleared on the same signal and
+            // for the same reason.
+            //
+            // Deliberately the *same* definition of a finished boot that core
+            // uses, rather than a timer of its own: "frames are rendering" is
+            // the only claim worth making, and two components disagreeing
+            // about what healthy means is how a device ends up rolling back
+            // an update that was working.
+            //
+            // The shim cannot do this itself. It has already handed the
+            // process over by the time there is anything to be confident
+            // about, so clearing the count is necessarily STIPPLE's job -
+            // which is exactly what makes an unfinished boot detectable.
+            if (std::remove("/data/stipple/attempts") != 0) {
+                // Nothing to undo and nothing to report. The file is absent
+                // on almost every boot, because almost every boot finishes.
+            }
         }
 
         // nextDueMillis is what keeps this loop off the CPU between frames, but
