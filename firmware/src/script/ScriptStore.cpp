@@ -456,7 +456,18 @@ namespace {
 
 /// Stands in for a missing interpreter's values, so serialize() has something
 /// to take a reference to rather than a branch around every use.
-const std::vector<std::pair<std::string, ScriptHost::Stored>> kNoStoredValues;
+///
+/// A function-local static rather than a namespace-scope one, because a
+/// namespace-scope vector is dynamically initialised and this library's
+/// initialisers do not reliably run: Stipple's entry point is a library
+/// constructor that never returns, and `.init_array` runs in link order (see
+/// the note on `kSounds` in audio/Sound.cpp). A zeroed `std::vector` happens
+/// to be a valid empty one in this standard library, so the old form worked
+/// by luck. This one is initialised on first use and cannot not be.
+const std::vector<std::pair<std::string, ScriptHost::Stored>>& noStoredValues() {
+    static const std::vector<std::pair<std::string, ScriptHost::Stored>> empty;
+    return empty;
+}
 
 constexpr char kMagic[] = "SBS";       // Stipple Berry Scripts
 constexpr std::uint8_t kFormatVersion = 2;  // 2 adds each script's stored values
@@ -532,7 +543,7 @@ std::string ScriptStore::serialize() const {
         // What the script asked the device to remember. A high score that did
         // not survive a power cut is not a high score.
         const auto& stored =
-            entry.host != nullptr ? entry.host->stored() : kNoStoredValues;
+            entry.host != nullptr ? entry.host->stored() : noStoredValues();
         pushByte(out, static_cast<std::uint8_t>(stored.size()));
         for (const auto& pair : stored) {
             pushByte(out, static_cast<std::uint8_t>(pair.first.size()));

@@ -171,15 +171,32 @@ void ensureSupplicantConfig() {
     // a reboot and the daemon refuses to write a config that did not ask.
     static const char kDefaults[] = "ctrl_interface=/dev/socket\nupdate_config=1\n";
     const ssize_t wrote = ::write(fd, kDefaults, sizeof(kDefaults) - 1);
-    ::fchown(fd, kWifiUid, kWifiUid);
-    ::fchmod(fd, 0660);
+
+    // Best effort, and the result is looked at rather than discarded: glibc
+    // marks fchown warn_unused_result, so ignoring it is an error under
+    // -Werror on a new enough toolchain. It failing is survivable - the
+    // supplicant runs as root here and can read the file either way - but
+    // "survivable" is a decision, so it is written down rather than implied.
+    const bool owned = ::fchown(fd, kWifiUid, kWifiUid) == 0;
+    const bool mode = ::fchmod(fd, 0660) == 0;
     ::close(fd);
 
     // A partial write would leave a file that parses to something other than
     // what was meant, and the next boot would skip it because it exists.
     if (wrote != static_cast<ssize_t>(sizeof(kDefaults) - 1)) {
         ::unlink(kSupplicantConf);
+        return;
     }
+
+    // Deliberately consumed and deliberately not acted on. glibc marks
+    // fchown warn_unused_result, so the values have to be taken; and failing
+    // to set them is survivable, because the supplicant runs as root here and
+    // can read the file whoever owns it. Matching the vendor's own ownership
+    // is tidiness, not a requirement.
+    //
+    // No note() from here: this is a free function and note() is a member.
+    (void)owned;
+    (void)mode;
 }
 
 constexpr const char* kHostapdConf = "/tmp/stipple-hostapd.conf";

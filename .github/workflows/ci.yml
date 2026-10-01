@@ -230,6 +230,49 @@ jobs:
             arm-linux-gnueabihf-readelf -h "$lib" | grep -E "Type|Machine"
           '
 
+      # The guard for a bug the host build cannot see, by construction.
+      #
+      # Stipple's entry point is `__attribute__((constructor))
+      # stippleTakesOver()` and it never returns. That constructor is an
+      # `.init_array` entry, `.init_array` runs in link order, and
+      # `main.cpp.o` is linked ahead of `libstipple_core.a` - so any core
+      # translation unit that needs a *runtime* static initialiser never gets
+      # one. Its data stays as the linker left it: zeros.
+      #
+      # On a host every initialiser runs before `main()`, so this is invisible
+      # there and the test suite passes happily. On hardware the built-in
+      # sound catalogue spent several releases as ten sounds with empty names,
+      # because `const Sound kSounds[]` was one `constexpr` short of being
+      # constant-initialised and nobody could see it from a host.
+      #
+      # The whole device build is at zero such initialisers - core, the
+      # scripting target, the TC002 adapter and the vendored C libraries alike
+      # - so this is checked across every object rather than only core's.
+      # There is no reason for any of them to need one: data a device reads
+      # should be in `.rodata`, not assembled by code that may never run.
+      - name: Check no data needs code to run before it is valid
+        run: |
+          docker run --rm -v "$PWD:/src" stipple-cross:bullseye bash -c '
+            cd /src
+            found=0
+            for o in $(find build/device-arm -name "*.o"); do
+              if arm-linux-gnueabihf-nm "$o" 2>/dev/null | grep -q _GLOBAL__sub_I; then
+                echo "::error file=${o}::this core object needs a runtime static initialiser, which never runs on the device"
+                arm-linux-gnueabihf-nm -C -S "$o" | grep -E " [bBdD] " | grep -v "__" | sed "s/^/    /"
+                found=1
+              fi
+            done
+            if [ "$found" = 1 ]; then
+              echo
+              echo "Make the offending data constexpr so it is constant-initialised into"
+              echo ".rodata, or move it into a function as a local static so it is"
+              echo "initialised on first use. Both remove the dependency on link order."
+              echo "See the note on kSounds in firmware/src/audio/Sound.cpp."
+              exit 1
+            fi
+            echo "no translation unit depends on initialiser ordering"
+          '
+
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
