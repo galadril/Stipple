@@ -10,6 +10,7 @@
 #include "stipple/platform/tc002/Tc002Dhcp.h"
 #include "stipple/platform/tc002/Tc002Sntp.h"
 #include "stipple/platform/tc002/Tc002Hotspot.h"
+#include "stipple/platform/tc002/Tc002Recovery.h"
 #include "stipple/platform/tc002/Tc002Upgrade.h"
 #include "stipple/platform/tc002/Tc002Display.h"
 #include "stipple/platform/tc002/Tc002HttpServer.h"
@@ -269,6 +270,7 @@ public:
     /// Always present on hardware: the storage volume the loader reads is
     /// always there, whether or not anything has been staged on it.
     IUpgradeManager* upgrade() override { return &upgrade_; }
+    IRecoveryImages* recoveryImages() override { return &recovery_; }
 
     /// Non-null only once the MCU link is open. A device whose serial port
     /// could not be configured reports no battery rather than zero percent.
@@ -324,6 +326,10 @@ public:
     /// something that is definitely still running.
     Tc002Hotspot& hotspot() noexcept { return hotspot_; }
 
+    /// The concrete recovery images, for the startup path's repair() call.
+    /// Core sees only the interface; repair() is a device-lifecycle concern.
+    Tc002Recovery& recovery() noexcept { return recovery_; }
+
     /// Concrete, because joining is polled from the loop and
     /// INetworkManager has no poll() - the interface describes what core is
     /// allowed to ask for, not how the adapter keeps its promises.
@@ -349,6 +355,7 @@ private:
     Tc002Sntp sntp_;
     Tc002Hotspot hotspot_;
     Tc002Upgrade upgrade_;
+    Tc002Recovery recovery_;
 };
 
 }  // namespace tc002

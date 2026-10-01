@@ -239,6 +239,7 @@ private:
     Response handleNetworkScan(const Request& request);
     Response handleNetworkJoin(const Request& request);
     Response handleFirmware(const Request& request);
+    Response handleRecovery(const Request& request);
 
     Response handleDisplayFrame(const Request& request);
     Response handleInput(const Request& request, std::uint64_t nowMillis);

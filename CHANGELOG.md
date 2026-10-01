@@ -12,6 +12,37 @@ device without a capture of that device first.
 
 ### Added
 
+- **The recovery button can be pointed at stock.** Holding reset during
+  power-up installs whatever image is waiting on the device's own storage, and
+  after installing Stipple that image *is* Stipple — so the one control
+  everybody reaches for when nothing else works reinstalled the thing they
+  were trying to leave. Held to return to stock, it gave a progress bar, a
+  green tick and Stipple again. Nothing had failed; the button did exactly
+  what it is built to do.
+
+  `GET /api/v1/system/recovery` now says what it would do, in words rather
+  than filenames — `"returns this device to the stock Ulanzi clock"` — and
+  `POST {"arm":"stock"}` changes which of the two images already on the device
+  is the one waiting.
+
+  **Nothing is installed by that call and it is not flashing.** It moves a
+  letter between two pigeonholes; the loader is still the only thing that
+  writes firmware, and only when somebody holds the button. Switching is a
+  rename rather than a copy because the volume is 8.4 MB and the two images
+  take 5.9 MB of it — a third copy does not fit, and 3 MB is not rewritten
+  onto flash that wears out.
+
+  With two slots and no room for a third, a swap passes through one rename's
+  worth of time with nothing armed. The startup path repairs that if power is
+  lost inside it, because a recovery button that silently does nothing is the
+  worst failure available here: it would appear to work right up until
+  somebody needed it.
+
+  **Going back to stock is a button; coming back to Stipple is the USB stick**
+  from `docs/install.md`. That asymmetry is permanent rather than unfinished —
+  once the stock image is installed there is no Stipple left to serve a page.
+  What is a button is changing your mind before you hold reset.
+
 - **Ten sounds instead of five, and they mean something.** `success`,
   `failure`, `notify`, `alarm` and `startup` join the original five, and all
   of them are now short sequences of notes rather than single beeps. The

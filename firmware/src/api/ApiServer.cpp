@@ -286,6 +286,7 @@ Response ApiServer::handle(const Request& request, std::uint64_t nowMillis) {
         case Resource::NetworkScan: return handleNetworkScan(request);
         case Resource::NetworkJoin: return handleNetworkJoin(request);
         case Resource::SystemFirmware: return handleFirmware(request);
+        case Resource::SystemRecovery: return handleRecovery(request);
         case Resource::DisplayFrame: return handleDisplayFrame(request);
         case Resource::Input: return handleInput(request, nowMillis);
         case Resource::Sound: return handleSound(request);
@@ -2327,6 +2328,110 @@ Response ApiServer::handleNetworkJoin(const Request& request) {
     Response response = ok(writer.take());
     response.status = 202;
     return response;
+}
+
+Response ApiServer::handleRecovery(const Request& request) {
+    if (context_.platform == nullptr) {
+        return serverError("no platform");
+    }
+    platform::IRecoveryImages* images = context_.platform->recoveryImages();
+    if (images == nullptr) {
+        // Not a failure. Every platform but the TC002 has no vendor recovery
+        // button to point anywhere, and saying so is better than reporting an
+        // empty state that looks like "nothing is armed" (ADR 0013).
+        return error(501, "not_supported", "this platform has no recovery image to arm");
+    }
+
+    using Image = platform::IRecoveryImages::Image;
+    const auto name = [](Image which) {
+        switch (which) {
+            case Image::Stock: return "stock";
+            case Image::Stipple: return "stipple";
+            case Image::Nothing: return "nothing";
+            case Image::Unrecognised: break;
+        }
+        return "unrecognised";
+    };
+
+    if (request.method == Method::Get) {
+        JsonWriter writer;
+        writer.beginObject();
+        writer.member("armed", std::string(name(images->armed())));
+        // What the button would *do*, in words, because "armed: stipple" is
+        // the filename-level answer and nobody reaches for a recovery button
+        // thinking in filenames.
+        const char* means = "nothing - no image is waiting";
+        switch (images->armed()) {
+            case Image::Stock:
+                means = "returns this device to the stock Ulanzi clock";
+                break;
+            case Image::Stipple:
+                means = "reinstalls Stipple";
+                break;
+            case Image::Unrecognised:
+                means = "installs an image this device did not put there";
+                break;
+            case Image::Nothing:
+                break;
+        }
+        writer.member("means", std::string(means));
+        writer.key("available").beginObject();
+        writer.member("stock", images->available(Image::Stock));
+        writer.member("stipple", images->available(Image::Stipple));
+        writer.endObject();
+        writer.member("freeBytes", static_cast<std::int64_t>(images->freeBytes()));
+        writer.endObject();
+        return ok(writer.take());
+    }
+
+    if (request.method != Method::Post) {
+        return methodNotAllowed();
+    }
+
+    Body body(request.body, options_.maxJsonTokens, options_.maxBodyBytes);
+    if (!body.valid()) {
+        return badRequest(std::string("invalid JSON: ") + body.errorText());
+    }
+    const json::Value root = body.root();
+    if (!root.isObject()) {
+        return badRequest("body must be a JSON object");
+    }
+
+    const json::Value arm = root["arm"];
+    if (!arm.isString()) {
+        return badRequest("'arm' is required and must be \"stock\" or \"stipple\"");
+    }
+    const std::string wanted = arm.toString();
+    Image which = Image::Unrecognised;
+    if (wanted == "stock") {
+        which = Image::Stock;
+    } else if (wanted == "stipple") {
+        which = Image::Stipple;
+    } else {
+        return unprocessable("'arm' must be \"stock\" or \"stipple\"");
+    }
+
+    if (!images->available(which)) {
+        // 422 rather than 404: the route and the request are both fine, the
+        // device simply does not have that image on it. GET says which it has.
+        return unprocessable("that image is not on this device");
+    }
+
+    std::string problem;
+    if (!images->arm(which, problem)) {
+        return unprocessable(problem.empty() ? "could not arm that image" : problem);
+    }
+
+    // What changed, and what it now means - so a caller does not have to GET
+    // again to find out whether it worked.
+    JsonWriter writer;
+    writer.beginObject();
+    writer.member("armed", std::string(name(images->armed())));
+    writer.member("means", std::string(which == Image::Stock
+                                           ? "returns this device to the stock Ulanzi clock"
+                                           : "reinstalls Stipple"));
+    writer.endObject();
+    return ok(writer.take());
 }
 
 Response ApiServer::handleFirmware(const Request& request) {

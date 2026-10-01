@@ -231,16 +231,41 @@ back, you will watch a progress bar fill, turn green, and boot Stipple again.
 Nothing failed. The button is not a factory restore — it is "install the
 staged image", and the staged image is the one you installed from.
 
-To make it return you to stock, stage your own capture instead:
+To make it return you to stock, point it at your own capture. Ask the device
+what it is currently armed with:
 
-```powershell
-adb push restore/restore-res.img /mnt/storage/update.img
+```bash
+curl -s http://your-clock/api/v1/system/recovery
 ```
 
-You can check what is armed at any time, and the size tells you which it is:
+```json
+{"armed":"stipple","means":"reinstalls Stipple",
+ "available":{"stock":true,"stipple":true},"freeBytes":2707968}
+```
+
+and change it:
+
+```bash
+curl -X POST http://your-clock/api/v1/system/recovery \
+  -H 'Content-Type: application/json' -d '{"arm":"stock"}'
+```
+
+Nothing is installed by that call. It changes which of the two images already
+on the device is the one waiting, so the **next** time the loader runs — when
+you hold the button — it installs that one instead. Switching is a rename, not
+a copy: the volume is 8.4 MB and the two images take about 5.9 MB of it, so a
+third copy would not fit and 3 MB is not rewritten onto flash that wears out.
+
+**This is one-way.** Going back to stock is a button; coming back to Stipple is
+the USB stick from [docs/install.md](install.md). Once the stock image is
+installed there is no Stipple left to serve a page, so no button on our side
+can exist. What *is* a button is changing your mind before you hold reset —
+arm Stipple again and nothing has happened.
+
+If the API is not reachable, the same thing over adb:
 
 ```powershell
-adb shell "ls -la /mnt/storage/update.img"
+adb shell "ls -la /mnt/storage/"          # which image is armed; size tells you
 ```
 
 **The same press wipes `/data`, and that takes your Wi-Fi configuration with

@@ -229,6 +229,25 @@ int stippleMain(int argc, char** argv) {
     } else {
         std::printf("  battery     : unavailable (MCU link not open)\n");
     }
+    // Put an interrupted image swap back together before anything relies on
+    // the recovery button being armed.
+    //
+    // Switching which image that button installs is three renames, and with
+    // two slots on an 8 MB volume there is no room for a third copy - so the
+    // swap passes through one rename's worth of time with nothing armed. Lose
+    // power inside that window and the button silently does nothing, which is
+    // the worst failure available here: it is the control somebody reaches
+    // for when everything else has already failed, and it would appear to
+    // work right up until they needed it.
+    //
+    // Cheap enough to do unconditionally: it is a stat of one path that is
+    // absent on every ordinary boot.
+    if (platform.recovery().repair()) {
+        const std::string note = "recovery: an interrupted image swap was put back together";
+        host.logger().info(platform.clock().monotonicMillis(), note);
+        std::printf("  recovery    : repaired an interrupted swap\n");
+    }
+
     // Before asking for a lease, make sure there is an association to ask
     // over. Nothing else on this device starts the supplicant once the vendor
     // application is out of the picture.
