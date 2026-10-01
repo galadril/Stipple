@@ -102,6 +102,8 @@ public:
     /// True once the supplicant's control socket answers. False means it is
     /// not running, which is a real state on a device that has been put into
     /// hotspot mode - not an error, and not "no networks in range".
+    bool hasStoredNetwork() const override;
+
     bool canScan() const override;
 
     bool beginScan() override;

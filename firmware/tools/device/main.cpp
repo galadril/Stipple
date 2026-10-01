@@ -308,20 +308,27 @@ int stippleMain(int argc, char** argv) {
     // implementation dropped it by gating on first run.
     constexpr std::uint64_t kLostNetworkMillis = 300000;
 
-    // And a third, for the case the other two missed.
+    // And a third, for a device that has a network stored and has not
+    // reached it yet this boot.
     //
-    // A configured device that has *never* associated since it booted is not
-    // riding out a blip - its stored network is gone, or its password is
-    // wrong, or it has been carried somewhere else. Waiting five minutes for
-    // that produces a clock that sits there doing nothing while its owner
-    // concludes it is broken, which is what happened on hardware: the
-    // automatic hotspot was technically working and nobody ever saw it,
-    // because reaching for the knob took less than five minutes.
+    // This replaces an earlier sixty-second rule keyed off first-run state,
+    // which asked the wrong question: first-run is about STIPPLE's
+    // configuration, not about whether the station has anywhere to go. A
+    // device that had joined a network therefore got sixty seconds, and that
+    // is not enough on this radio - measured at 70 and 110 seconds from
+    // "driver loaded" to a lease on two consecutive boots. STIPPLE was taking
+    // the radio away for a hotspot mid-association and handing it back when
+    // the station succeeded, which reads as "it lost my wifi and went into
+    // setup mode" and makes the web UI load only now and then.
     //
-    // Long enough for a cold boot to associate and get a lease - ten to
-    // twenty seconds is typical here, so this is several times over - and
-    // short enough to still feel like the device noticed.
-    constexpr std::uint64_t kNeverJoinedMillis = 60000;
+    // Three minutes is comfortably past the measured worst case and still
+    // short enough that somebody whose router has genuinely gone gets a
+    // hotspot rather than a clock that sits there.
+    //
+    // A device with nothing stored still gets kNeverConfiguredMillis: waiting
+    // changes nothing for it, and that is the out-of-the-box case which has
+    // to be quick.
+    constexpr std::uint64_t kStoredNetworkMillis = 180000;
 
     /// A failed start is retried rather than given up on.
     constexpr std::uint64_t kHotspotRetryMillis = 30000;
@@ -448,9 +455,26 @@ int stippleMain(int argc, char** argv) {
             everBound = true;
         }
 
+        // **A stored network earns patience; nothing stored does not.**
+        //
+        // This keyed off firstRun(), which is about STIPPLE's configuration
+        // and not about stored networks - so a device that had joined a
+        // network got 60 seconds. Measured on hardware, this radio takes
+        // 70-110 seconds from boot to a lease, so STIPPLE was taking the
+        // radio away for a hotspot while the station was still associating,
+        // then handing it back when the station succeeded. Its own journal:
+        //
+        //     [6]   wifi: driver loaded
+        //     [55]  hotspot: starting Stipple-setup
+        //     [113] hotspot: stopped, station restored
+        //
+        // Which reads to anybody watching as "it lost my wifi and went into
+        // setup mode", and makes the web UI load only intermittently -
+        // because while it is hosting, it is not on the LAN at all.
+        const bool somethingToWaitFor = platform.network()->hasStoredNetwork();
         const std::uint64_t patience =
-            host.firstRun() ? kNeverConfiguredMillis
-                            : (everBound ? kLostNetworkMillis : kNeverJoinedMillis);
+            !somethingToWaitFor ? kNeverConfiguredMillis
+                                : (everBound ? kLostNetworkMillis : kStoredNetworkMillis);
         const bool unreachable =
             !platform.dhcp().bound() && now >= started + patience;
 
@@ -501,25 +525,6 @@ int stippleMain(int argc, char** argv) {
                     static_cast<std::uint64_t>(hotspotSeconds) * 1000u);
             }
             if (platform.hotspot().start("Stipple-setup", now)) {
-                // **The network and its key, on the panel.**
-                //
-                // The setup access point cannot be open: this driver refuses an
-                // open BSS and hostapd fails at "could not configure driver
-                // mode". So it is WPA2 with a passphrase generated per session -
-                // and a passphrase nobody can read is a network nobody can join.
-                //
-                // The panel is the right place for it. It is the one channel that
-                // requires physically holding the clock, which is a better gate
-                // than a password printed on a case or fixed in a firmware.
-                stipple::notify::Notification joinMe;
-                joinMe.id = "hotspot-credentials";
-                joinMe.text = "wifi setup: Stipple-setup  key " + platform.hotspot().passphrase();
-                joinMe.priority = stipple::notify::Priority::Important;
-                // Long, because it has to be read and typed into a phone, and
-                // the carousel has nothing more useful to show meanwhile.
-                joinMe.durationSeconds = 120;
-                joinMe.color = stipple::colors::kCyan;
-                host.notifications().push(std::move(joinMe), now);
                 hotspotStarted = true;
                 knobPending = false;
                 hotspotScanRequested = false;

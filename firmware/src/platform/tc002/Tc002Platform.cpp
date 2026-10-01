@@ -424,6 +424,24 @@ bool Tc002Network::connected() const {
     return control_.open();
 }
 
+bool Tc002Network::hasStoredNetwork() const {
+    // Asked of the supplicant's own configuration rather than of the
+    // supplicant, because this is wanted early - before the control socket
+    // is necessarily up - and because a file read cannot block the frame
+    // loop the way a round trip can.
+    FILE* conf = std::fopen("/data/misc/wifi/wpa_supplicant.conf", "r");
+    if (conf == nullptr) {
+        return false;
+    }
+    char line[256];
+    bool found = false;
+    while (!found && std::fgets(line, sizeof(line), conf) != nullptr) {
+        found = std::strncmp(line, "network=", 8) == 0;
+    }
+    std::fclose(conf);
+    return found;
+}
+
 bool Tc002Network::canScan() const { return connected(); }
 
 bool Tc002Network::beginScan() {

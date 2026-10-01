@@ -126,6 +126,16 @@ public:
     /// simulator and on anything wired.
     virtual bool canJoin() const { return false; }
 
+    /// Whether a network is stored for the station to reconnect to.
+    ///
+    /// A different question from "has this device been configured", and the
+    /// one that decides how long to wait before taking the radio away for a
+    /// setup hotspot. A device with a saved network is still trying and
+    /// deserves patience; one with nothing saved has nothing to wait for.
+    ///
+    /// False by default, which is the safe answer: it only shortens the wait.
+    virtual bool hasStoredNetwork() const { return false; }
+
     /// Where a join has got to.
     struct JoinProgress {
         enum class Stage {

@@ -919,20 +919,71 @@ void Tc002Hotspot::ensureStation() {
     const char* const up[] = {"/sbin/ifconfig", kInterface, "up", nullptr};
     run(up);
 
-    // The vendor's soft-AP manager configures wlan0 with 192.168.100.1 when
-    // the vendor application initialises inside this process. Ask it to let
-    // go here too, not only when hosting: otherwise the very first thing the
-    // panel shows is an IP address for a network that does not exist.
-    releaseVendorSoftAp();
+    // **No soft_ap_disable here.** It belongs in start(), where the radio is
+    // about to change job, and not on the path that brings the station up.
+    //
+    // Calling it at startup was an attempt to stop the panel showing the
+    // vendor's 192.168.100.1 before anything else - but status() already
+    // refuses to report an address this device did not obtain, so it bought
+    // nothing. And it cost something: a device that had joined a network
+    // stopped reconnecting after a reboot. soft_ap_disable tears down radio
+    // state on its way out, which is right before hosting and wrong in front
+    // of an association.
 
     // Before the start, not after: a supplicant launched without its config
     // exits before `ctl.start` has returned, and nothing would say so.
     ensureSupplicantConfig();
 
-    // The same property service stop() uses to hand the radio back. Here it
-    // is not handing anything back - there was never a station to begin with.
+    // **Start it, then check it is actually there, and try again if not.**
+    //
+    // `ctl.start` asks init to launch the supplicant and returns at once. If
+    // the supplicant comes up against a driver that has only just been
+    // insmod'd, it fails to initialise and exits - and nothing noticed,
+    // because asking was treated as succeeding.
+    //
+    // The cost of that was a device which would not rejoin its own network.
+    // From its journal, after a reboot with a perfectly good stored network:
+    //
+    //     [6]   wifi: driver loaded
+    //     [190] hotspot: starting Stipple-setup      (gave up waiting)
+    //     [252] hotspot: stopped, station restored
+    //
+    // 184 seconds with the radio free, a network stored, and no association -
+    // then an instant connect at 252, because stopping the hotspot restarts
+    // the supplicant and by then the driver was ready. The station was never
+    // slow; it was never running.
+    //
+    // So: wait for its control socket, and if it does not appear, ask again.
+    // Three attempts over about six seconds, which is nothing against a boot
+    // and the difference between a clock that rejoins and one that asks to be
+    // set up again.
     const char* const startSupplicant[] = {"/bin/setprop", "ctl.start", "wpa_supplicant", nullptr};
-    run(startSupplicant);
+    constexpr int kAttempts = 3;
+    constexpr int kPollsPerAttempt = 20;  // 20 x 100ms = 2s per attempt
+
+    for (int attempt = 1; attempt <= kAttempts; ++attempt) {
+        run(startSupplicant);
+
+        for (int poll = 0; poll < kPollsPerAttempt; ++poll) {
+            struct stat info;
+            if (::stat("/dev/socket/wlan0", &info) == 0) {
+                if (attempt > 1) {
+                    note("wifi: station came up on attempt " + std::to_string(attempt));
+                }
+                return;
+            }
+            struct timespec pause;
+            pause.tv_sec = 0;
+            pause.tv_nsec = 100L * 1000L * 1000L;
+            ::nanosleep(&pause, nullptr);
+        }
+    }
+
+    // Carrying on regardless: the hotspot path restarts the supplicant too,
+    // so a device that lands here is not stranded. But it is worth saying,
+    // because "no wifi" with a stored network has exactly one cause worth
+    // suspecting first.
+    note("wifi: the station would not start");
 }
 
 void Tc002Hotspot::stop() {

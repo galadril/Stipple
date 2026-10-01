@@ -48,6 +48,7 @@
 // case.
 
 #include <dlfcn.h>
+#include <sys/stat.h>
 
 #include <cstdio>
 #include <ctime>
@@ -210,6 +211,17 @@ void note(const char* what, const char* detail) {
 /// Runs when the framework `dlopen`s this library, before it can look up a
 /// single symbol.
 __attribute__((constructor)) static void chooseApplication() {
+    // **Make the directory first.** This runs before STIPPLE, and STIPPLE is
+    // what usually creates /data/stipple - so on the first boot after a
+    // factory reset the directory does not exist yet and every write below
+    // fails silently. Measured on hardware: a freshly reset device reported
+    // `loaderFeatures: -1` while running a shim that supports them, because
+    // the marker could not be written, and the journal was missing on the one
+    // boot anybody would want to read it.
+    //
+    // EEXIST on every other boot, which is why the result is not checked.
+    ::mkdir("/data/stipple", 0755);
+
     // Said before anything else, because an application that loads has to be
     // able to find out what loaded it even if this boot then fails.
     declareFeatures();
