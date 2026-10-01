@@ -106,6 +106,11 @@ private:
     bool openUdpSocket();
 
     bool readHardwareAddress(std::uint8_t* mac) const;
+    /// Whether the interface is associated, not merely configured.
+    ///
+    /// IFF_RUNNING rather than IFF_UP: on wireless those are different
+    /// questions, and an address on an unassociated interface is not a lease.
+    bool interfaceIsRunning() const;
     std::uint32_t readInterfaceAddress() const;
 
     void send(const net::dhcp::DhcpClient::Packet& packet);

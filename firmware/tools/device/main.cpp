@@ -229,6 +229,7 @@ int stippleMain(int argc, char** argv) {
     } else {
         std::printf("  battery     : unavailable (MCU link not open)\n");
     }
+
     // Put an interrupted image swap back together before anything relies on
     // the recovery button being armed.
     //
@@ -500,14 +501,44 @@ int stippleMain(int argc, char** argv) {
                     static_cast<std::uint64_t>(hotspotSeconds) * 1000u);
             }
             if (platform.hotspot().start("Stipple-setup", now)) {
+                // **The network and its key, on the panel.**
+                //
+                // The setup access point cannot be open: this driver refuses an
+                // open BSS and hostapd fails at "could not configure driver
+                // mode". So it is WPA2 with a passphrase generated per session -
+                // and a passphrase nobody can read is a network nobody can join.
+                //
+                // The panel is the right place for it. It is the one channel that
+                // requires physically holding the clock, which is a better gate
+                // than a password printed on a case or fixed in a firmware.
+                stipple::notify::Notification joinMe;
+                joinMe.id = "hotspot-credentials";
+                joinMe.text = "wifi setup: Stipple-setup  key " + platform.hotspot().passphrase();
+                joinMe.priority = stipple::notify::Priority::Important;
+                // Long, because it has to be read and typed into a phone, and
+                // the carousel has nothing more useful to show meanwhile.
+                joinMe.durationSeconds = 120;
+                joinMe.color = stipple::colors::kCyan;
+                host.notifications().push(std::move(joinMe), now);
                 hotspotStarted = true;
                 knobPending = false;
                 hotspotScanRequested = false;
                 hotspotShowing = true;
                 // Said on the panel before anything else, because the panel
                 // is the only channel left once the radio changes job.
+                // **The key goes here, not in a notification.**
+                //
+                // setNotice owns the panel while the radio is an access
+                // point, so a notification pushed alongside it never gets
+                // shown - which is how somebody ended up looking at "join
+                // Stipple-setup" with no way to learn the passphrase.
+                //
+                // It is a published default rather than a secret, so putting
+                // it on the screen costs nothing and saves the one thing
+                // that actually blocks setup.
                 host.setNotice("STIPPLE",
-                               std::string("join Stipple-setup then open ") +
+                               std::string("join Stipple-setup  key ") +
+                                   platform.hotspot().passphrase() + "  then open " +
                                    stipple::platform::tc002::Tc002Hotspot::kAddress);
             }
         }
@@ -535,6 +566,36 @@ int stippleMain(int argc, char** argv) {
             host.logger().info(now, hotspotEvent);
             std::printf("  %s\n", hotspotEvent.c_str());
             std::fflush(stdout);
+
+            // **And onto the panel, if it was a failure.**
+            //
+            // The ring log is the right place for this and it is unreachable
+            // in the one case that matters: an access point that will not
+            // start is how a device ends up with no network, and without a
+            // network nothing can read the log. No web UI, no ADB, and no USB
+            // gadget either - the port is a host until the application
+            // switches it, and the application is the thing in trouble. A USB
+            // stick is not an answer: vold does not mount one for us.
+            //
+            // So these 832 pixels are the only channel that always works.
+            //
+            // Read from takeFailure() rather than sniffed out of the event
+            // text. The first version matched on prefixes and put "wifi:
+            // driver loaded" on the panel in alarm colours - a success
+            // message dressed as a fault, which is its own small lie.
+            const std::string hotspotFailure = platform.hotspot().takeFailure();
+            if (!hotspotFailure.empty()) {
+                stipple::notify::Notification shout;
+                shout.id = "hotspot-failure";
+                shout.text = hotspotFailure;
+                shout.priority = stipple::notify::Priority::Important;
+                // Long enough to read a scrolling line twice over. Not
+                // `hold`: a clock that can never show the time again is a
+                // worse outcome than a message somebody missed.
+                shout.durationSeconds = 30;
+                shout.color = stipple::colors::kOrange;
+                host.notifications().push(std::move(shout), now);
+            }
         }
         // The clock, which nothing else on this device sets.
         //
