@@ -101,6 +101,42 @@ constexpr const char* kJournal = "/data/stipple/startup.log";
 /// incremented, which is the only way the next boot can know.
 constexpr const char* kAttempts = "/data/stipple/attempts";
 
+/// What this shim can do, so the application can tell.
+///
+/// **The shim cannot be updated over the air.** It lives in `/res`, which is
+/// read-only squashfs, and the firmware upload replaces only
+/// `/data/stipple/libstipple.so.override`. So the pair can be mismatched in
+/// one direction for ever: a device flashed long ago runs the newest STIPPLE
+/// over the oldest shim, and nothing in the version number says so.
+///
+/// That matters because features arrive here, not just there. The boot ladder
+/// below is useless if the shim predates it, and an application that assumed
+/// otherwise would promise a safety net that is not strung up.
+///
+/// So the shim states its own capability, and absence is as meaningful as any
+/// value: no file means a shim from before this existed. The application
+/// reports it, and the web UI can say "this update needs a reflash, not an
+/// upload" instead of letting somebody find out the hard way.
+///
+/// Bump when the shim gains something an application can depend on.
+///
+///     (absent) - predates this marker; no boot ladder
+///     1        - attempt counting and the 5/8 fallback ladder
+constexpr const char* kFeatures = "/data/stipple/shim";
+constexpr unsigned kFeatureLevel = 1;
+
+/// Rewritten on every boot rather than created once, so a downgrade is
+/// noticed too - flashing an older image back must not leave the newer
+/// claim standing.
+void declareFeatures() {
+    FILE* file = std::fopen(kFeatures, "w");
+    if (file == nullptr) {
+        return;
+    }
+    std::fprintf(file, "%u\n", kFeatureLevel);
+    std::fclose(file);
+}
+
 /// Skip the override at five, everything at eight.
 ///
 /// **These sit deliberately above `HostConfig::safeModeThreshold`, which is
@@ -174,6 +210,10 @@ void note(const char* what, const char* detail) {
 /// Runs when the framework `dlopen`s this library, before it can look up a
 /// single symbol.
 __attribute__((constructor)) static void chooseApplication() {
+    // Said before anything else, because an application that loads has to be
+    // able to find out what loaded it even if this boot then fails.
+    declareFeatures();
+
     // Counted before anything is attempted. A boot that never comes back has
     // to leave evidence behind it, and this is the only moment that is
     // guaranteed to run.

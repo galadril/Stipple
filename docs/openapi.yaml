@@ -874,7 +874,6 @@ paths:
                       True when an install or rollback has happened since this
                       process started, so what is on disk is not what is
                       running.
-
                       The file alone cannot answer this: an installed override
                       looks the same whether it is waiting for a restart or
                       already loaded, and `installedBytes` reports the same
@@ -884,6 +883,25 @@ paths:
 
                       A restart clears it, because the flag lives only in
                       memory.
+                  loaderFeatures:
+                    type: integer
+                    description: |
+                      What the loader that started this application can do.
+                      **An upload cannot change it** — the loader lives in
+                      read-only storage and only a reflash replaces it, so a
+                      device flashed long ago runs the newest application on
+                      the oldest loader and the version number says nothing
+                      about it.
+
+                      `-1` means a loader from before this was reported, and
+                      is the honest value for such a device rather than an
+                      error. Deliberately distinct from `0`, which would claim
+                      a loader supporting nothing. `1` means boot-attempt
+                      counting and the 5/8 fallback ladder.
+
+                      Read it before telling somebody an upload is sufficient.
+                      See [docs/upgrading.md](upgrading.md).
+                    examples: [1, -1]
         "501": { $ref: "#/components/responses/NotSupported" }
     post:
       tags: [system]

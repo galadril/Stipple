@@ -2349,6 +2349,14 @@ Response ApiServer::handleFirmware(const Request& request) {
             // the version of the file named by `path` - see `restartPending`.
             .member("version", std::string(kVersion))
             .member("restartPending", upgrade->restartPending())
+            // What loaded this application, which an upload cannot change.
+            //
+            // Reported so a page can refuse to imply that uploading a file is
+            // sufficient when the release in question needs a reflash. -1 is
+            // "could not be answered" and is the honest value for every
+            // device flashed before the loader said anything - different from
+            // 0, which would claim a loader that supports nothing.
+            .member("loaderFeatures", static_cast<std::int64_t>(upgrade->loaderFeatures()))
             .endObject();
         return ok(writer.take());
     }

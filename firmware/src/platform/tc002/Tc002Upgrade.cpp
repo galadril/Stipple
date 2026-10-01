@@ -62,6 +62,22 @@ std::size_t Tc002Upgrade::installedBytes() const { return sizeOf(kApplicationPat
 
 bool Tc002Upgrade::hasPrevious() const { return sizeOf(kPreviousPath) > 0; }
 
+int Tc002Upgrade::loaderFeatures() const {
+    FILE* file = std::fopen(kLoaderFeaturesPath, "r");
+    if (file == nullptr) {
+        // The ordinary state on a device flashed before the shim said
+        // anything, so not worth a log line and certainly not an error.
+        return -1;
+    }
+    unsigned level = 0;
+    const bool read = std::fscanf(file, "%u", &level) == 1;
+    std::fclose(file);
+    if (!read || level > 1000u) {
+        return -1;
+    }
+    return static_cast<int>(level);
+}
+
 bool Tc002Upgrade::install(std::string_view image, std::string& problem) {
     problem.clear();
 

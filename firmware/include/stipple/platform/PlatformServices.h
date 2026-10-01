@@ -195,6 +195,24 @@ public:
     /// Whether the previous application was kept and could be put back.
     virtual bool hasPrevious() const = 0;
 
+    /// What the thing that loaded this application can do, or -1 if unknown.
+    ///
+    /// **An upload cannot replace the loader.** The shim lives in read-only
+    /// storage and only a reflash changes it, so a device flashed long ago
+    /// runs the newest application over the oldest shim and no version number
+    /// says so. A feature the shim provides — the boot-failure ladder, for
+    /// instance — is simply absent there, and an application that assumed
+    /// otherwise would promise a safety net nobody has strung up.
+    ///
+    /// So it is asked rather than assumed, and the answer is reported to the
+    /// user: a release whose safety properties need a newer loader has to say
+    /// "reflash" instead of letting an upload look sufficient.
+    ///
+    /// `-1` means the question does not apply or could not be answered — the
+    /// simulator, or a shim old enough to predate saying. Not an error, and
+    /// deliberately distinct from `0`.
+    virtual int loaderFeatures() const { return -1; }
+
     /// Install `image` as the application, atomically.
     ///
     /// The caller has already checked that it is plausibly a library for this

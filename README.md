@@ -195,6 +195,7 @@ the binary.
 |---|---|
 | [galadril.github.io/Stipple](https://galadril.github.io/Stipple/) | The site, the emulator and the API reference |
 | [docs/install.md](docs/install.md) | Getting Stipple onto a device |
+| [docs/upgrading.md](docs/upgrading.md) | Updating it, and when an upload is not enough |
 | [docs/recovery.md](docs/recovery.md) | Getting a device back |
 | [docs/api.md](docs/api.md) | The `/api/v1` surface |
 | [docs/mqtt.md](docs/mqtt.md) | The MQTT surface |
