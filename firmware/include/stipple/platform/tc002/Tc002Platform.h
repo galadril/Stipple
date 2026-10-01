@@ -135,6 +135,22 @@ public:
     /// which status() reports as such rather than as zero seconds left.
     void observe(const Tc002Dhcp* dhcp) noexcept { dhcp_ = dhcp; }
 
+    /// How the last join ended, once. Empty when there is nothing new.
+    ///
+    /// Drained by the loop into the ring log, like the hotspot's and the DHCP
+    /// client's, because the alternative turned out to be no record at all.
+    ///
+    /// `fail()` sets in-memory state that the API reports while the stage
+    /// stays `Failed` - and *nobody is connected to read it*. A join ends by
+    /// taking the radio away from the access point the person asking was
+    /// reaching the device over, so the natural next move is a power cycle,
+    /// which clears the ring log too. Four consecutive live failures on real
+    /// hardware produced no evidence of any kind; the cause was finally
+    /// caught by polling the API from a second machine during the attempt.
+    ///
+    /// A failure that leaves no trace costs more than the failure.
+    std::string takeEvent();
+
 private:
     /// What a join is doing. Kept out of the header's public face because
     /// callers ask through joinProgress(), which reports it in words.
@@ -157,6 +173,7 @@ private:
     void fail(const std::string& why);
     void forgetAddedNetwork();
     bool configureNetwork();
+    void note(const std::string& text);
 
     const Tc002Dhcp* dhcp_ = nullptr;
     Tc002Hotspot* hotspot_ = nullptr;
@@ -170,6 +187,7 @@ private:
     std::string joinSsid_;
     std::string joinPassword_;
     std::string joinDetail_;
+    std::string event_;
     std::uint64_t stageDeadlineMillis_ = 0;
     int addedNetworkId_ = -1;
     bool askedForAddress_ = false;

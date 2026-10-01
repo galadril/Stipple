@@ -539,6 +539,17 @@ int stippleMain(int argc, char** argv) {
             std::fflush(stdout);
         }
 
+        // How a join ended. Worth the same treatment as the lease, and for a
+        // sharper reason: the person who asked for it was almost certainly
+        // reached over the access point this just shut down, so the ring log
+        // is the only place the answer can still be waiting for them.
+        const std::string joinEvent = platform.wifi().takeEvent();
+        if (!joinEvent.empty()) {
+            host.logger().info(now, joinEvent);
+            std::printf("  %s\n", joinEvent.c_str());
+            std::fflush(stdout);
+        }
+
         const std::uint32_t renderedBefore = host.frameStats().rendered;
 
         if (!host.tick(now)) {
@@ -567,6 +578,24 @@ int stippleMain(int argc, char** argv) {
             std::printf("boot recorded healthy after %u frames\n",
                         host.frameStats().rendered);
             std::fflush(stdout);
+
+            // The startup shim's own count, cleared on the same signal and
+            // for the same reason.
+            //
+            // Deliberately the *same* definition of a finished boot that core
+            // uses, rather than a timer of its own: "frames are rendering" is
+            // the only claim worth making, and two components disagreeing
+            // about what healthy means is how a device ends up rolling back
+            // an update that was working.
+            //
+            // The shim cannot do this itself. It has already handed the
+            // process over by the time there is anything to be confident
+            // about, so clearing the count is necessarily STIPPLE's job -
+            // which is exactly what makes an unfinished boot detectable.
+            if (std::remove("/data/stipple/attempts") != 0) {
+                // Nothing to undo and nothing to report. The file is absent
+                // on almost every boot, because almost every boot finishes.
+            }
         }
 
         // nextDueMillis is what keeps this loop off the CPU between frames, but

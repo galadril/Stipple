@@ -467,11 +467,24 @@ INetworkManager::JoinProgress Tc002Network::joinProgress() const {
     return progress;
 }
 
+void Tc002Network::note(const std::string& text) { event_ = text; }
+
+std::string Tc002Network::takeEvent() {
+    std::string taken;
+    taken.swap(event_);
+    return taken;
+}
+
 void Tc002Network::fail(const std::string& why) {
     forgetAddedNetwork();
     stage_ = Stage::Failed;
     joinDetail_ = why;
     joinPassword_.clear();
+
+    // The SSID goes in because a device that has been pointed at two networks
+    // in one session gives two different answers, and "which one" is the first
+    // thing anybody asks. The password never does.
+    note("join: " + joinSsid_ + ": " + why);
 }
 
 void Tc002Network::forgetAddedNetwork() {
@@ -655,6 +668,10 @@ void Tc002Network::poll(std::uint64_t nowMillis) {
                 stage_ = Stage::Done;
                 joinDetail_ = "connected";
                 joinPassword_.clear();
+                // Logged as well as the failures. A log that records only
+                // what went wrong cannot tell "it never tried" from "it
+                // worked and something later undid it".
+                note("join: " + joinSsid_ + ": connected");
                 return;
             }
             if (nowMillis >= stageDeadlineMillis_) {

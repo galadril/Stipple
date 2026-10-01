@@ -37,6 +37,75 @@ bool interfaceExists(const char* name) {
     struct stat info;
     return ::stat(path.c_str(), &info) == 0;
 }
+
+/// Where init's own service line says the supplicant's configuration lives.
+///
+///     service wpa_supplicant /bin/wpa_supplicant -iwlan0 -Dnl80211
+///         -c/data/misc/wifi/wpa_supplicant.conf -C/dev/socket/ -e...
+///
+/// Read off the running device. The `-c` path is the whole reason this file
+/// matters: it is not a default the daemon can do without.
+constexpr const char* kSupplicantDir = "/data/misc/wifi";
+constexpr const char* kSupplicantConf = "/data/misc/wifi/wpa_supplicant.conf";
+
+/// The owning uid/gid of the vendor's own `/data/misc/wifi`, reused so the
+/// file this creates looks like the one it replaces.
+constexpr uid_t kWifiUid = 1010;
+
+/// Write the supplicant's configuration if, and only if, it is absent.
+///
+/// With no such file `wpa_supplicant` exits immediately. `ctl.start` still
+/// succeeds, so nothing reports an error - but no process ever binds
+/// /dev/socket/wlan0, every join sits out its timeout waiting for a service
+/// that already gave up, and `canScan()` is false because it means "can the
+/// control socket be opened".
+///
+/// **`/data` is wiped by the recovery button by design, and this file goes
+/// with it.** Found on hardware: a device that had been through a factory
+/// reset could scan nothing and join nothing, reporting "the Wi-Fi service
+/// did not come back" - a radio timeout, for a missing text file. Restoring
+/// 43 bytes fixed it outright.
+///
+/// This is the same lesson as `ensureStation()` one layer down. Replacing the
+/// vendor application means inheriting the jobs it used to do, and it both
+/// started the supplicant *and* arrived with a `/data` that already held this.
+///
+/// Only ever creates. An existing file holds the user's own networks and is
+/// never read, rewritten or truncated here.
+void ensureSupplicantConfig() {
+    struct stat info;
+    if (::stat(kSupplicantConf, &info) == 0) {
+        return;
+    }
+
+    // The directory goes in a wipe too. mkdir over an existing one fails
+    // harmlessly with EEXIST, which is why the result is not checked.
+    ::mkdir("/data/misc", 0771);
+    ::mkdir(kSupplicantDir, 0770);
+
+    // O_EXCL so two callers racing cannot have one truncate the other's work.
+    const int fd = ::open(kSupplicantConf, O_WRONLY | O_CREAT | O_EXCL, 0660);
+    if (fd < 0) {
+        return;
+    }
+
+    // ctrl_interface is also given on the command line as -C/dev/socket/;
+    // stating it here keeps the file valid on its own. update_config=1 is the
+    // half that matters, because SAVE_CONFIG is how a joined network survives
+    // a reboot and the daemon refuses to write a config that did not ask.
+    static const char kDefaults[] = "ctrl_interface=/dev/socket\nupdate_config=1\n";
+    const ssize_t wrote = ::write(fd, kDefaults, sizeof(kDefaults) - 1);
+    ::fchown(fd, kWifiUid, kWifiUid);
+    ::fchmod(fd, 0660);
+    ::close(fd);
+
+    // A partial write would leave a file that parses to something other than
+    // what was meant, and the next boot would skip it because it exists.
+    if (wrote != static_cast<ssize_t>(sizeof(kDefaults) - 1)) {
+        ::unlink(kSupplicantConf);
+    }
+}
+
 constexpr const char* kHostapdConf = "/tmp/stipple-hostapd.conf";
 constexpr const char* kDnsmasqConf = "/tmp/stipple-dnsmasq.conf";
 
@@ -311,6 +380,10 @@ void Tc002Hotspot::ensureStation() {
     const char* const up[] = {"/sbin/ifconfig", kInterface, "up", nullptr};
     run(up);
 
+    // Before the start, not after: a supplicant launched without its config
+    // exits before `ctl.start` has returned, and nothing would say so.
+    ensureSupplicantConfig();
+
     // The same property service stop() uses to hand the radio back. Here it
     // is not handing anything back - there was never a station to begin with.
     const char* const startSupplicant[] = {"/bin/setprop", "ctl.start", "wpa_supplicant", nullptr};
@@ -333,6 +406,11 @@ void Tc002Hotspot::stop() {
     // is also the failure path out of a half-started start(), and the one
     // state that must never be left behind is "no access point and no
     // station" - that is the device nobody can reach.
+    //
+    // Which is exactly why the config is checked here too: this path runs on
+    // every join, and a supplicant that cannot start turns "hand the radio
+    // back" into "no access point and no station".
+    ensureSupplicantConfig();
     const char* const startSupplicant[] = {"/bin/setprop", "ctl.start", "wpa_supplicant", nullptr};
     run(startSupplicant);
 

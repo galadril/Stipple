@@ -1325,7 +1325,17 @@
             var note2 = $('network-note');
             if (note2) {
                 if (!state.canScan && !networks.length) {
-                    note2.textContent = 'Cannot scan right now.';
+                    // The terse version of this said only "Cannot scan right
+                    // now." - in the one situation where there is also no
+                    // list to fall back on, which is a fresh device hosting
+                    // its own access point. That is first-run, it is the most
+                    // common time anybody reads this line, and it named a
+                    // problem without naming the way through. Somebody
+                    // concluded their Wi-Fi was broken and went looking for a
+                    // fault in the radio.
+                    note2.textContent = 'Cannot scan while hosting the hotspot - ' +
+                                        'one radio cannot host and scan at once. ' +
+                                        'Choose "Other" and type your network name.';
                 } else if (state.networksAreLive === false && networks.length) {
                     note2.textContent = 'From before the hotspot started - one radio ' +
                                         'cannot host and scan at once.';

@@ -37,6 +37,37 @@ device without a capture of that device first.
   a dropdown and then waiting for a notification to discover what you chose is
   not a choice, it is a guess.
 
+### Added
+
+- **A Stipple that keeps failing to start now gets out of the way.** The
+  startup shim already fell through to the stock clock when no Stipple library
+  would load — so a device was never unreachable because of a *bad file*. What
+  it could not survive was a Stipple that loaded successfully and then failed:
+  a crash a few frames in, a hang on storage, a script that throws at startup.
+  `dlopen` had returned a handle, so the shim was finished deciding, and every
+  later boot repeated the identical failure. Nothing on this device obtains an
+  address except the application, so that loop is a clock reachable by
+  nothing — no web UI, no ADB, not even a USB gadget.
+
+  It now counts boots that never finished, and spends the cheap remedies
+  first:
+
+  ```
+  3 unfinished boots  ->  safe mode: default settings, no stored apps
+  5 unfinished boots  ->  ignore the override: roll back the update
+  8 unfinished boots  ->  the stock clock
+  ```
+
+  The first rung already existed. The two new ones sit deliberately *above*
+  it: starting both ladders at three would have spent an over-the-air update
+  to fix a fault that defaulting the settings had already fixed, with nothing
+  to say which had worked.
+
+  The count is written before anything is loaded and cleared by Stipple on the
+  same signal that clears its own boot marker — frames are rendering. Not a
+  timer of its own, because two components disagreeing about what "started
+  successfully" means is how a working update gets rolled back.
+
 ### Changed
 
 - **AWTRIX NG is credited for the scripting interface.** The shape of a script,
@@ -81,6 +112,44 @@ device without a capture of that device first.
   run — see the findings doc.
 
 ### Fixed
+
+- **A factory reset left the device permanently unable to use Wi-Fi.** The
+  recovery button wipes `/data` by design, which takes
+  `/data/misc/wifi/wpa_supplicant.conf` with it — and `wpa_supplicant` is
+  started with `-c` pointing at exactly that file, so it exited immediately.
+  `ctl.start` still succeeded, nothing ever bound `/dev/socket/wlan0`, and
+  every join sat out its timeout reporting *"the Wi-Fi service did not come
+  back"*. A radio timeout, for a missing 43-byte text file.
+
+  Found on hardware, after a reset: the device could neither scan nor join
+  anything, and scanning failed for the same single reason, because `canScan()`
+  means "can the control socket be opened". Stipple now writes the default
+  when it finds none, before either path that starts the supplicant. It only
+  ever creates — an existing file holds your networks and is never touched.
+
+  This is the same lesson as `ensureStation()` one layer down: replacing the
+  vendor application means inheriting the jobs it did, and it both started the
+  supplicant *and* came with a `/data` that already held its config.
+
+- **A failed join left no trace anywhere.** `fail()` set in-memory state that
+  the API reports only while the attempt is still the most recent one — and
+  nobody is connected to read it, because a join ends by taking the radio away
+  from the access point the person asking was reaching the device over. The
+  natural next move is a power cycle, which clears the ring log too.
+
+  Four consecutive live failures produced no evidence of any kind; the cause
+  was eventually caught by polling the API from a second machine *during* an
+  attempt. Join outcomes now go to the ring log, success and failure alike,
+  with the SSID and without the password. A failure that leaves no trace costs
+  more than the failure.
+
+- **"Cannot scan right now." was the whole message, on first run.** One radio
+  cannot host an access point and scan at the same time, so a fresh device
+  showing its setup page can never populate the list — which is exactly when
+  somebody is standing there trying to join a network. The page named a
+  problem and not the way through, and the branch that *does* explain the
+  radio conflict only fires when there is a remembered list to show. It now
+  says why and points at **Other**, where you type the name by hand.
 
 - **A sound ending mid-frame replayed a fragment of the previous frame.**
   `Tc002Audio` handed the driver a full frame whether or not the sound had

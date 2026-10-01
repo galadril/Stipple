@@ -224,6 +224,38 @@ Holding the reset button during power-up makes the device wipe `/data` and
 reflash the `res` partition from `/mnt/storage/update.img` — the file on its
 own USB volume.
 
+**It installs whatever is staged there, which after installing Stipple is
+Stipple.** This is the single most surprising thing in this document, so it is
+stated before the subtleties: if you hold reset expecting the stock clock
+back, you will watch a progress bar fill, turn green, and boot Stipple again.
+Nothing failed. The button is not a factory restore — it is "install the
+staged image", and the staged image is the one you installed from.
+
+To make it return you to stock, stage your own capture instead:
+
+```powershell
+adb push restore/restore-res.img /mnt/storage/update.img
+```
+
+You can check what is armed at any time, and the size tells you which it is:
+
+```powershell
+adb shell "ls -la /mnt/storage/update.img"
+```
+
+**The same press wipes `/data`, and that takes your Wi-Fi configuration with
+it.** `/data/misc/wifi/wpa_supplicant.conf` is what `wpa_supplicant` is
+started with, and without it the daemon exits immediately — so the device
+cannot scan or join anything and says *"the Wi-Fi service did not come back"*,
+which sounds like a broken radio and is a missing text file. Stipple now
+rewrites a default when it finds none, but a build from before that fix needs
+it by hand:
+
+```powershell
+adb shell "printf 'ctrl_interface=/dev/socket\nupdate_config=1\n' > /data/misc/wifi/wpa_supplicant.conf"
+adb shell "chown 1010:1010 /data/misc/wifi/wpa_supplicant.conf; chmod 660 /data/misc/wifi/wpa_supplicant.conf"
+```
+
 **That image is not necessarily the firmware your device is running.**
 
 On the unit Stipple was developed against, the shipped image is *older* than
