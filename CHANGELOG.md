@@ -37,8 +37,6 @@ device without a capture of that device first.
   a dropdown and then waiting for a notification to discover what you chose is
   not a choice, it is a guess.
 
-### Added
-
 - **A Stipple that keeps failing to start now gets out of the way.** The
   startup shim already fell through to the stock clock when no Stipple library
   would load — so a device was never unreachable because of a *bad file*. What
@@ -112,6 +110,25 @@ device without a capture of that device first.
   run — see the findings doc.
 
 ### Fixed
+
+- **The notification sound dropdown drew an empty box offering nothing but
+  "Silent".** Two faults, one symptom. The list is fetched from
+  `GET /api/v1/sound` alongside the settings and device requests, and the
+  device serves four connections while closing every response — so the third
+  of three simultaneous requests can be refused outright, and the catalogue
+  is the third. That failure was then swallowed on the grounds that a device
+  with no speaker answers 404 and says so elsewhere, which made every other
+  reason the request can fail look identical to "nothing to add".
+
+  With only `Silent` in the list, writing the saved setting into the select
+  finished the job: a `<select>` handed a value no `<option>` carries does not
+  fall back to the first row, it goes to `selectedIndex` −1 and draws blank.
+  The device said `chime`, the control said nothing at all.
+
+  The request is now retried once, a value with no matching row gets a row of
+  its own rather than a blank box — the device's answer shown as the device's
+  answer (ADR 0013) — and a catalogue that still will not load says so in
+  place of the help text instead of looking like a device somebody muted.
 
 - **A factory reset left the device permanently unable to use Wi-Fi.** The
   recovery button wipes `/data` by design, which takes

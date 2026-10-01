@@ -135,6 +135,25 @@
             input.value = String(value);
         }
         if (input.type === 'range') { updateOutput(input); }
+
+        // A select handed a value no <option> carries does not fall back to
+        // the first row - it goes to selectedIndex -1 and draws *empty*,
+        // which is how the notification sound control came to show a blank
+        // box offering nothing but "Silent". The device said "chime"; the
+        // list it was supposed to be chosen from had not arrived.
+        //
+        // Showing the value the device actually holds is the honest answer
+        // (ADR 0013): a blank control claims nothing is set, which is a
+        // different and wrong statement. The row is marked so whoever fills
+        // the list properly can take it back out.
+        if (input.tagName === 'SELECT' && input.selectedIndex < 0 && String(value) !== '') {
+            var placeholder = document.createElement('option');
+            placeholder.value = String(value);
+            placeholder.textContent = String(value);
+            placeholder.dataset.placeholder = '1';
+            input.appendChild(placeholder);
+            input.value = String(value);
+        }
     }
 
     function updateOutput(input) {
@@ -195,12 +214,26 @@
     // The dropdown used to be three <option> rows in the markup while the
     // firmware had five sounds, and nothing anywhere would have noticed. The
     // device is the only thing that knows what it can play, so it is the
-    // thing that gets asked - and a failure here leaves "Silent" in place
-    // rather than an empty select.
-    function loadSounds() {
+    // thing that gets asked - and a failure here leaves "Silent", the sound
+    // already set, and a sentence about why the rest are missing, rather
+    // than an empty box.
+    function loadSounds(retried) {
         return send('GET', '/api/v1/sound').then(function (catalogue) {
             var select = $('notify-sound');
             if (!select || !catalogue || !catalogue.sounds) { return; }
+
+            // Silence is a setting rather than a sound, and the device names
+            // it rather than leaving a page to assume "none".
+            var silent = catalogue.silentName || 'none';
+
+            // Rebuilt, not appended to. Two requests race, and the one that
+            // writes the setting first leaves a placeholder row behind (see
+            // writeControl); appending the catalogue on top of it would list
+            // the same sound twice. Everything but the markup's silent row
+            // goes, so filling the list twice is the same as filling it once.
+            for (var i = select.options.length - 1; i >= 0; --i) {
+                if (select.options[i].value !== silent) { select.remove(i); }
+            }
 
             (catalogue.sounds || []).forEach(function (sound) {
                 var option = document.createElement('option');
@@ -220,8 +253,35 @@
                 writeControl(select, pathGet(settings, 'notifications.sound'));
             }
         }).catch(function () {
-            // A device with no speaker answers 404 here, and that is already
-            // said in one place by the capability check. Nothing to add.
+            // Not swallowed. This used to return quietly on the grounds that
+            // a device with no speaker answers 404 and the capability check
+            // says so already - but every *other* reason the request can
+            // fail then looked identical to "nothing to add", and one of
+            // them happens on this hardware: the device serves four
+            // connections and closes every response, so the third of three
+            // simultaneous requests can be refused outright. The sound
+            // catalogue is the third, and losing it leaves a select with one
+            // row in it.
+            //
+            // So: one retry, because a refused connection is free to ask
+            // again and almost always answers. Then, if it still will not,
+            // say which of the two it is instead of leaving a blank box.
+            if (!retried) {
+                return new Promise(function (resolve) {
+                    setTimeout(resolve, 400);
+                }).then(function () { return loadSounds(true); });
+            }
+
+            var select = $('notify-sound');
+            var help = $('notify-sound-help');
+            // A device with no speaker is already said in one place by the
+            // capability check, which disables the control. Saying it twice
+            // and differently would be worse than saying it once.
+            if (help && select && !select.disabled) {
+                help.textContent = 'Could not read the list of sounds from the device, so ' +
+                                   'only Silent and the sound already set are offered. ' +
+                                   'Reload the page to ask again.';
+            }
         });
     }
 
