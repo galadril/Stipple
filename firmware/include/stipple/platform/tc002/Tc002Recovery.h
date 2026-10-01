@@ -50,7 +50,18 @@ public:
     /// A mismatch reports `Unrecognised`, which is the honest answer.
     static constexpr const char* kMarkerPath = "/mnt/storage/armed.txt";
 
-    /// Where the volume is mounted, for free-space reporting.
+    /// Where the volume is mounted.
+    ///
+    /// **Mounted read-only by the vendor, deliberately.** Measured on
+    /// hardware: `vfat (ro,relatime,...,errors=remount-ro)`. The same
+    /// partition is exposed to a computer as USB mass storage, so something
+    /// on the other end of the cable could be writing it, and vfat has no
+    /// journal for two writers or an unclean unmount.
+    ///
+    /// So a switch remounts it writable for exactly as long as the renames
+    /// take and puts it back. The first version of this class did not, and
+    /// every write failed with EROFS - found by pushing an image to a device,
+    /// not by reading code.
     static constexpr const char* kVolumePath = "/mnt/storage";
 
     Image armed() const override;

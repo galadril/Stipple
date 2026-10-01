@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <cstdio>
@@ -13,6 +14,78 @@ namespace stipple {
 namespace platform {
 namespace tc002 {
 namespace {
+
+/// Run a program and wait for it. True only on a clean exit status 0.
+///
+/// fork/exec rather than system(3): there is no shell worth invoking here -
+/// the device busybox is missing enough builtins that depending on one is a
+/// liability - and this way nothing is quoted or interpreted.
+bool run(const char* const argv[]) {
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+        return false;
+    }
+    if (pid == 0) {
+        ::execv(argv[0], const_cast<char* const*>(argv));
+        ::_exit(127);
+    }
+    int status = 0;
+    if (::waitpid(pid, &status, 0) != pid) {
+        return false;
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+/// Remount the image volume writable, or back again.
+///
+/// **It is mounted read-only, and that is the vendor's choice rather than an
+/// accident.** Measured on hardware:
+///
+///     /dev/block/mtdblock7 on /mnt/storage type vfat
+///         (ro,relatime,...,errors=remount-ro)
+///
+/// Which makes sense: the same partition is exposed to a computer as USB mass
+/// storage, so anything could be writing it from the other side, and vfat
+/// has no journal to recover from two writers or an unclean unmount.
+///
+/// This cost an assumption. The first version of this file renamed files
+/// straight away and every write failed with EROFS - found by pushing an
+/// image to a real device, not by reading code. So the volume is remounted
+/// for exactly as long as the renames take and then put back, because leaving
+/// a vfat volume writable on a device that can lose power at any moment is
+/// how a recovery image becomes unreadable.
+bool remountImages(bool writable) {
+    const char* const rw[] = {"/bin/mount", "-o", "remount,rw", Tc002Recovery::kVolumePath,
+                              nullptr};
+    const char* const ro[] = {"/bin/mount", "-o", "remount,ro", Tc002Recovery::kVolumePath,
+                              nullptr};
+    return run(writable ? rw : ro);
+}
+
+/// Remounts writable for a scope and always puts it back.
+///
+/// A failure path that forgot the restore would leave the volume writable
+/// until the next boot, which is the state this is careful to avoid.
+class WritableImages {
+public:
+    WritableImages() : ok_(remountImages(true)) {}
+    ~WritableImages() {
+        if (ok_) {
+            // Flush before dropping write access, or the rename may still be
+            // in the page cache when power goes.
+            ::sync();
+            remountImages(false);
+        }
+    }
+
+    WritableImages(const WritableImages&) = delete;
+    WritableImages& operator=(const WritableImages&) = delete;
+
+    bool ok() const noexcept { return ok_; }
+
+private:
+    bool ok_;
+};
 
 /// Size of a file, or 0 when it is not there. Zero doubles as absent on
 /// purpose: a zero-length image is as useless as a missing one, and the
@@ -119,6 +192,13 @@ bool Tc002Recovery::repair() {
     // it wherever there is a hole, armed slot first: an armed button matters
     // more than a tidy spare, because the button is somebody's way back.
     if (!exists(kSwapPath)) {
+        return false;  // The ordinary case: one stat, nothing to do.
+    }
+
+    // Only now, because the check above runs on every boot and remounting a
+    // volume to discover there is nothing to do would be a poor trade.
+    const WritableImages writable;
+    if (!writable.ok()) {
         return false;
     }
     if (!exists(kArmedPath)) {
@@ -167,6 +247,14 @@ bool Tc002Recovery::arm(Image which, std::string& problem) {
         problem =
             "the armed image is not one this device put there, so it will not "
             "be moved; reinstall from a USB stick instead";
+        return false;
+    }
+
+    // Writable only from here, and put back by the destructor on every path
+    // out - including the failure returns below.
+    const WritableImages writable;
+    if (!writable.ok()) {
+        problem = "the image volume could not be made writable";
         return false;
     }
 
