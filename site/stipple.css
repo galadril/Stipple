@@ -233,6 +233,44 @@ main {
 }
 .prerelease strong { color: var(--amber); font-weight: 600; }
 
+/* --- retired banner ------------------------------------------------------- */
+
+/* The one element on the page allowed to sit outside the reading column and
+   above the wordmark. It is not a badge: a visitor deciding whether to put
+   this on a clock needs the recommendation before the pitch, not after it. */
+.retired {
+  border-top: 3px solid var(--amber);
+  border-bottom: 1px solid var(--rule);
+  background-color: #1b1610;   /* --panel warmed toward the amber, not a new hue */
+}
+
+.retired__inner {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: clamp(1.25rem, 4vw, 2rem) var(--pad);
+}
+
+.retired__kicker {
+  margin-bottom: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+.retired__title {
+  margin-bottom: 0.7rem;
+  font-size: clamp(1.15rem, 1rem + 0.9vw, 1.6rem);
+  text-wrap: balance;
+}
+
+.retired p { color: var(--dim); }
+.retired__actions { margin: 1.1rem 0 0; }
+
+.button--amber { border-color: var(--amber); color: var(--amber); }
+.button--amber:hover, .button--amber:focus-visible { background: var(--amber); color: var(--void); }
+
 /* --- bands ---------------------------------------------------------------- */
 
 .band {
