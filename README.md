@@ -11,7 +11,7 @@
 > Stipple still works and remains available for existing installations and mostly knowledge, but I'm moving myself back to AWTRIX NG.
 > **For new installations, I recommend continuing with AWTRIX NG instead.**
 >
-> 👉 **[Go to the AWTRIX NG repository](https://github.com/galadril/AWTRIX-NG)**
+> 👉 **[Go to the AWTRIX](https://awtrix.de)**
 > 
 
 Stipple replaces the stock application on the Ulanzi TC002 with a renderer it
